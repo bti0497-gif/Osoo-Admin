@@ -1188,7 +1188,7 @@ module.exports = function () {
       console.log('[Certificates] BigQuery client:', bq ? 'initialized' : 'null');
       if (bq) {
         const where = [
-          "1=1",
+          "COALESCE(drive_file_id, JSON_EXTRACT_SCALAR(source_payload_json, '$.certificate_file.drive_file_id')) IS NOT NULL",
         ];
         const params = {};
         const hasSingleSiteFilter = siteNameFilters.length === 1;
@@ -1253,6 +1253,7 @@ module.exports = function () {
               downloadUrl: fileId ? `/api/certificates/files/${encodeURIComponent(fileId)}?name=${encodeURIComponent(row.file_name || 'certificate.jpg')}` : null,
             };
           })
+          .filter(Boolean); // null 제거
         console.log('[Certificates] After map items:', items.length);
       }
 
@@ -1267,9 +1268,8 @@ module.exports = function () {
           const files = await listFiles(folder.folderId);
           console.log(`[Certificates] Drive folder ${folder.year}/${folder.month}: ${files.length} files`);
           for (const file of files) {
-            const baseName = toBaseName(file.name);
             // 성적서 목록은 결과 파일만 노출 (ZIP/기타 산출물 제외)
-            if (!isAllowedManualMedia(baseName)) {
+            if (!isAllowedManualMedia(file.name)) {
               continue;
             }
             const parsed = parseManualCertificateFileName(file.name);
@@ -1325,7 +1325,7 @@ module.exports = function () {
           byId.set(String(item.id), item);
         });
         items = Array.from(byId.values())
-          .filter((item) => isAllowedManualMedia(toBaseName(item.fileName || '')));
+          .filter((item) => isAllowedManualMedia(item.fileName || ''));
         console.log(`[Certificates] After final filter: ${items.length}`);
       }
 

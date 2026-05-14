@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDialog } from '../../components/common/DialogContext';
 import { BatchProgressDialog } from '../../components/common/BatchProgressDialog';
 import { useCertificateViewModel } from './useCertificateViewModel.jsx';
 import DeleteProgressDialog from './DeleteProgressDialog';
+import PdfParserView from './pdf-parser/PdfParserView';
 
 const headerWrapStyle = {
     display: 'flex',
@@ -183,6 +184,7 @@ const CertificateActionWidget = ({
     hasSelection,
     handleDeleteSelected,
     isDeleting,
+    onOpenPdfParser,
 }) => (
     <div style={{
         borderTop: '1px solid #e2e8f0',
@@ -313,7 +315,7 @@ const CertificateActionWidget = ({
             {isPrivileged && (
                 <button
                     type="button"
-                    onClick={openFileDialog}
+                    onClick={onOpenPdfParser}
                     style={{
                         height: '34px',
                         minWidth: '110px',
@@ -326,7 +328,7 @@ const CertificateActionWidget = ({
                         cursor: 'pointer',
                     }}
                 >
-                    추출 ZIP 업로드
+                    성적서 올리기
                 </button>
             )}
         </div>
@@ -347,6 +349,10 @@ const CertificateBatchProgressWidget = ({ batchProcess }) => (
 
 const CertificateView = ({ currentUser }) => {
     const { showToast, showAlert } = useDialog();
+    const [pdfParserOpen, setPdfParserOpen] = useState(false);
+    
+    const handleOpenPdfParser = () => setPdfParserOpen(true);
+    
     const {
         isPrivileged,
         isLoading,
@@ -393,7 +399,7 @@ const CertificateView = ({ currentUser }) => {
             display: 'flex',
             flexDirection: 'column',
             gap: '10px',
-            minHeight: 0,
+            position: 'relative',
         }}>
             <input
                 ref={fileInputRef}
@@ -441,6 +447,7 @@ const CertificateView = ({ currentUser }) => {
                 hasSelection={hasSelection}
                 handleDeleteSelected={handleDeleteSelected}
                 isDeleting={isDeleting}
+                onOpenPdfParser={handleOpenPdfParser}
             />
 
             <CertificateBatchProgressWidget batchProcess={batchProcess} />
@@ -449,6 +456,10 @@ const CertificateView = ({ currentUser }) => {
                 progress={deleteProgress} 
                 onClose={closeDeleteProgress} 
             />
+
+            {pdfParserOpen && (
+                <PdfParserView onClose={() => setPdfParserOpen(false)} />
+            )}
         </div>
     );
 };

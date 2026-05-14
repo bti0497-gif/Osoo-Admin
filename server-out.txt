@@ -1,0 +1,7 @@
+[dotenv@17.3.1] injecting env (10) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.3.1] injecting env (0) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.3.1] injecting env (0) from .env.local -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.3.1] injecting env (0) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[Certificates] Drive Folder ID: 1Po-gd-OKl...
+[Certificates] Drive service: available
+Local Bridge Server running at http://localhost:8901

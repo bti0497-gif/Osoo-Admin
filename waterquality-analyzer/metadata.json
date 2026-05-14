@@ -1,0 +1,6 @@
+{
+  "name": "WaterQuality Analyzer",
+  "description": "Extracts water quality analysis data from PDFs, uploads to BigQuery, and saves images to Google Storage/Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

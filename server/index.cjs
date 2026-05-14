@@ -44,6 +44,7 @@ app.use(require('./routes/adminSettingsRoutes.cjs')());
 app.use(require('./routes/boardRoutes.cjs')());
 app.use(require('./routes/certificateRoutes.cjs')());
 app.use(require('./routes/adminDataRoutes.cjs')());
+app.use(require('./routes/aiRoutes.cjs')());
 app.use(require('./routes/locationRoutes.cjs')(BASE_DIR));
 app.use('/api/auth', require('./routes/authRoutes.cjs')());
 

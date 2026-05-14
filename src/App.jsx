@@ -39,6 +39,7 @@ const renderWorkspace = (workspaceId, workspace, context) => {
             title={getMenuLabel(workspaceId)}
             appTarget={menuMeta?.appTarget || ''}
             currentUser={context.currentUser}
+            onOpenPdfParser={context.onOpenPdfParser}
         >
             {workspace.render(context)}
         </WorkspaceAdapter>
