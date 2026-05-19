@@ -16,7 +16,7 @@ const CERTIFICATE_ROOT_FOLDER_ID =
 console.log('[Certificates] Drive Folder ID:', CERTIFICATE_ROOT_FOLDER_ID.substring(0, 10) + '...');
 console.log('[Certificates] Drive service:', drive ? 'available' : 'null');
 const CERTIFICATE_PREFIX_RE = /^(성적서|mlss)-(\d{8})(\.[^.]+)?$/i;
-const MANUAL_CERT_FILE_RE = /^(성적서|mlss)[_-](\d{8})[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i;
+const MANUAL_CERT_FILE_RE = /^(성적서|기타_성적서|mlss|ss)[_-](\d{8})[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i;
 const zipUploadProgressMap = new Map();
 
 function toDisplayDate(yyyymmdd) {
@@ -668,16 +668,23 @@ async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
             (@siteId IS NOT NULL AND site_id = @siteId)
             OR (@siteName IS NOT NULL AND site_name = @siteName)
           )
+          AND (
+            @sourcePdfName IS NULL
+            OR source_pdf_name IS NULL
+            OR source_pdf_name = @sourcePdfName
+          )
       `,
       params: {
         reportDate,
         siteId: row.site_id || null,
         siteName: row.site_name || null,
+        sourcePdfName: row.source_pdf_name || null,
       },
       types: {
         reportDate: 'STRING',
         siteId: 'STRING',
         siteName: 'STRING',
+        sourcePdfName: 'STRING',
       },
     });
   } catch (delErr) {
@@ -1043,10 +1050,16 @@ module.exports = function () {
         });
       }
 
+      const siteMaster = await loadSiteMaster();
+      const aiSiteName = record.site_name ? String(record.site_name) : null;
+      const matched = aiSiteName ? findBestSiteMatch(aiSiteName, siteMaster) : { site_id: null, site_name: null, site_match_confidence: null, manual_review_required: false };
+      const resolvedSiteId = record.site_id ? String(record.site_id) : (matched.site_id || null);
+      const resolvedSiteName = matched.site_name || aiSiteName;
+
       await upsertCertificateRowToBigQuery({
-        site_id: record.site_id ? String(record.site_id) : null,
-        site_name: record.site_name ? String(record.site_name) : null,
-        site_name_raw: record.site_name_raw ? String(record.site_name_raw) : null,
+        site_id: resolvedSiteId,
+        site_name: resolvedSiteName,
+        site_name_raw: aiSiteName,
         report_date: String(record.report_date),
         ss: record.ss,
         bod: record.bod,
@@ -1059,8 +1072,8 @@ module.exports = function () {
         source_pdf_name: normalized.source.source_pdf_name ? String(normalized.source.source_pdf_name) : null,
         source_page_index: normalized.source.page_index != null ? Number(normalized.source.page_index) : null,
         ai_confidence: normalized.meta.confidence,
-        site_match_confidence: normalized.meta.site_match_confidence,
-        manual_review_required: normalized.meta.manual_review_required ? 1 : 0,
+        site_match_confidence: matched.site_match_confidence ?? normalized.meta.site_match_confidence,
+        manual_review_required: (matched.manual_review_required || normalized.meta.manual_review_required) ? 1 : 0,
         warnings_json: JSON.stringify(normalized.meta.warnings || []),
         source_payload_json: JSON.stringify(req.body || {}),
       }, 0);
@@ -1469,7 +1482,8 @@ module.exports = function () {
 
       for (const file of files) {
         try {
-          const parsed = parseManualCertificateFileName(file.originalname);
+          const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+          const parsed = parseManualCertificateFileName(decodedName);
           if (!parsed) {
             errors.push({
               file: file.originalname,

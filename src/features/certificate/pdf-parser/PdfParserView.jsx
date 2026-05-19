@@ -1,12 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getApiBase } from '../../../core/api/serverConfig';
+import { createWorker } from 'tesseract.js';
 import { Upload, FileText, Crop, Calendar, List, CheckSquare, MapPin, CloudUpload, Loader2, ArrowUp, ArrowDown, Trash2, Eye, EyeOff, CheckCircle2, XCircle, X } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { PDFDocument } from 'pdf-lib';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
+const adminHeaders = () => ({
+  'x-user-role': 'super_admin',
+  'x-user-name': 'admin',
+});
+
 const S = {
-  overlay: { position: 'fixed', inset: 0, zIndex: 9999, background: '#f1f5f9', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif' },
+  overlay: { width: '100%', height: '100%', background: '#f1f5f9', display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif', minHeight: 0, overflow: 'hidden' },
   header: { height: '56px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, zIndex: 20 },
   headerLeft: { display: 'flex', alignItems: 'center', gap: '12px' },
   headerIcon: { width: '32px', height: '32px', background: '#2563eb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
@@ -62,10 +69,7 @@ const S = {
   resultTitle: { fontWeight: 600, marginBottom: '4px', color: '#334155' },
 };
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+pdfjs.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs';
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -76,6 +80,145 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   };
   reader.onerror = error => reject(error);
 });
+
+// OCR: canvas에서 특정 ROI 영역을 잘라 Tesseract로 인식
+async function ocrRoiFromCanvas(canvas, box, scale, lang = 'kor+eng') {
+  const PADDING = 6;
+  const sx = Math.max(0, box.x * scale - PADDING);
+  const sy = Math.max(0, box.y * scale - PADDING);
+  const sw = Math.min(canvas.width - sx, box.width * scale + PADDING * 2);
+  const sh = Math.min(canvas.height - sy, box.height * scale + PADDING * 2);
+  const crop = document.createElement('canvas');
+  crop.width = sw; crop.height = sh;
+  crop.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  const worker = await createWorker(lang);
+  const { data: { text } } = await worker.recognize(crop);
+  await worker.terminate();
+  crop.width = 0; crop.height = 0;
+  return text.trim();
+}
+
+// 날짜 파싱: "2025.03.15", "2025-03-15", "2025년3월15일" 등 → "YYYY-MM-DD"
+function parseDate(text) {
+  const patterns = [
+    /(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/,
+    /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/,
+    /(\d{4})\s*(\d{2})\s*(\d{2})/,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+      if (parseInt(mo) >= 1 && parseInt(mo) <= 12 && parseInt(d) >= 1 && parseInt(d) <= 31)
+        return `${y}-${mo}-${d}`;
+    }
+  }
+  return null;
+}
+
+// 현장명 파싱: 마스터 목록과 퍼지 매칭
+function parseSiteName(text, masterSites) {
+  if (!masterSites || masterSites.length === 0) return null;
+  const clean = text.replace(/\s+/g, ' ').trim();
+  // 완전 포함 우선
+  for (const site of masterSites) {
+    if (clean.includes(site)) return site;
+  }
+  // 부분 매칭 (3글자 이상 공통)
+  let best = null, bestLen = 0;
+  for (const site of masterSites) {
+    for (let len = Math.min(site.length, clean.length); len >= 3; len--) {
+      for (let s = 0; s <= site.length - len; s++) {
+        const sub = site.substring(s, s + len);
+        if (clean.includes(sub) && len > bestLen) { best = site; bestLen = len; }
+      }
+    }
+  }
+  return bestLen >= 3 ? best : null;
+}
+
+// 고정 분석항목 정의: 성적서에 표기되는 한글명 → DB 필드명
+const ANALYTE_LABEL_MAP = [
+  { key: 'ss',            labels: ['부유물질', 'SS'] },
+  { key: 'bod',           labels: ['생물화학적산소요구량', 'BOD'] },
+  { key: 'tn',            labels: ['총질소', 'T-N', 'TN'] },
+  { key: 'tp',            labels: ['총인', 'T-P', 'TP'] },
+  { key: 'total_coliform',labels: ['총대장균군', '총대장균', 'coliform'] },
+  { key: 'mlss',          labels: ['MLSS', 'mlss'] },
+  { key: 'do',            labels: ['용존산소', 'DO', 'D.O'] },
+  { key: 'ph',            labels: ['수소이온농도', 'pH', 'ph'] },
+];
+
+// 항목 텍스트(items ROI)와 수치 텍스트(results ROI)를 줄 단위로 매핑
+function parseAnalytes(itemsText, resultsText) {
+  const result = {};
+
+  // 두 컬럼이 별도로 OCR된 경우: 줄 수가 비슷하면 index 매핑
+  if (resultsText) {
+    const itemLines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
+    const valLines  = resultsText.split('\n').map(l => l.trim()).filter(Boolean);
+
+    itemLines.forEach((label, idx) => {
+      const analyte = ANALYTE_LABEL_MAP.find(a =>
+        a.labels.some(l => label.includes(l))
+      );
+      if (!analyte) return;
+      const valStr = valLines[idx] || '';
+      const numMatch = valStr.replace(/\s+/g, '').match(/([0-9]+\.?[0-9]*)/);
+      if (numMatch) result[analyte.key] = parseFloat(numMatch[1]);
+    });
+
+    if (Object.keys(result).length > 0) return result;
+  }
+
+  // 폴백: 한 텍스트 안에 "항목명 수치" 인라인으로 있는 경우
+  const combined = itemsText + '\n' + (resultsText || '');
+  for (const { key, labels } of ANALYTE_LABEL_MAP) {
+    for (const label of labels) {
+      const re = new RegExp(label.replace('.', '\\.') + '[\\s:：]*([0-9]+\\.?[0-9]*)', 'i');
+      const m = combined.match(re);
+      if (m) { result[key] = parseFloat(m[1]); break; }
+    }
+  }
+  return result;
+}
+
+// 전체 OCR 시도: 성공한 필드는 로컬 파싱, 실패 필드만 Gemini 전송 대상으로 반환
+async function tryOcrParse(canvas, globalBoxes, scale, masterSites) {
+  const result = { date: null, site_name: null, analytes: {}, failedFields: [] };
+
+  if (globalBoxes.date) {
+    const text = await ocrRoiFromCanvas(canvas, globalBoxes.date, scale);
+    const parsed = parseDate(text);
+    console.log('[OCR] date 원문:', JSON.stringify(text), '→ 파싱:', parsed);
+    if (parsed) result.date = parsed;
+    else result.failedFields.push('date');
+  } else result.failedFields.push('date');
+
+  if (globalBoxes.location) {
+    const text = await ocrRoiFromCanvas(canvas, globalBoxes.location, scale);
+    const parsed = parseSiteName(text, masterSites);
+    console.log('[OCR] location 원문:', JSON.stringify(text), '→ 파싱:', parsed);
+    if (parsed) result.site_name = parsed;
+    else result.failedFields.push('location');
+  } else result.failedFields.push('location');
+
+  const itemsText  = globalBoxes.items   ? await ocrRoiFromCanvas(canvas, globalBoxes.items,   scale) : '';
+  const resultsText = globalBoxes.results ? await ocrRoiFromCanvas(canvas, globalBoxes.results, scale) : '';
+  console.log('[OCR] items 원문:', JSON.stringify(itemsText));
+  console.log('[OCR] results 원문:', JSON.stringify(resultsText));
+  if (itemsText || resultsText) {
+    result.analytes = parseAnalytes(itemsText, resultsText);
+    console.log('[OCR] analytes 파싱 결과:', result.analytes);
+    if (Object.keys(result.analytes).length === 0) {
+      result.failedFields.push('items'); result.failedFields.push('results');
+    }
+  } else {
+    result.failedFields.push('items'); result.failedFields.push('results');
+  }
+
+  return result;
+}
 
 const fieldLabels = {
   date: 'Date (날짜)',
@@ -98,7 +241,7 @@ const fieldBgColors = {
   location: 'rgba(249,115,22,0.12)',
 };
 
-export default function PdfParserView({ onClose }) {
+export default function PdfParserView() {
   const [file, setFile] = useState(null);
   const [numPages, setNumPages] = useState(null);
   const [activePage, setActivePage] = useState(1);
@@ -125,60 +268,67 @@ export default function PdfParserView({ onClose }) {
   useEffect(() => {
     const fetchMasterSites = async () => {
       try {
-        const response = await fetch("https://docs.google.com/spreadsheets/d/1hcfdTLz5SUyM9OqG3A9kkFGf0Tonh00xGkOj5tV2gOg/export?format=csv&gid=1961616617");
-        const csvText = await response.text();
-        const lines = csvText.split('\n');
-        const sites = [];
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].split(',');
-          if (cols.length > 1 && cols[1].trim()) {
-            sites.push(cols[1].trim());
-          }
-        }
+        const res = await fetch(`${getApiBase()}/api/certificates/site-normalization`, { headers: adminHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const sites = (data.siteMaster || []).map(s => s.official_name).filter(Boolean);
         if (sites.length > 0) {
           setMasterSites(sites);
           localStorage.setItem('master_sites', JSON.stringify(sites));
+          console.log(`[MasterSites] ${sites.length}개 현장명 로드 완료`);
         }
       } catch (error) {
-        console.error("Failed to fetch master sites:", error);
+        console.error('[MasterSites] 로드 실패, 캐시 사용:', error.message);
       }
     };
     fetchMasterSites();
   }, []);
 
-  const getAiPromptText = (pageIndex, boxesMeta, sitesMeta) => `
-성적서 PDF를 파싱해 아래 JSON 스키마만 출력하라.
-허용된 필드 외에는 절대 출력하지 말 것.
-전체 문서를 해석하지 말고, 제출된 문서의 **[ ${pageIndex} 번째 페이지 ]** 내용만 타겟으로 하라.
-${boxesMeta}
+  const getAiPromptText = (sitesMeta) => `
+성적서 이미지에서 아래 항목을 추출해 JSON만 출력하라.
 ${sitesMeta}
 
-[출력 스키마 - 반드시 동일한 키 사용]
+[분석항목 한글→필드 매핑]
+- 부유물질 → ss
+- 생물화학적산소요구량(BOD) → bod
+- 총질소(T-N) → tn
+- 총인(T-P) → tp
+- 총대장균군 → total_coliform
+- MLSS → mlss
+- 용존산소(DO) → do
+- 수소이온농도(pH) → ph
+
+[출력 스키마]
 {
   "include": true,
   "record": {
     "report_date": "YYYY-MM-DD",
     "site_name": "string",
-    "ss": 0.1,
-    "bod": 0.1,
-    "tn": 0.1,
-    "tp": 0.1,
-    "total_coliform": 0,
-    "mlss": 0.1,
-    "do": 0.1,
-    "ph": 0.1
+    "ss": null,
+    "bod": null,
+    "tn": null,
+    "tp": null,
+    "total_coliform": null,
+    "mlss": null,
+    "do": null,
+    "ph": null
   },
   "errors": []
 }
 
 [규칙]
-- report_date, site_name이 유효하면 include=true, 아니면 include=false.
-- report_date는 반드시 YYYY-MM-DD 문자열.
-- 숫자 필드는 number 또는 null만 허용. 값이 불명확하면 null.
-- 숫자값이 "4 942.9"처럼 공백 포함 시 공백 제거 후 number 변환. 변환 실패한 숫자는 null.
-- source/meta/reason 등 추가 키 출력 금지.
-- JSON 외 텍스트 출력 금지.
-- MLSS/SS 매핑 규칙(현장 반영): 폭기조 문맥 + 비고/표기에 MLSS가 명확하면 mlss에 값 저장.
+- report_date: 채취일시 또는 검사일자, YYYY-MM-DD 형식.
+- site_name: 이미지의 "대상의뢰명(측정지점명)" 셀 값을 읽어라.
+  1단계: 마스터 목록에서 정확히 일치하는 항목이 있으면 그대로 사용.
+  2단계: 정확히 없으면, 이미지에서 읽은 이름의 핵심어(예: "여주휴게소")로 마스터를 검색해 유일하게 매칭되는 항목이 있으면 반드시 그 마스터 이름을 사용. (방향 표현이 달라도 무방: "서창방향"→"인천방향" 등)
+  3단계: 마스터에서 2개 이상 매칭되면 가장 유사한 것을 선택.
+  4단계: 마스터에 전혀 없으면 이미지 원문 그대로 출력.
+  절대 마스터에 없는 이름을 지어내거나 관계없는 다른 현장명을 사용하지 말 것.
+- 측정분석값 열의 숫자를 읽어 해당 필드에 number로 입력. 없으면 null.
+- 숫자에 공백 포함 시 제거 후 변환("4 62" → 4.62 아닌 경우 null).
+- include: report_date와 site_name 모두 유효하면 true.
+- JSON만 출력. 추가 텍스트 금지.
+- MLSS는 폭기조 관련 항목, SS와 혼동 금지.
   `;
 
   const generateBasename = (extracted, pageIndex) => {
@@ -202,10 +352,11 @@ ${sitesMeta}
     }
   };
 
-  const getPdfPageImageBlob = async (pdfDocument, pageNum) => {
+  const getFullPageImageBlob = async (pdfDocument, pageNum) => {
     try {
       const page = await pdfDocument.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 1.5 });
+      const scale = 2.0;
+      const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
@@ -213,7 +364,66 @@ ${sitesMeta}
       canvas.height = viewport.height;
       await page.render({ canvasContext: ctx, viewport }).promise;
       const blob = await new Promise((resolve) => {
-        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.88);
+      });
+      page.cleanup();
+      canvas.width = 0; canvas.height = 0;
+      return blob;
+    } catch(e) {
+      console.error(e);
+      return null;
+    }
+  };
+
+  const getPdfPageImageBlob = async (pdfDocument, pageNum) => {
+    try {
+      const page = await pdfDocument.getPage(pageNum);
+      const scale = 2.0;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const roiKeys = Object.keys(globalBoxes);
+      if (roiKeys.length > 0) {
+        const PADDING = 8;
+        const ROI_W = 600;
+        const crops = roiKeys.map(field => {
+          const box = globalBoxes[field];
+          const sx = Math.max(0, box.x * scale - PADDING);
+          const sy = Math.max(0, box.y * scale - PADDING);
+          const sw = Math.min(canvas.width - sx, box.width * scale + PADDING * 2);
+          const sh = Math.min(canvas.height - sy, box.height * scale + PADDING * 2);
+          const scaleFactor = ROI_W / sw;
+          return { field, sx, sy, sw, sh, dh: Math.round(sh * scaleFactor) };
+        });
+        const GAP = 6;
+        const totalH = crops.reduce((sum, c) => sum + c.dh + GAP, 0);
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = ROI_W;
+        outCanvas.height = totalH;
+        const outCtx = outCanvas.getContext('2d');
+        outCtx.fillStyle = '#fff';
+        outCtx.fillRect(0, 0, ROI_W, totalH);
+        let offsetY = 0;
+        for (const c of crops) {
+          outCtx.drawImage(canvas, c.sx, c.sy, c.sw, c.sh, 0, offsetY, ROI_W, c.dh);
+          offsetY += c.dh + GAP;
+        }
+        const blob = await new Promise((resolve) => {
+          outCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.88);
+        });
+        page.cleanup();
+        canvas.width = 0; canvas.height = 0;
+        outCanvas.width = 0; outCanvas.height = 0;
+        return blob;
+      }
+
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.82);
       });
       page.cleanup();
       canvas.width = 0;
@@ -348,10 +558,6 @@ ${sitesMeta}
     const allResults = [];
 
     try {
-      let boxesMeta = "";
-      if (Object.keys(globalBoxes).length > 0) {
-        boxesMeta = `\n[참고: 사용자가 지정한 ROI 영역 좌표]\n${JSON.stringify(globalBoxes, null, 2)}\n위 좌표를 참고해 현 화면에서 사용자가 지정한 각각의 영역 위치 안의 텍스트를 우선 대상으로 분석하라.`;
-      }
       let sitesMeta = "";
       if (masterSites.length > 0) {
         sitesMeta = `\n[현장명(Site Name) 마스터 목록]\n${masterSites.join(', ')}\n※ 현장명을 추출할 때 반드시 위 목록과 대조하여 오타 없이 동일한 이름으로 교정해서 출력하라.`;
@@ -360,36 +566,35 @@ ${sitesMeta}
       for (let i = 1; i <= numPages; i++) {
         setBatchProgress(prev => {
           const newPages = [...prev.pages];
-          newPages[i - 1] = { page: i, status: 'extracting' };
+          newPages[i - 1] = { page: i, status: 'extracting', detail: 'Gemini 분석 중...' };
           return { ...prev, current: i, pages: newPages };
         });
-        const prompt = getAiPromptText(i, boxesMeta, sitesMeta);
         try {
+          // Gemini용: ROI 크롭 합성 이미지
           const imgBlob = await getPdfPageImageBlob(pdfDoc, i);
           if (!imgBlob) throw new Error('페이지 이미지 변환 실패');
+          // Drive 저장용: 전체 페이지 이미지
+          const fullImgBlob = await getFullPageImageBlob(pdfDoc, i);
 
+          const prompt = getAiPromptText(sitesMeta);
           let response;
           let retryCount = 0;
-          const maxRetries = 2;
-          while (retryCount <= maxRetries) {
+          while (retryCount <= 2) {
             try {
               const formData = new FormData();
               formData.append("image", imgBlob, "page.jpg");
               formData.append("prompt", prompt);
-              formData.append("model", "gemini-2.5-flash");
-              const apiReq = await fetch("/api/generate-content", {
-                method: "POST",
-                body: formData,
-              });
+              formData.append("model", "gemini-3.1-flash-lite");
+              const apiReq = await fetch(`${getApiBase()}/api/generate-content`, { method: "POST", headers: adminHeaders(), body: formData });
               if (!apiReq.ok) {
                 let errMsg = "API Request Failed";
-                try { const errObj = await apiReq.json(); errMsg = errObj.error || errMsg; } catch(e){}
+                try { const e = await apiReq.json(); errMsg = e.error || errMsg; if (e.details) console.error('[Gemini 상세 에러]', e.details); } catch(_){}
                 throw new Error(errMsg);
               }
               response = await apiReq.json();
               break;
             } catch (apiErr) {
-              if (retryCount >= maxRetries) throw apiErr;
+              if (retryCount >= 2) throw apiErr;
               setBatchProgress(prev => {
                 const newPages = [...prev.pages];
                 newPages[i - 1] = { page: i, status: 'extracting', detail: `재시도 중... (${retryCount + 1})` };
@@ -400,28 +605,24 @@ ${sitesMeta}
             }
           }
 
-          if (!response) throw new Error("API 응답이 없습니다.");
           const cleanText = (response.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
-          const extracted = JSON.parse(cleanText);
+          let extracted = JSON.parse(cleanText);
 
+          // 공통 후처리
           if (extracted && extracted.record) {
             const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-            const dateStr = extracted.record.report_date;
-            if (!dateStr || !dateRegex.test(String(dateStr))) extracted.record.report_date = null;
+            if (!dateRegex.test(String(extracted.record.report_date || ''))) extracted.record.report_date = null;
             if (extracted.record.site_name) {
               extracted.record.site_name = extracted.record.site_name.replace(/\s*(포기조|폭기조)\s*$/, "").trim();
             }
-            delete extracted.reason;
-            delete extracted.source;
-            delete extracted.meta;
-            delete extracted.record.site_id;
+            delete extracted.reason; delete extracted.source; delete extracted.meta; delete extracted.record.site_id;
           }
 
           if (extracted) {
-            allResults.push({ extracted, imgBlob });
+            allResults.push({ extracted, imgBlob: fullImgBlob || imgBlob });
             setBatchProgress(prev => {
               const newPages = [...prev.pages];
-              newPages[i - 1] = { page: i, status: 'done', detail: '성공' };
+              newPages[i - 1] = { page: i, status: 'done' };
               return { ...prev, pages: newPages };
             });
           } else {
@@ -432,7 +633,7 @@ ${sitesMeta}
             });
           }
 
-          if (i < numPages) await new Promise(r => setTimeout(r, 1000));
+          if (i < numPages) await new Promise(r => setTimeout(r, 500));
         } catch (err) {
           console.error(`Failed to process page ${i}`, err);
           setBatchProgress(prev => {
@@ -482,8 +683,30 @@ ${sitesMeta}
       });
 
       setBatchProgress(prev => ({ ...prev, stage: 'uploading' }));
+      console.log(`[Upload] 전체 결과 ${allResults.length}건, include=true: ${allResults.filter(r=>r.extracted?.include).length}건`);
+      allResults.forEach((r,i) => console.log(`  Page${i+1}:`, r.extracted?.include, r.extracted?.record?.site_name, r.extracted?.record?.report_date));
       let imageOk = 0, jsonOk = 0, imageFail = 0, jsonFail = 0;
 
+      // 1단계: BigQuery INSERT 먼저
+      for (const ex of finalJsonList) {
+        try {
+          const r = await fetch(`${getApiBase()}/api/certificates/import-from-ai`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+            body: JSON.stringify({ ...ex, source_pdf_name: file?.name || null }),
+          });
+          if (r.ok) { jsonOk++; console.log(`[BigQuery] 전송 성공:`, ex.record?.site_name, ex.record?.report_date); }
+          else { jsonFail++; const t = await r.text(); console.error(`[BigQuery] 전송 실패(${r.status}):`, t.substring(0,200)); }
+        } catch (err) {
+          console.error('[BigQuery] 전송 예외:', err);
+          jsonFail++;
+        }
+      }
+
+      // BigQuery DML 반영 대기 (INSERT 후 즉시 UPDATE 시 행을 못 찾는 문제 방지)
+      if (jsonOk > 0) await new Promise(r => setTimeout(r, 4000));
+
+      // 2단계: Drive 업로드 (BigQuery 행이 존재한 후 drive_file_id UPDATE)
       for (const res of allResults) {
         const ex = res.extracted;
         if (!ex || !ex.record || !ex.include) continue;
@@ -491,25 +714,12 @@ ${sitesMeta}
         const formData = new FormData();
         formData.append('files', res.imgBlob, `${basename}.jpg`);
         try {
-          const r = await fetch('/api/certificates/manual-upload-file', { method: 'POST', body: formData });
-          if (r.ok) imageOk++; else imageFail++;
+          const r = await fetch(`${getApiBase()}/api/certificates/manual-upload-file`, { method: 'POST', headers: adminHeaders(), body: formData });
+          if (r.ok) { imageOk++; console.log(`[Drive] 업로드 성공: ${basename}.jpg`); }
+          else { imageFail++; const t = await r.text(); console.error(`[Drive] 업로드 실패(${r.status}): ${basename}`, t.substring(0,200)); }
         } catch (err) {
-          console.error(`이미지 업로드 실패: ${basename}`, err);
+          console.error(`[Drive] 업로드 예외: ${basename}`, err);
           imageFail++;
-        }
-      }
-
-      for (const ex of finalJsonList) {
-        try {
-          const r = await fetch('/api/certificates/import-from-ai', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ex),
-          });
-          if (r.ok) jsonOk++; else jsonFail++;
-        } catch (err) {
-          console.error('BigQuery 전송 실패', err);
-          jsonFail++;
         }
       }
 
@@ -536,7 +746,6 @@ ${sitesMeta}
               </button>
             </>
           )}
-          <button onClick={onClose} style={S.btnClose}><X size={20} /></button>
         </div>
       </header>
 

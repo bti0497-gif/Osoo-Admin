@@ -6,7 +6,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Gemini API Configuration
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GEMINI_MODEL = req_model => req_model || 'gemini-3.1-flash-lite';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // POST /api/generate-content
 // Gemini AI API를 호출하여 이미지에서 텍스트 추출
@@ -57,7 +58,7 @@ router.post('/api/generate-content', upload.single('image'), async (req, res) =>
       },
     };
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const response = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL(model)}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

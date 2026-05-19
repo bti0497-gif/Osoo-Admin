@@ -18,13 +18,7 @@ function buildWindowsCleanupScript() {
 $ErrorActionPreference = 'SilentlyContinue'
 $root = '${scriptRoot}'
 $currentPid = ${currentPid}
-$targetPorts = @(${Array.from({ length: BACKEND_PORT_MAX - FRONTEND_PORT + 1 }, (_, index) => FRONTEND_PORT + index).join(', ')})
 $candidateIds = New-Object 'System.Collections.Generic.HashSet[int]'
-
-Get-NetTCPConnection -State Listen |
-    Where-Object { $targetPorts -contains $_.LocalPort -and $_.OwningProcess -ne $currentPid } |
-    Select-Object -ExpandProperty OwningProcess -Unique |
-    ForEach-Object { [void]$candidateIds.Add([int]$_) }
 
 Get-CimInstance Win32_Process |
     Where-Object {
@@ -42,7 +36,7 @@ Get-CimInstance Win32_Process |
     ForEach-Object { [void]$candidateIds.Add([int]$_.ProcessId) }
 
 $candidateIds | ForEach-Object { Stop-Process -Id $_ -Force }
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 1500
 `.trim();
 }
 

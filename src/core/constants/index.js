@@ -15,7 +15,11 @@ export const MENU_REGISTRY = [
   { id: 'members', label: '회원 및 현장 관리', icon: 'admin_panel_settings', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'members', displayOrder: 10 },
   { id: 'data_admin', label: '데이터관리', icon: 'folder', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'data_admin', displayOrder: 20 },
   { id: 'board', label: '소통게시판', icon: 'forum', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'board', displayOrder: 30 },
-  { id: 'certificate', label: '성적서', icon: 'description', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'certificate', displayOrder: 40 },
+  { id: 'certificate', label: '성적서', icon: 'description', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'certificate', displayOrder: 40,
+    children: [
+      { id: 'pdf_parser', label: 'PDF 파서', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
+    ]
+  },
 ];
 
 export const ADMIN_MENU_REGISTRY = [];

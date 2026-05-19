@@ -7,6 +7,7 @@ import WorkspaceAdapter from './components/WorkspaceAdapter';
 const MemberManagementView = lazy(() => import('./features/members').then((module) => ({ default: module.MemberManagementView })));
 const BoardView = lazy(() => import('./features/board').then((module) => ({ default: module.BoardView })));
 const CertificateView = lazy(() => import('./features/certificate').then((module) => ({ default: module.CertificateView })));
+const PdfParserView = lazy(() => import('./features/certificate/pdf-parser/PdfParserView'));
 
 const WORKSPACE_REGISTRY = {
     members: {
@@ -22,8 +23,12 @@ const WORKSPACE_REGISTRY = {
         helpText: '공지사항 및 소통 게시판을 관리합니다.'
     },
     certificate: {
-        render: ({ currentUser }) => <CertificateView currentUser={currentUser} />,
+        render: ({ currentUser, onTabChange }) => <CertificateView currentUser={currentUser} onTabChange={onTabChange} />,
         helpText: '성적서를 조회, 업로드, 다운로드합니다.'
+    },
+    pdf_parser: {
+        render: () => <PdfParserView />,
+        helpText: 'PDF 성적서를 AI로 파싱해 Drive와 BigQuery에 업로드합니다.'
     },
 };
 
@@ -39,7 +44,6 @@ const renderWorkspace = (workspaceId, workspace, context) => {
             title={getMenuLabel(workspaceId)}
             appTarget={menuMeta?.appTarget || ''}
             currentUser={context.currentUser}
-            onOpenPdfParser={context.onOpenPdfParser}
         >
             {workspace.render(context)}
         </WorkspaceAdapter>
@@ -87,7 +91,7 @@ function App() {
     };
 
     const activeWorkspace = getWorkspace(activeTab);
-    const renderContent = () => renderWorkspace(activeTab, activeWorkspace, { currentUser: user });
+    const renderContent = () => renderWorkspace(activeTab, activeWorkspace, { currentUser: user, onTabChange: setActiveTab });
 
     return (
         <AppShell

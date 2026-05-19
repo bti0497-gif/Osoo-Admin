@@ -3,7 +3,6 @@ import { useDialog } from '../../components/common/DialogContext';
 import { BatchProgressDialog } from '../../components/common/BatchProgressDialog';
 import { useCertificateViewModel } from './useCertificateViewModel.jsx';
 import DeleteProgressDialog from './DeleteProgressDialog';
-import PdfParserView from './pdf-parser/PdfParserView';
 
 const headerWrapStyle = {
     display: 'flex',
@@ -184,7 +183,7 @@ const CertificateActionWidget = ({
     hasSelection,
     handleDeleteSelected,
     isDeleting,
-    onOpenPdfParser,
+    onGoToPdfParser,
 }) => (
     <div style={{
         borderTop: '1px solid #e2e8f0',
@@ -315,7 +314,7 @@ const CertificateActionWidget = ({
             {isPrivileged && (
                 <button
                     type="button"
-                    onClick={onOpenPdfParser}
+                    onClick={onGoToPdfParser}
                     style={{
                         height: '34px',
                         minWidth: '110px',
@@ -347,11 +346,8 @@ const CertificateBatchProgressWidget = ({ batchProcess }) => (
     />
 );
 
-const CertificateView = ({ currentUser }) => {
+const CertificateView = ({ currentUser, onTabChange }) => {
     const { showToast, showAlert } = useDialog();
-    const [pdfParserOpen, setPdfParserOpen] = useState(false);
-    
-    const handleOpenPdfParser = () => setPdfParserOpen(true);
     
     const {
         isPrivileged,
@@ -447,7 +443,7 @@ const CertificateView = ({ currentUser }) => {
                 hasSelection={hasSelection}
                 handleDeleteSelected={handleDeleteSelected}
                 isDeleting={isDeleting}
-                onOpenPdfParser={handleOpenPdfParser}
+                onGoToPdfParser={() => onTabChange?.('pdf_parser')}
             />
 
             <CertificateBatchProgressWidget batchProcess={batchProcess} />
@@ -456,10 +452,6 @@ const CertificateView = ({ currentUser }) => {
                 progress={deleteProgress} 
                 onClose={closeDeleteProgress} 
             />
-
-            {pdfParserOpen && (
-                <PdfParserView onClose={() => setPdfParserOpen(false)} />
-            )}
         </div>
     );
 };
