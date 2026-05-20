@@ -1082,6 +1082,9 @@ module.exports = function () {
         accepted: true,
         message: 'AI 추출 결과를 정상 수신/저장했습니다.',
         id: null,
+        manual_review_required: matched.manual_review_required || false,
+        site_name_raw: aiSiteName,
+        site_name: resolvedSiteName,
         received: normalized,
       });
     } catch (err) {

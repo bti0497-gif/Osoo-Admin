@@ -326,7 +326,7 @@ ${sitesMeta}
   절대 마스터에 없는 이름을 지어내거나 관계없는 다른 현장명을 사용하지 말 것.
 - 측정분석값 열의 숫자를 읽어 해당 필드에 number로 입력. 없으면 null.
 - 숫자에 공백 포함 시 제거 후 변환("4 62" → 4.62 아닌 경우 null).
-- include: report_date와 site_name 모두 유효하면 true.
+- include: 이미지에서 report_date와 site_name을 읽을 수 있으면 반드시 true. 마스터 목록에 없는 현장명이어도 true. 날짜나 현장명을 전혀 읽을 수 없을 때만 false.
 - JSON만 출력. 추가 텍스트 금지.
 - MLSS는 폭기조 관련 항목, SS와 혼동 금지.
   `;
@@ -677,7 +677,7 @@ ${sitesMeta}
           ex.include = true;
           ex.errors = [];
           if (!ex.record.report_date) { ex.include = false; ex.errors.push("invalid_or_missing_date"); }
-          if (!ex.record.site_name) { ex.include = false; ex.errors.push("missing_site_name"); }
+          if (!ex.record.site_name) { ex.record.site_name = '미확인현장'; ex.record._site_unresolved = true; }
           if (ex.include) { finalJsonList.push(ex); successCount++; }
         }
       });
@@ -686,6 +686,7 @@ ${sitesMeta}
       console.log(`[Upload] 전체 결과 ${allResults.length}건, include=true: ${allResults.filter(r=>r.extracted?.include).length}건`);
       allResults.forEach((r,i) => console.log(`  Page${i+1}:`, r.extracted?.include, r.extracted?.record?.site_name, r.extracted?.record?.report_date));
       let imageOk = 0, jsonOk = 0, imageFail = 0, jsonFail = 0;
+      const unmatchedSites = [];
 
       // 1단계: BigQuery INSERT 먼저
       for (const ex of finalJsonList) {
@@ -695,8 +696,20 @@ ${sitesMeta}
             headers: { 'Content-Type': 'application/json', ...adminHeaders() },
             body: JSON.stringify({ ...ex, source_pdf_name: file?.name || null }),
           });
-          if (r.ok) { jsonOk++; console.log(`[BigQuery] 전송 성공:`, ex.record?.site_name, ex.record?.report_date); }
-          else { jsonFail++; const t = await r.text(); console.error(`[BigQuery] 전송 실패(${r.status}):`, t.substring(0,200)); }
+          if (r.ok) {
+            jsonOk++;
+            const rData = await r.json().catch(() => ({}));
+            if (rData.manual_review_required) {
+              unmatchedSites.push({ name: rData.site_name_raw || ex.record?.site_name || '알 수 없음', unresolved: false });
+            } else if (ex.record?._site_unresolved) {
+              unmatchedSites.push({ name: '미확인현장', unresolved: true });
+            }
+            console.log(`[BigQuery] 전송 성공:`, ex.record?.site_name, ex.record?.report_date);
+          } else {
+            jsonFail++;
+            const t = await r.text();
+            console.error(`[BigQuery] 전송 실패(${r.status}):`, t.substring(0,200));
+          }
         } catch (err) {
           console.error('[BigQuery] 전송 예외:', err);
           jsonFail++;
@@ -723,7 +736,7 @@ ${sitesMeta}
         }
       }
 
-      setUploadStatus({ imageOk, imageFail, jsonOk, jsonFail });
+      setUploadStatus({ imageOk, imageFail, jsonOk, jsonFail, unmatchedSites });
     }
 
     setProcessing(false);
@@ -811,8 +824,20 @@ ${sitesMeta}
                 {!activeField && (
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
                     {uploadStatus && (
-                      <div style={S.statusBadge}>
-                        이미지 {uploadStatus.imageOk}성공/{uploadStatus.imageFail}실패 &nbsp;|&nbsp; BigQuery {uploadStatus.jsonOk}성공/{uploadStatus.jsonFail}실패
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                        <div style={S.statusBadge}>
+                          이미지 {uploadStatus.imageOk}성공/{uploadStatus.imageFail}실패 &nbsp;|&nbsp; BigQuery {uploadStatus.jsonOk}성공/{uploadStatus.jsonFail}실패
+                        </div>
+                        {uploadStatus.unmatchedSites?.length > 0 && (
+                          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: '#c2410c', maxWidth: '420px' }}>
+                            <strong>⚠ 현장 마스터 미등록 — Google Sheets에 추가 후 재업로드해주세요:</strong><br />
+                            {uploadStatus.unmatchedSites.map((s, i) => (
+                              <span key={i} style={{ display: 'inline-block', background: s.unresolved ? '#fee2e2' : '#ffedd5', borderRadius: '4px', padding: '1px 6px', margin: '2px 2px 0 0', fontWeight: 700 }}>
+                                {s.unresolved ? '⚠ 현장명 인식 실패 (미확인현장으로 임시 저장)' : s.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     <button onClick={handleProcessAllAndUpload} disabled={processing || batchProgress.active} style={(processing || batchProgress.active) ? S.btnPrimaryDisabled : S.btnPrimary}>
