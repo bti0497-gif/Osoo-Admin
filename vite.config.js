@@ -13,4 +13,10 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
   },
+  optimizeDeps: {
+    include: ['pdfjs-dist'],
+  },
+  worker: {
+    format: 'es',
+  },
 })
