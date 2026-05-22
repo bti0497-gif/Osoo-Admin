@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>전송 진행 현황</title>
+  <!-- Google Font - Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --card-bg: rgba(17, 24, 39, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.35);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.25);
+      --danger: #ef4444;
+      --terminal-bg: #030712;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      border: 1px solid var(--border-color);
+    }
+
+    /* 드래그 영역 (Frameless window drag) */
+    .title-bar {
+      height: 40px;
+      background: rgba(17, 24, 39, 0.95);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      -webkit-app-region: drag;
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .title-bar .logo-text {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      text-transform: uppercase;
+    }
+
+    .btn-title-close {
+      -webkit-app-region: no-drag;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-title-close:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+    }
+
+    /* 메인 레이아웃 */
+    .container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 12px;
+      background: radial-gradient(circle at top right, rgba(59, 130, 246, 0.05), transparent 60%);
+      min-height: 0;
+    }
+
+    /* 헤더 및 진행률 */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .status-info {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .status-info h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .status-info p {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .percentage {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--primary);
+      text-shadow: 0 0 20px var(--primary-glow);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* 프로그래스 바 */
+    .progress-container {
+      position: relative;
+    }
+
+    .progress-bar-track {
+      height: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 5px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa);
+      border-radius: 5px;
+      box-shadow: 0 0 10px var(--primary-glow);
+      transition: width 0.4s cubic-bezier(0.1, 0.8, 0.25, 1);
+    }
+
+    /* 전송 단계 인디케이터 */
+    .stages {
+      display: flex;
+      justify-content: space-between;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 20px;
+      backdrop-filter: blur(12px);
+    }
+
+    .stage-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: all 0.3s ease;
+    }
+
+    .stage-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: all 0.3s ease;
+    }
+
+    /* 진행/완료 상태에 따른 동적 클래스 */
+    .stage-item.active {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .stage-item.active .stage-dot {
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+      animation: pulse 1.5s infinite;
+    }
+
+    .stage-item.completed {
+      color: var(--success);
+    }
+
+    .stage-item.completed .stage-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* 로그 터미널 */
+    .terminal {
+      flex: 1;
+      background: var(--terminal-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+      min-height: 0;
+    }
+
+    .log-line {
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .log-line.info { color: #3b82f6; }
+    .log-line.success { color: #10b981; }
+    .log-line.warning { color: #f59e0b; }
+    .log-line.danger { color: #ef4444; }
+    .log-line.normal { color: #a1a1aa; }
+
+    /* 완료 결과 패널 */
+    .result-panel {
+      display: none;
+      background: rgba(16, 185, 129, 0.05);
+      border: 1px dashed var(--success);
+      border-radius: 8px;
+      padding: 12px 16px;
+      animation: fadeIn 0.4s ease forwards;
+    }
+
+    .result-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--success);
+      margin-bottom: 6px;
+    }
+
+    .result-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* 푸터 및 닫기 버튼 */
+    .footer {
+      display: flex;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    .btn-close {
+      -webkit-app-region: no-drag;
+      padding: 10px 24px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--primary);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      opacity: 0.6;
+      pointer-events: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn-close.active {
+      opacity: 1;
+      pointer-events: auto;
+      background: var(--primary);
+    }
+
+    .btn-close.active:hover {
+      background: #2563eb;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px var(--primary-glow);
+    }
+
+    .btn-close.active:active {
+      transform: translateY(0);
+    }
+
+    /* 애니메이션 */
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.7; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <!-- 타이틀 바 -->
+  <div class="title-bar">
+    <div class="logo-text">OSOO central admin</div>
+    <button class="btn-title-close" onclick="closeWindow()" title="닫기">✕</button>
+  </div>
+
+  <!-- 메인 바디 -->
+  <div class="container">
+    <!-- 헤더 정보 -->
+    <div class="header">
+      <div class="status-info">
+        <h2 id="main-status-title">데이터 동기화 진행 중</h2>
+        <p id="main-status-desc">준비하는 중입니다...</p>
+      </div>
+      <div class="percentage" id="percent-text">0%</div>
+    </div>
+
+    <!-- 프로그레스 바 -->
+    <div class="progress-container">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- 단계 뷰 -->
+    <div class="stages">
+      <div class="stage-item active" id="stage-init">
+        <div class="stage-dot"></div>준비
+      </div>
+      <div class="stage-item" id="stage-bq">
+        <div class="stage-dot"></div>BigQuery
+      </div>
+      <div class="stage-item" id="stage-drive">
+        <div class="stage-dot"></div>Google Drive
+      </div>
+      <div class="stage-item" id="stage-complete">
+        <div class="stage-dot"></div>완료
+      </div>
+    </div>
+
+    <!-- 로그 박스 -->
+    <div class="terminal" id="log-console">
+      <div class="log-line info">▶ 전송 세션을 생성하는 중...</div>
+    </div>
+
+    <!-- 결과 패널 -->
+    <div class="result-panel" id="result-panel">
+      <div class="result-title">데이터 전송 요약</div>
+      <div class="result-desc" id="result-text"></div>
+    </div>
+
+    <!-- 푸터 버튼 -->
+    <div class="footer">
+      <button class="btn-close" id="btn-close" onclick="closeWindow()">전송 대기 중...</button>
+    </div>
+  </div>
+
+  <script>
+    const logConsole = document.getElementById('log-console');
+    const progressBar = document.getElementById('progress-bar');
+    const percentText = document.getElementById('percent-text');
+    const mainStatusTitle = document.getElementById('main-status-title');
+    const mainStatusDesc = document.getElementById('main-status-desc');
+    const btnClose = document.getElementById('btn-close');
+    const resultPanel = document.getElementById('result-panel');
+    const resultText = document.getElementById('result-text');
+
+    // 각 단계 요소
+    const stageInit = document.getElementById('stage-init');
+    const stageBq = document.getElementById('stage-bq');
+    const stageDrive = document.getElementById('stage-drive');
+    const stageComplete = document.getElementById('stage-complete');
+
+    // 로그 출력 유틸리티
+    function addLog(text, type = 'normal') {
+      const line = document.createElement('div');
+      line.className = `log-line ${type}`;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+      logConsole.appendChild(line);
+      logConsole.scrollTop = logConsole.scrollHeight;
+    }
+
+    // 윈도우 닫기 이벤트 trigger
+    function closeWindow() {
+      if (window.electron && window.electron.send) {
+        window.electron.send('close-progress-window');
+      } else if (window.electronAPI && window.electronAPI.send) {
+        window.electronAPI.send('close-progress-window');
+      }
+    }
+
+    // IPC 리스너 바인딩
+    const receiveChannel = (window.electron && window.electron.receive) 
+      ? window.electron.receive 
+      : (window.electronAPI && window.electronAPI.receive)
+        ? window.electronAPI.receive
+        : null;
+
+    if (receiveChannel) {
+      addLog('IPC 데이터 리스너 바인딩 성공', 'success');
+
+      receiveChannel('transfer-status', (progress) => {
+        if (!progress) return;
+
+        const { stage, current, total, log, results } = progress;
+
+        // 1. 프로그레스 바 & 퍼센트 계산
+        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+        progressBar.style.width = `${percent}%`;
+        percentText.textContent = `${percent}%`;
+
+        // 2. 로그 추가
+        if (log) {
+          let logType = 'normal';
+          if (stage === 'completed' || log.includes('성공') || log.includes('완료')) logType = 'success';
+          else if (log.includes('실패') || log.includes('에러') || log.includes('오류')) logType = 'danger';
+          else if (log.includes('시작') || stage === 'bigquery' || stage === 'drive') logType = 'info';
+
+          addLog(log, logType);
+        }
+
+        // 3. 단계별 UI 제어
+        if (stage === 'starting') {
+          mainStatusTitle.textContent = '데이터 동기화 진행 중';
+          mainStatusDesc.textContent = `총 ${progress.validRecordsCount}건의 레코드와 ${progress.imagesCount}장의 이미지 분석본 전송 준비 중`;
+          
+          stageInit.className = 'stage-item completed';
+          stageBq.className = 'stage-item active';
+        } 
+        else if (stage === 'bigquery') {
+          mainStatusTitle.textContent = 'BigQuery 데이터 업로드';
+          mainStatusDesc.textContent = '추출된 구조화 데이터를 빅쿼리 데이터셋에 삽입하고 있습니다.';
+          
+          stageInit.className = 'stage-item completed';
+          stageBq.className = 'stage-item active';
+        }
+        else if (stage === 'bigquery_complete') {
+          mainStatusTitle.textContent = 'Google Drive 업로드 준비';
+          mainStatusDesc.textContent = '구글 드라이브 지정 폴더에 이미지 업로드를 시작합니다.';
+          
+          stageInit.className = 'stage-item completed';
+          stageBq.className = 'stage-item completed';
+          stageDrive.className = 'stage-item active';
+        }
+        else if (stage === 'drive') {
+          mainStatusTitle.textContent = 'Google Drive 업로드';
+          mainStatusDesc.textContent = '분석된 성적서 사본 이미지를 드라이브에 안전하게 업로드하고 있습니다.';
+          
+          stageInit.className = 'stage-item completed';
+          stageBq.className = 'stage-item completed';
+          stageDrive.className = 'stage-item active';
+        }
+        else if (stage === 'drive_progress') {
+          mainStatusDesc.textContent = `이미지 동기화 진행 중... (${current}/${total})`;
+        }
+        else if (stage === 'completed') {
+          mainStatusTitle.textContent = '동기화 완료';
+          mainStatusDesc.textContent = '모든 데이터 및 파일 백업이 성공적으로 마무리되었습니다.';
+          
+          stageInit.className = 'stage-item completed';
+          stageBq.className = 'stage-item completed';
+          stageDrive.className = 'stage-item completed';
+          stageComplete.className = 'stage-item completed';
+
+          // 결과 요약 패널 띄우기
+          resultPanel.style.display = 'block';
+          
+          const bqOk = results?.bigquery?.inserted || 0;
+          const bqFail = results?.bigquery?.failed || 0;
+          const drOk = results?.drive?.uploaded || 0;
+          const drFail = results?.drive?.failed || 0;
+
+          resultText.innerHTML = `
+            • BigQuery 레코드: 성공 <strong style="color:#10b981">${bqOk}건</strong> / 실패 <strong style="color:#ef4444">${bqFail}건</strong><br/>
+            • Google Drive 이미지: 업로드 <strong style="color:#10b981">${drOk}장</strong> / 실패 <strong style="color:#ef4444">${drFail}장</strong>
+          `;
+
+          // 닫기 버튼 활성화
+          btnClose.className = 'btn-close active';
+          btnClose.textContent = '닫기';
+        }
+      });
+    } else {
+      addLog('오류: Electron Context Bridge API를 로드하지 못했습니다.', 'danger');
+    }
+  </script>
+</body>
+</html>

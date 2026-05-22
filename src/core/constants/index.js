@@ -20,6 +20,12 @@ export const MENU_REGISTRY = [
       { id: 'pdf_parser', label: 'PDF 파서', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
     ]
   },
+  { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
+    children: [
+      { id: 'template_manager', label: '양식관리', workspaceId: 'template_manager', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'template_builder', label: '양식만들기', workspaceId: 'template_builder', appTarget: APP_TARGETS.ADMIN_APP },
+    ]
+  },
 ];
 
 export const ADMIN_MENU_REGISTRY = [];

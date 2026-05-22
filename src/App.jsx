@@ -1,40 +1,9 @@
-import React, { lazy, useState } from 'react';
-import { DEFAULT_TAB, MENU_ITEMS, getMenuLabel, validateMenuRegistry } from './core/constants';
+import React, { useState } from 'react';
+import { DEFAULT_TAB, getMenuLabel, validateMenuRegistry } from './core/constants';
+import { WORKSPACE_REGISTRY, getWorkspace, getWorkspaceMenuMeta, validateWorkspaceRegistry } from './core/workspaceRegistry.js';
 import { useAuthViewModel, LoginView } from './features/auth';
 import AppShell from './components/AppShell';
 import WorkspaceAdapter from './components/WorkspaceAdapter';
-
-const MemberManagementView = lazy(() => import('./features/members').then((module) => ({ default: module.MemberManagementView })));
-const BoardView = lazy(() => import('./features/board').then((module) => ({ default: module.BoardView })));
-const CertificateView = lazy(() => import('./features/certificate').then((module) => ({ default: module.CertificateView })));
-const PdfParserView = lazy(() => import('./features/certificate/pdf-parser/PdfParserView'));
-
-const WORKSPACE_REGISTRY = {
-    members: {
-        render: ({ currentUser }) => <MemberManagementView currentUser={currentUser} />,
-        helpText: '회원 및 현장 정보를 조회, 등록, 수정, 삭제합니다.'
-    },
-    data_admin: {
-        render: ({ currentUser }) => <div>데이터관리 워크스페이스</div>,
-        helpText: 'BigQuery 운영 테이블을 조회, 필터링, 수정, 삭제합니다.'
-    },
-    board: {
-        render: ({ currentUser }) => <BoardView currentUser={currentUser} />,
-        helpText: '공지사항 및 소통 게시판을 관리합니다.'
-    },
-    certificate: {
-        render: ({ currentUser, onTabChange }) => <CertificateView currentUser={currentUser} onTabChange={onTabChange} />,
-        helpText: '성적서를 조회, 업로드, 다운로드합니다.'
-    },
-    pdf_parser: {
-        render: () => <PdfParserView />,
-        helpText: 'PDF 성적서를 AI로 파싱해 Drive와 BigQuery에 업로드합니다.'
-    },
-};
-
-const getWorkspace = (workspaceId) => WORKSPACE_REGISTRY[workspaceId] || WORKSPACE_REGISTRY[DEFAULT_TAB];
-
-const getWorkspaceMenuMeta = (workspaceId) => MENU_ITEMS.find((menu) => menu.workspaceId === workspaceId || menu.id === workspaceId) || null;
 
 const renderWorkspace = (workspaceId, workspace, context) => {
     const menuMeta = getWorkspaceMenuMeta(workspaceId);
@@ -50,21 +19,12 @@ const renderWorkspace = (workspaceId, workspace, context) => {
     );
 };
 
-const validateWorkspaceRegistry = () => {
-    const menuErrors = validateMenuRegistry();
-    const missingWorkspaceErrors = MENU_ITEMS
-        .filter((menu) => menu.workspaceId && !WORKSPACE_REGISTRY[menu.workspaceId])
-        .map((menu) => `workspaceId 연결 누락: ${menu.id} -> ${menu.workspaceId}`);
-    const missingMenuMetaErrors = Object.keys(WORKSPACE_REGISTRY)
-        .filter((workspaceId) => !getWorkspaceMenuMeta(workspaceId) && workspaceId !== 'myinfo')
-        .map((workspaceId) => `workspace 메타데이터 연결 누락: ${workspaceId}`);
-
-    return [...menuErrors, ...missingWorkspaceErrors, ...missingMenuMetaErrors];
-};
-
-const registryErrors = validateWorkspaceRegistry();
-if (registryErrors.length > 0) {
-    console.warn('[Registry]', registryErrors.join('\n'));
+// 레지스트리 검증
+const menuErrors = validateMenuRegistry();
+const workspaceErrors = validateWorkspaceRegistry();
+const allErrors = [...menuErrors, ...workspaceErrors];
+if (allErrors.length > 0) {
+    console.warn('[Registry]', allErrors.join('\n'));
 }
 
 function App() {

@@ -62,11 +62,13 @@ module.exports = function(baseDir) {
       const driveRes = await drive.files.create({
         resource: { name: originalName, parents: [folderId] },
         media: { mimeType: req.file.mimetype, body: fs.createReadStream(filePath) },
-        fields: 'id, webViewLink, webContentLink'
+        fields: 'id, webViewLink, webContentLink',
+        supportsAllDrives: true,
       });
       await drive.permissions.create({
         fileId: driveRes.data.id,
-        requestBody: { role: 'reader', type: 'anyone' }
+        requestBody: { role: 'reader', type: 'anyone' },
+        supportsAllDrives: true,
       });
       res.json({
         success: true,

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { fork } = require('child_process');
 const { setupAutoUpdater, checkForUpdates } = require('./updater.cjs');
+const { registerWaterQualityHandlers } = require('./main-water-quality.cjs');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -57,12 +58,13 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Osoo Handle App',
+    title: '전국휴게소 오수처리장 통합관리시스템 중앙관리자용 프로그램',
     icon: path.join(__dirname, '..', 'public', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
+      webviewTag: true,
     },
     show: false,
     autoHideMenuBar: true,
@@ -142,6 +144,9 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
 
+  // 수질성적서 웹앱 통신 핸들러 등록
+  registerWaterQualityHandlers();
+
   if (!isDev) {
     setupAutoUpdater(mainWindow);
   }
@@ -157,6 +162,11 @@ app.on('before-quit', () => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('webview:getPreloadPath', () => {
+  const filePath = path.join(__dirname, 'preload-webview.js');
+  const formattedPath = filePath.replace(/\\/g, '/');
+  return `file:///${formattedPath}`;
+});
 ipcMain.handle('shell:openFile', async (_event, filePath) => {
   const err = await shell.openPath(filePath);
   if (err) throw new Error(err);

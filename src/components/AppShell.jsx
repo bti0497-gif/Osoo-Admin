@@ -1,5 +1,4 @@
 import React from 'react';
-import Header from './Header';
 import NavigationArea from './NavigationArea';
 import StatusBar from './StatusBar';
 import WorkspaceArea from './WorkspaceArea';
@@ -17,8 +16,6 @@ const AppShell = ({
 }) => {
     return (
         <div className="app-shell">
-            <Header />
-
             <div className="app-main-body">
                 <NavigationArea
                     user={user}

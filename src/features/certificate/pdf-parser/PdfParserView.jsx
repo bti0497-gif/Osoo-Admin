@@ -69,7 +69,10 @@ const S = {
   resultTitle: { fontWeight: 600, marginBottom: '4px', color: '#334155' },
 };
 
-pdfjs.GlobalWorkerOptions.workerSrc = './pdf.worker.min.mjs';
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -688,55 +691,144 @@ ${sitesMeta}
       let imageOk = 0, jsonOk = 0, imageFail = 0, jsonFail = 0;
       const unmatchedSites = [];
 
-      // 1단계: BigQuery INSERT 먼저
-      for (const ex of finalJsonList) {
-        try {
-          const r = await fetch(`${getApiBase()}/api/certificates/import-from-ai`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-            body: JSON.stringify({ ...ex, source_pdf_name: file?.name || null }),
+      if (window.electron && typeof window.electron.send === 'function') {
+        console.log('[Electron IPC] 일렉트론 환경 감지 - IPC 업로드 시작');
+        setBatchProgress(prev => ({ ...prev, detail: '이미지 데이터를 인코딩하고 있습니다...' }));
+
+        const imagesPayload = [];
+        for (let i = 0; i < allResults.length; i++) {
+          const res = allResults[i];
+          const ex = res.extracted;
+          if (!ex || !ex.record || !ex.include) continue;
+          const basename = generateBasename(ex, i + 1);
+          try {
+            const base64Data = await blobToBase64(res.imgBlob);
+            imagesPayload.push({
+              filename: `${basename}.jpg`,
+              content: base64Data,
+              siteName: ex.record.site_name,
+              reportDate: ex.record.report_date,
+              pageIndex: i + 1
+            });
+          } catch (err) {
+            console.error(`이미지 변환 실패: ${basename}`, err);
+          }
+        }
+
+        const ipcPayload = {
+          type: 'WATER_QUALITY_BATCH_COMPLETE',
+          payload: {
+            validRecords: finalJsonList,
+            images: imagesPayload,
+            source_pdf_name: file?.name || null
+          }
+        };
+
+        // 수신을 위한 Promise 생성
+        const uploadResultPromise = new Promise((resolve) => {
+          const cleanup = window.electron.receive('water-quality-response', (response) => {
+            console.log('[Electron IPC] water-quality-response 수신:', response);
+            if (cleanup) cleanup();
+            resolve(response);
           });
-          if (r.ok) {
-            jsonOk++;
-            const rData = await r.json().catch(() => ({}));
-            if (rData.manual_review_required) {
-              unmatchedSites.push({ name: rData.site_name_raw || ex.record?.site_name || '알 수 없음', unresolved: false });
-            } else if (ex.record?._site_unresolved) {
+        });
+
+        setBatchProgress(prev => ({ ...prev, detail: '일렉트론 모달에서 전송을 진행하는 중...' }));
+        window.electron.send('water-quality-message', ipcPayload);
+
+        const response = await uploadResultPromise;
+        const results = response?.results || {};
+        const bqRes = results.bigquery || { inserted: 0, failed: finalJsonList.length };
+        const drRes = results.drive || { uploaded: 0, failed: imagesPayload.length, results: [] };
+
+        if (finalJsonList) {
+          finalJsonList.forEach(ex => {
+            if (ex.record?._site_unresolved) {
               unmatchedSites.push({ name: '미확인현장', unresolved: true });
             }
-            console.log(`[BigQuery] 전송 성공:`, ex.record?.site_name, ex.record?.report_date);
-          } else {
+          });
+        }
+
+        imageOk = drRes.uploaded || 0;
+        imageFail = drRes.failed || 0;
+        jsonOk = bqRes.inserted || 0;
+        jsonFail = bqRes.failed || 0;
+
+        setUploadStatus({ imageOk, imageFail, jsonOk, jsonFail, unmatchedSites, completed: true });
+
+        setTimeout(() => {
+          setFile(null);
+          setNumPages(0);
+          setPageOrder([]);
+          setActivePage(1);
+          setAllResults([]);
+          setBatchProgress({ active: false, current: 0, total: 0, stage: null, pages: [] });
+          setGlobalBoxes({});
+        }, 3000);
+
+      } else {
+        console.warn('[Electron IPC] 일렉트론 환경이 아님 - 기존 REST API 방식으로 전송 진행');
+        // 1단계: BigQuery INSERT 먼저
+        for (const ex of finalJsonList) {
+          try {
+            const r = await fetch(`${getApiBase()}/api/certificates/import-from-ai`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...adminHeaders() },
+              body: JSON.stringify({ ...ex, source_pdf_name: file?.name || null }),
+            });
+            if (r.ok) {
+              jsonOk++;
+              const rData = await r.json().catch(() => ({}));
+              if (rData.manual_review_required) {
+                unmatchedSites.push({ name: rData.site_name_raw || ex.record?.site_name || '알 수 없음', unresolved: false });
+              } else if (ex.record?._site_unresolved) {
+                unmatchedSites.push({ name: '미확인현장', unresolved: true });
+              }
+              console.log(`[BigQuery] 전송 성공:`, ex.record?.site_name, ex.record?.report_date);
+            } else {
+              jsonFail++;
+              const t = await r.text();
+              console.error(`[BigQuery] 전송 실패(${r.status}):`, t.substring(0,200));
+            }
+          } catch (err) {
+            console.error('[BigQuery] 전송 예외:', err);
             jsonFail++;
-            const t = await r.text();
-            console.error(`[BigQuery] 전송 실패(${r.status}):`, t.substring(0,200));
           }
-        } catch (err) {
-          console.error('[BigQuery] 전송 예외:', err);
-          jsonFail++;
         }
-      }
 
-      // BigQuery DML 반영 대기 (INSERT 후 즉시 UPDATE 시 행을 못 찾는 문제 방지)
-      if (jsonOk > 0) await new Promise(r => setTimeout(r, 4000));
+        // BigQuery DML 반영 대기 (INSERT 후 즉시 UPDATE 시 행을 못 찾는 문제 방지)
+        if (jsonOk > 0) await new Promise(r => setTimeout(r, 4000));
 
-      // 2단계: Drive 업로드 (BigQuery 행이 존재한 후 drive_file_id UPDATE)
-      for (const res of allResults) {
-        const ex = res.extracted;
-        if (!ex || !ex.record || !ex.include) continue;
-        const basename = generateBasename(ex, allResults.indexOf(res) + 1);
-        const formData = new FormData();
-        formData.append('files', res.imgBlob, `${basename}.jpg`);
-        try {
-          const r = await fetch(`${getApiBase()}/api/certificates/manual-upload-file`, { method: 'POST', headers: adminHeaders(), body: formData });
-          if (r.ok) { imageOk++; console.log(`[Drive] 업로드 성공: ${basename}.jpg`); }
-          else { imageFail++; const t = await r.text(); console.error(`[Drive] 업로드 실패(${r.status}): ${basename}`, t.substring(0,200)); }
-        } catch (err) {
-          console.error(`[Drive] 업로드 예외: ${basename}`, err);
-          imageFail++;
+        // 2단계: Drive 업로드 (BigQuery 행이 존재한 후 drive_file_id UPDATE)
+        for (const res of allResults) {
+          const ex = res.extracted;
+          if (!ex || !ex.record || !ex.include) continue;
+          const basename = generateBasename(ex, allResults.indexOf(res) + 1);
+          const formData = new FormData();
+          formData.append('files', res.imgBlob, `${basename}.jpg`);
+          try {
+            const r = await fetch(`${getApiBase()}/api/certificates/manual-upload-file`, { method: 'POST', headers: adminHeaders(), body: formData });
+            if (r.ok) { imageOk++; console.log(`[Drive] 업로드 성공: ${basename}.jpg`); }
+            else { imageFail++; const t = await r.text(); console.error(`[Drive] 업로드 실패(${r.status}): ${basename}`, t.substring(0,200)); }
+          } catch (err) {
+            console.error(`[Drive] 업로드 예외: ${basename}`, err);
+            imageFail++;
+          }
         }
-      }
 
-      setUploadStatus({ imageOk, imageFail, jsonOk, jsonFail, unmatchedSites });
+        setUploadStatus({ imageOk, imageFail, jsonOk, jsonFail, unmatchedSites, completed: true });
+
+        // 3초 후 파싱 흔적 초기화 (완료 메시지 유지)
+        setTimeout(() => {
+          setFile(null);
+          setNumPages(0);
+          setPageOrder([]);
+          setActivePage(1);
+          setAllResults([]);
+          setBatchProgress({ active: false, current: 0, total: 0, stage: null, pages: [] });
+          setGlobalBoxes({});
+        }, 3000);
+      }
     }
 
     setProcessing(false);
@@ -825,6 +917,11 @@ ${sitesMeta}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
                     {uploadStatus && (
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                        {uploadStatus.completed && (
+                          <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', color: '#166534', fontWeight: 600 }}>
+                            ✅ 업로드 완료! (3초 후 초기화됩니다)
+                          </div>
+                        )}
                         <div style={S.statusBadge}>
                           이미지 {uploadStatus.imageOk}성공/{uploadStatus.imageFail}실패 &nbsp;|&nbsp; BigQuery {uploadStatus.jsonOk}성공/{uploadStatus.jsonFail}실패
                         </div>

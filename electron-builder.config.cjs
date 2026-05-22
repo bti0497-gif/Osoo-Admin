@@ -4,7 +4,7 @@
  */
 module.exports = {
   appId: 'com.osoo.admin-app',
-  productName: 'Osoo Admin App',
+  productName: 'Admin Only',
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
@@ -41,7 +41,7 @@ module.exports = {
     installerHeaderIcon: 'public/icon.ico',
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
-    shortcutName: 'Osoo Admin App',
+    shortcutName: 'Admin Only',
   },
   publish: null,
 };
