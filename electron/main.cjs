@@ -1,9 +1,15 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { fork } = require('child_process');
+const { fork, execSync } = require('child_process');
 const { setupAutoUpdater, checkForUpdates } = require('./updater.cjs');
-const { registerWaterQualityHandlers } = require('./main-water-quality.cjs');
+
+// Windows 터미널 한글 깨짐 방지
+if (process.platform === 'win32') {
+  try { execSync('chcp 65001', { stdio: 'ignore' }); } catch (_) {}
+}
+process.stdout.setEncoding?.('utf8');
+process.stderr.setEncoding?.('utf8');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -27,11 +33,11 @@ function startServer() {
   });
 
   serverProcess.stdout?.on('data', (data) => {
-    console.log(`[Server] ${data.toString().trim()}`);
+    console.log(`[Server] ${data.toString('utf8').trim()}`);
   });
 
   serverProcess.stderr?.on('data', (data) => {
-    console.error(`[Server Error] ${data.toString().trim()}`);
+    console.error(`[Server Error] ${data.toString('utf8').trim()}`);
   });
 
   serverProcess.on('exit', (code) => {
@@ -74,12 +80,15 @@ function createWindow() {
     mainWindow.show();
   });
 
-  if (isDev) {
+  const distIndex = path.join(__dirname, '..', 'dist', 'index.html');
+  const useDevServer = isDev && !fs.existsSync(distIndex);
+
+  if (useDevServer) {
     mainWindow.loadURL('http://localhost:8900');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(distIndex);
   }
+  if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -144,9 +153,6 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
 
-  // 수질성적서 웹앱 통신 핸들러 등록
-  registerWaterQualityHandlers();
-
   if (!isDev) {
     setupAutoUpdater(mainWindow);
   }
@@ -162,6 +168,30 @@ app.on('before-quit', () => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+// ROI 템플릿 파일 저장/읽기
+const roiTemplatePath = path.join(app.getPath('userData'), 'roi_template.json');
+
+ipcMain.handle('roi:save', (_event, data) => {
+  try {
+    fs.writeFileSync(roiTemplatePath, JSON.stringify(data, null, 2), 'utf8');
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('roi:load', () => {
+  try {
+    if (fs.existsSync(roiTemplatePath)) {
+      const raw = fs.readFileSync(roiTemplatePath, 'utf8');
+      return { success: true, data: JSON.parse(raw) };
+    }
+    return { success: true, data: null };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 ipcMain.handle('webview:getPreloadPath', () => {
   const filePath = path.join(__dirname, 'preload-webview.js');
   const formattedPath = filePath.replace(/\\/g, '/');

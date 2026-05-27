@@ -20,6 +20,7 @@ export function RoiToolbar({
   onProcess,
   processing,
   batchActive,
+  hasTemplate,
   uploadStatus,
   styles,
 }) {
@@ -59,27 +60,25 @@ export function RoiToolbar({
         </div>
       </div>
       
-      {!activeField && (
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <button 
-            onClick={onProcess} 
-            disabled={processing || batchActive} 
-            style={(processing || batchActive) ? styles.btnPrimaryDisabled : styles.btnPrimary}
-          >
-            {batchActive ? (
-              <>
-                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
-                처리 중...
-              </>
-            ) : (
-              <>
-                <CloudUpload size={16} />
-                전체 파싱 후 전송
-              </>
-            )}
-          </button>
-        </div>
-      )}
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <button 
+          onClick={onProcess} 
+          disabled={processing || batchActive || !hasTemplate} 
+          style={(processing || batchActive || !hasTemplate) ? styles.btnPrimaryDisabled : styles.btnPrimary}
+        >
+          {batchActive ? (
+            <>
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              처리 중...
+            </>
+          ) : (
+            <>
+              <CloudUpload size={16} />
+              전체 파싱 후 전송
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

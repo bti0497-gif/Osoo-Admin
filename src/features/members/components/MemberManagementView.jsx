@@ -22,12 +22,14 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     selectedMemberId,
     selectMember,
     newMemberRow,
+    updateEditingMemberField,
     memberEditMode,
     startNewMemberRow,
     cancelNewMemberRow,
     startEditSelectedMemberRow,
     saveNewMemberRow,
     deleteSelectedMember,
+    deleteMultipleMembers,
     isSavingMember,
     isDeletingMember,
     
@@ -37,6 +39,7 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     selectedSiteId,
     selectSite,
     newSiteRow,
+    updateEditingSiteField,
     queuedSiteRows,
     siteEditMode,
     startNewSiteRow,
@@ -44,6 +47,7 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     saveNewSiteRow,
     startEditSelectedSiteRow,
     deleteSelectedSite,
+    deleteMultipleSites,
     isSavingSite,
     isDeletingSite,
     
@@ -62,7 +66,6 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
   } = useMemberViewModel({ showAlert, showConfirm });
 
   const [manageTab, setManageTab] = useState('site');
-  const [registerTab, setRegisterTab] = useState('member');
 
   // View: 목록 화면
   if (viewMode === 'list') {
@@ -123,21 +126,6 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
             >
               회원 관리
             </button>
-            <button
-              onClick={() => setViewMode('register')}
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                background: '#fff',
-                color: '#334155',
-                fontWeight: 600,
-                cursor: 'pointer',
-                marginLeft: 'auto'
-              }}
-            >
-              회원/현장 등록 →
-            </button>
           </div>
 
           {/* Content */}
@@ -149,10 +137,12 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
                 selectedSiteId={selectedSiteId}
                 onSelectSite={selectSite}
                 newSiteRow={newSiteRow}
+                onFieldChange={updateEditingSiteField}
                 queuedSiteRows={queuedSiteRows}
                 onStartNewRow={startNewSiteRow}
                 onStartEdit={startEditSelectedSiteRow}
                 onDelete={deleteSelectedSite}
+                onDeleteMultiple={deleteMultipleSites}
                 onSave={saveNewSiteRow}
                 onCancel={cancelNewSiteRow}
                 isSaving={isSavingSite}
@@ -163,18 +153,22 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
             ) : (
               <MemberListPanel
                 members={members}
+                sites={sites}
                 selectedMemberId={selectedMemberId}
                 onSelectMember={selectMember}
                 newMemberRow={newMemberRow}
+                onFieldChange={updateEditingMemberField}
                 onStartNewRow={startNewMemberRow}
                 onStartEdit={startEditSelectedMemberRow}
                 onDelete={deleteSelectedMember}
+                onDeleteMultiple={deleteMultipleMembers}
                 onSave={saveNewMemberRow}
                 onCancel={cancelNewMemberRow}
                 isSaving={isSavingMember}
                 isDeleting={isDeletingMember}
                 isEditMode={memberEditMode}
                 loading={membersLoading}
+                onNavigateToSites={() => setManageTab('site')}
               />
             )}
           </div>
@@ -183,90 +177,7 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     );
   }
 
-  // View: 등록 화면 (간소화된 버전 - 상세 구현은 필요시 확장)
-  return (
-    <MemberViewErrorBoundary>
-      <div style={{ 
-        flex: 1, 
-        display: 'flex', 
-        flexDirection: 'column', 
-        background: 'white' 
-      }}>
-        <div style={{ 
-          padding: '0.5rem 1rem', 
-          borderBottom: '1px solid #e2e8f0', 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center' 
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => setViewMode('list')}
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                width: '30px', 
-                height: '30px', 
-                border: '1px solid #cbd5e1', 
-                borderRadius: '7px', 
-                background: 'white', 
-                cursor: 'pointer' 
-              }}
-            >
-              ←
-            </button>
-            <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900 }}>회원/현장 등록</h1>
-          </div>
-        </div>
-
-        <div style={{ 
-          padding: '0.5rem 1rem', 
-          borderBottom: '1px solid #e2e8f0', 
-          display: 'flex', 
-          gap: '0.5rem', 
-          backgroundColor: '#f8fafc' 
-        }}>
-          <button
-            onClick={() => setRegisterTab('member')}
-            style={{ 
-              padding: '0.5rem 1rem',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              background: registerTab === 'member' ? '#0f766e' : 'white',
-              color: registerTab === 'member' ? 'white' : '#334155',
-              fontWeight: 800,
-              cursor: 'pointer'
-            }}
-          >
-            회원 등록
-          </button>
-          <button
-            onClick={() => setRegisterTab('site')}
-            style={{ 
-              padding: '0.5rem 1rem',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1',
-              background: registerTab === 'site' ? '#0f766e' : 'white',
-              color: registerTab === 'site' ? 'white' : '#334155',
-              fontWeight: 800,
-              cursor: 'pointer'
-            }}
-          >
-            현장 등록
-          </button>
-        </div>
-
-        <div style={{ flex: 1, padding: '1rem', overflow: 'auto' }}>
-          {registerTab === 'member' ? (
-            <div>회원 등록 폼 (구현 필요)</div>
-          ) : (
-            <div>현장 등록 폼 (구현 필요)</div>
-          )}
-        </div>
-      </div>
-    </MemberViewErrorBoundary>
-  );
+  return null;
 }
 
 export { MemberManagementView };

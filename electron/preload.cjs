@@ -9,32 +9,21 @@ const electronAPISchema = {
   onUpdateError: (callback) => ipcRenderer.on('update:error', (_event, err) => callback(err)),
   savePdf: (options) => ipcRenderer.invoke('pdf:save', options),
   openFile: (filePath) => ipcRenderer.invoke('shell:openFile', filePath),
-  
-  // 수질성적서 웹앱 통신
-  sendWaterQualityData: (payload) => ipcRenderer.invoke('water-quality-upload', payload),
-  onUploadProgress: (callback) => ipcRenderer.on('upload-progress', (_event, data) => callback(data)),
-  onUploadComplete: (callback) => ipcRenderer.on('upload-complete', (_event, data) => callback(data)),
+  roiSave: (data) => ipcRenderer.invoke('roi:save', data),
+  roiLoad: () => ipcRenderer.invoke('roi:load'),
 
   // 웹뷰 프리로드 스크립트 경로 동적 제공
   getWebviewPreloadPath: () => ipcRenderer.invoke('webview:getPreloadPath'),
 
-  // IPC Send/Receive 통합 포트
+  // 하위 호환성 유지 (웹앱에서 호출해도 무시)
   send: (channel, data) => {
-    const validChannels = ['water-quality-message', 'water-quality-upload', 'upload-progress', 'upload-complete'];
-    if (validChannels.includes(channel)) {
-      ipcRenderer.send(channel, data);
-    }
+    console.log('[Preload] send called (no-op):', channel);
   },
   receive: (channel, func) => {
-    const validChannels = ['transfer-status', 'upload-progress', 'upload-complete', 'water-quality-response'];
-    if (validChannels.includes(channel)) {
-      const subscription = (event, ...args) => func(...args);
-      ipcRenderer.on(channel, subscription);
-      return () => {
-        ipcRenderer.removeListener(channel, subscription);
-      };
-    }
-  }
+    // no-op
+    return () => {};
+  },
+  isElectron: true
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPISchema);

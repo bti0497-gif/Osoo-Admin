@@ -13,7 +13,6 @@ export const MEMBER_GRID_COLUMN_WIDTHS = {
   role: 120,
   phone: 170,
   site_name1: 240,
-  selected_label: 100,
 };
 
 // 현장 그리드 컬럼 너비
@@ -22,7 +21,6 @@ export const SITE_GRID_COLUMN_WIDTHS = {
   manager_name: 170,
   method: 120,
   series: 120,
-  selected_label: 130,
 };
 
 // 권한 표시 맵
@@ -33,8 +31,8 @@ export const ROLE_LABEL_MAP = {
 };
 
 // 편집 키 상수
-export const MEMBER_EDIT_NEW_ROW_KEY = Symbol('MEMBER_NEW');
-export const SITE_EDIT_NEW_ROW_KEY = Symbol('SITE_NEW');
+export const MEMBER_EDIT_NEW_ROW_KEY = '__MEMBER_NEW_ROW__';
+export const SITE_EDIT_NEW_ROW_KEY = '__SITE_NEW_ROW__';
 
 /**
  * 권한 값 정규화

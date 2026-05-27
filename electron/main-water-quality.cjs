@@ -57,6 +57,18 @@ function registerWaterQualityHandlers() {
     const images = payload.images || (payload.image ? [payload.image] : []);
     const sourcePdfName = payload.source_pdf_name || message.payload.source_pdf_name || null;
 
+    // 디버깅: payload 구조 확인
+    console.log('[WaterQuality] payload keys:', Object.keys(payload));
+    if (validRecords.length > 0) {
+      const sample = validRecords[0];
+      console.log('[WaterQuality] 첫 레코드 keys:', Object.keys(sample.record || sample));
+      console.log('[WaterQuality] 첫 레코드 sample:', JSON.stringify(sample.record || sample).substring(0, 500));
+    }
+    if (images.length > 0) {
+      console.log('[WaterQuality] 첫 이미지 filename:', images[0].filename);
+      console.log('[WaterQuality] 첫 이미지 content length:', (images[0].content || '').length);
+    }
+
     console.log(`[WaterQuality] 분석 결과 수신 - 데이터: ${validRecords.length}건, 이미지: ${images.length}개`);
     
     const totalSteps = validRecords.length + images.length;
@@ -144,8 +156,17 @@ function registerWaterQualityHandlers() {
             }
           } catch (bqErr) {
             console.error('[WaterQuality] BigQuery 전송 에러:', bqErr.message);
+            console.error('[WaterQuality] BigQuery 에러 상세:', bqErr.stack || bqErr);
             results.bigquery = { success: false, error: bqErr.message, inserted: 0, failed: validRecords.length };
             completedSteps += validRecords.length;
+            if (progressWindow && !progressWindow.isDestroyed()) {
+              progressWindow.webContents.send('transfer-status', {
+                stage: 'bigquery_complete',
+                current: completedSteps,
+                total: totalSteps,
+                log: `❌ BigQuery 전송 실패: ${bqErr.message}`
+              });
+            }
           }
         }
 
@@ -178,29 +199,58 @@ function registerWaterQualityHandlers() {
             completedSteps += images.length;
           } catch (driveErr) {
             console.error('[WaterQuality] Google Drive 업로드 에러:', driveErr.message);
+            console.error('[WaterQuality] Drive 에러 상세:', driveErr.stack || driveErr);
             results.drive = { success: false, error: driveErr.message, uploaded: 0, failed: images.length };
             completedSteps += images.length;
+            if (progressWindow && !progressWindow.isDestroyed()) {
+              progressWindow.webContents.send('transfer-status', {
+                stage: 'drive_progress',
+                current: completedSteps,
+                total: totalSteps,
+                log: `❌ Google Drive 업로드 실패: ${driveErr.message}`
+              });
+            }
           }
         }
 
         // 3단계: 완료 응답 및 최종 상태 렌더링
+        const bqOk = results.bigquery?.inserted || 0;
+        const bqFail = results.bigquery?.failed || 0;
+        const drOk = results.drive?.uploaded || 0;
+        const drFail = results.drive?.failed || 0;
+        const hasErrors = (results.bigquery?.success === false) || (results.drive?.success === false);
+
         console.log('[WaterQuality] ========== 전송 프로세스 완료 ==========');
+        console.log(`[WaterQuality] BigQuery: 성공 ${bqOk}건, 실패 ${bqFail}건`);
+        console.log(`[WaterQuality] Drive: 성공 ${drOk}건, 실패 ${drFail}건`);
+        if (hasErrors) {
+          console.error('[WaterQuality] ⚠️ 일부 전송이 실패했습니다!');
+          if (results.bigquery?.error) console.error('[WaterQuality] BQ 에러:', results.bigquery.error);
+          if (results.drive?.error) console.error('[WaterQuality] Drive 에러:', results.drive.error);
+        }
+
         if (progressWindow && !progressWindow.isDestroyed()) {
+          const completedLog = hasErrors
+            ? `⚠️ 전송 완료 (일부 실패) - BQ: ${bqOk}성공/${bqFail}실패, Drive: ${drOk}성공/${drFail}실패`
+            : '✅ 모든 데이터 및 성적서 사본 전송이 성공적으로 완료되었습니다!';
           progressWindow.webContents.send('transfer-status', {
             stage: 'completed',
             current: totalSteps,
             total: totalSteps,
-            log: '모든 데이터 및 성적서 사본 전송이 완료되었습니다!',
+            log: completedLog,
             results
           });
         }
 
         // 웹앱 렌더러로도 완료 이벤트 송출
+        const responseStatus = hasErrors ? 'partial_failure' : 'success';
         event.sender.send('upload-complete', results);
         event.sender.send('water-quality-response', { 
-          status: 'success', 
+          status: responseStatus, 
           results,
-          message: '일렉트론 환경에서 모든 전송이 완료되었습니다!' 
+          message: hasErrors 
+            ? `전송 완료 (일부 실패) - BQ: ${bqOk}/${bqOk+bqFail}, Drive: ${drOk}/${drOk+drFail}`
+            : '일렉트론 환경에서 모든 전송이 완료되었습니다!' 
         });
 
       }, 1000);

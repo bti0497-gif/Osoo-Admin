@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { getApiBase } from '../../../core/api/serverConfig';
+import { getApiBase } from '../../../../core/api/serverConfig';
 
 const adminHeaders = () => ({
   'x-user-role': 'super_admin',
@@ -49,11 +49,11 @@ export function usePdfUpload() {
   /**
    * 이미지를 Google Drive에 업로드
    */
-  const uploadToDrive = useCallback(async (blob, basename, category = '성적서') => {
+  const uploadToDrive = useCallback(async (blob, basename, category = '성적서', reportDate) => {
     try {
       const formData = new FormData();
       formData.append('files', blob, `${basename}.jpg`);
-      formData.append('report_date', new Date().toISOString().split('T')[0]);
+      formData.append('report_date', reportDate || new Date().toISOString().split('T')[0]);
       formData.append('category', category);
 
       const res = await fetch(`${getApiBase()}/api/certificates/manual-upload-file`, {
@@ -118,13 +118,13 @@ export function usePdfUpload() {
       for (const result of results) {
         if (!result.extracted?.include || !result.imgBlob) continue;
 
-        const basename = result.extracted.basename;
-        if (!basename) continue;
+        const basename = result.extracted.basename || `page_${results.indexOf(result) + 1}`;
 
         const driveResult = await uploadToDrive(
           result.imgBlob,
           basename,
-          result.extracted.record?.category || '성적서'
+          result.extracted.record?.category || '성적서',
+          result.extracted.record?.report_date
         );
 
         if (driveResult.success) {

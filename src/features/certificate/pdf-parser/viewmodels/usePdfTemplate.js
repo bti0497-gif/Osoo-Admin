@@ -1,29 +1,59 @@
 import { useState, useCallback, useEffect } from 'react';
 
 const STORAGE_KEY = 'roi_template';
+const electron = window.electronAPI || window.electron;
 
 /**
  * PDF ROI 템플릿 관리 Hook
- * localStorage에 템플릿 저장/불러오기
+ * Electron IPC(userData 파일)로 저장, localStorage는 fallback
  */
 export function usePdfTemplate() {
-  const [globalBoxes, setGlobalBoxes] = useState({});
-  const [activeField, setActiveField] = useState(null);
-  const [showTemplateBoxes, setShowTemplateBoxes] = useState(true);
-
-  // 초기 로드
-  useEffect(() => {
+  const [globalBoxes, setGlobalBoxes] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setGlobalBoxes(parsed);
-        console.log('[usePdfTemplate] 템플릿 로드:', Object.keys(parsed));
+        console.log('[usePdfTemplate] 템플릿 초기 로드 (localStorage):', Object.keys(parsed));
+        return parsed;
       }
     } catch (e) {
-      console.error('[usePdfTemplate] 로드 실패:', e);
+      console.error('[usePdfTemplate] 초기 로드 실패:', e);
     }
+    return {};
+  });
+  const [activeField, setActiveField] = useState(null);
+  const [showTemplateBoxes, setShowTemplateBoxes] = useState(true);
+  const [initialized, setInitialized] = useState(false);
+
+  // Electron 파일에서 로드 (더 신뢰성 있음)
+  useEffect(() => {
+    if (!electron?.roiLoad) { setInitialized(true); return; }
+    electron.roiLoad().then(result => {
+      if (result?.success && result.data && Object.keys(result.data).length > 0) {
+        setGlobalBoxes(result.data);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data));
+        console.log('[usePdfTemplate] 템플릿 로드 (파일):', Object.keys(result.data));
+      }
+      setInitialized(true);
+    }).catch(() => setInitialized(true));
   }, []);
+
+  // globalBoxes 변경 시 자동 저장 (파일 + localStorage)
+  useEffect(() => {
+    if (!initialized) return;
+    if (Object.keys(globalBoxes).length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(globalBoxes));
+      } catch (e) {
+        console.error('[usePdfTemplate] localStorage 저장 실패:', e);
+      }
+      if (electron?.roiSave) {
+        electron.roiSave(globalBoxes).catch(e =>
+          console.error('[usePdfTemplate] 파일 저장 실패:', e)
+        );
+      }
+    }
+  }, [globalBoxes, initialized]);
 
   /**
    * 템플릿 저장
@@ -45,6 +75,7 @@ export function usePdfTemplate() {
   const clearTemplate = useCallback(() => {
     try {
       localStorage.removeItem(STORAGE_KEY);
+      if (electron?.roiSave) electron.roiSave({}).catch(() => {});
       setGlobalBoxes({});
       setActiveField(null);
       console.log('[usePdfTemplate] 템플릿 초기화');

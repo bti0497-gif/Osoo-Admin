@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import AdvancedDataGrid from '../../../../components/common/AdvancedDataGrid';
 import { getLockedRowEditGridProps } from '../../../../components/common/advancedDataGridPresets';
 import { 
@@ -10,14 +10,51 @@ import {
 /**
  * 회원 목록 패널
  */
+const EDITABLE_MEMBER_COLS = new Set(['name', 'password', 'role', 'phone', 'site_name1']);
+
+const ROLE_OPTIONS = [
+  { value: 'group_admin', label: '중앙관리자' },
+  { value: 'user', label: '현장관리자' },
+];
+const ROLE_LABEL_TO_CODE = Object.fromEntries(
+  Object.entries(ROLE_LABEL_MAP).map(([code, label]) => [label, code])
+);
+
+function DropdownEditor({ options, value, onChange, onCommit, onCancel, autoFocus }) {
+  return (
+    <select
+      autoFocus={autoFocus}
+      value={value}
+      onChange={(e) => { onChange(e.target.value); }}
+      onBlur={onCommit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onCommit();
+        if (e.key === 'Escape') onCancel();
+      }}
+      style={{
+        width: '100%', height: '100%', border: 'none', background: 'transparent',
+        outline: 'none', fontSize: 13, fontFamily: "'Inter', sans-serif", color: '#0D0D0D',
+        cursor: 'pointer', textAlign: 'center', textAlignLast: 'center',
+      }}
+    >
+      {options.map(opt => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
 export function MemberListPanel({
   members,
+  sites,
   selectedMemberId,
   onSelectMember,
   newMemberRow,
+  onFieldChange,
   onStartNewRow,
   onStartEdit,
   onDelete,
+  onDeleteMultiple,
   onSave,
   onCancel,
   isSaving,
@@ -25,14 +62,41 @@ export function MemberListPanel({
   isEditMode,
   loading,
   getManagedSiteNames,
+  onNavigateToSites,
 }) {
+  const [checkedIds, setCheckedIds] = useState(new Set());
+
+  const allIds = useMemo(() => {
+    const safe = Array.isArray(members) ? members.filter(Boolean) : [];
+    return safe.map(m => m.id);
+  }, [members]);
+
+  const toggleCheck = useCallback((id) => {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setCheckedIds(prev => {
+      if (prev.size === allIds.length && allIds.length > 0) return new Set();
+      return new Set(allIds);
+    });
+  }, [allIds]);
+
+  const hasChecked = checkedIds.size > 0;
+  const isSingleChecked = checkedIds.size === 1;
+
   const columns = useMemo(() => ([
+    { id: '__check', label: '☐', width: 40, align: 'center' },
     { id: 'name', label: '회원명', width: MEMBER_GRID_COLUMN_WIDTHS.name, align: 'center' },
     { id: 'password', label: '비밀번호', width: MEMBER_GRID_COLUMN_WIDTHS.password, align: 'center' },
     { id: 'role', label: '권한', width: MEMBER_GRID_COLUMN_WIDTHS.role, align: 'center' },
     { id: 'phone', label: '연락처', width: MEMBER_GRID_COLUMN_WIDTHS.phone, align: 'center' },
-    { id: 'site_name1', label: '소속 현장', width: MEMBER_GRID_COLUMN_WIDTHS.site_name1, align: 'center' },
-    { id: 'selected_label', label: '선택 상태', width: MEMBER_GRID_COLUMN_WIDTHS.selected_label, align: 'center' }
+    { id: 'site_name1', label: '소속 현장', width: MEMBER_GRID_COLUMN_WIDTHS.site_name1, align: 'center' }
   ]), []);
 
   const safeMembers = useMemo(() => 
@@ -44,17 +108,15 @@ export function MemberListPanel({
     let rows = safeMembers.map(member => ({
       ...member,
       password: member.password || '',
-      role: member.role || 'user',
-      role_display: ROLE_LABEL_MAP[member.role] || member.role,
+      role: ROLE_LABEL_MAP[member.role] || member.role || '현장관리자',
       phone: member.phone || '',
-      selected_label: selectedMemberId === member.id ? '선택됨' : ''
     }));
 
     if (newMemberRow) {
       if (newMemberRow.id) {
         rows = rows.map(row => (
           row.id === newMemberRow.id
-            ? { ...row, ...newMemberRow, role_display: ROLE_LABEL_MAP[newMemberRow.role] || newMemberRow.role, selected_label: '편집중' }
+            ? { ...row, ...newMemberRow, role: ROLE_LABEL_MAP[newMemberRow.role] || newMemberRow.role }
             : row
         ));
       } else {
@@ -62,21 +124,69 @@ export function MemberListPanel({
           id: MEMBER_EDIT_NEW_ROW_KEY,
           name: newMemberRow.name || '',
           password: newMemberRow.password || '',
-          role: newMemberRow.role || 'user',
-          role_display: ROLE_LABEL_MAP[newMemberRow.role || 'user'] || '현장관리자',
+          role: ROLE_LABEL_MAP[newMemberRow.role || 'user'] || '현장관리자',
           phone: newMemberRow.phone || '',
           site_name1: newMemberRow.site_name1 || '',
-          selected_label: '신규'
         });
       }
     }
 
     return rows;
-  }, [safeMembers, selectedMemberId, newMemberRow]);
+  }, [safeMembers, newMemberRow]);
+
+  const siteOptions = useMemo(() => {
+    const safeSites = Array.isArray(sites) ? sites : [];
+    const opts = [{ value: '', label: '-- 현장 선택 --' }];
+    safeSites
+      .filter(s => s && s.site_name)
+      .forEach(s => opts.push({ value: s.site_name, label: s.site_name }));
+    opts.push({ value: '__navigate_to_sites__', label: '현장 추가...' });
+    return opts;
+  }, [sites]);
+
+  const renderCellEditor = useCallback((row, col, val, editorProps) => {
+    if (col.id === 'role') {
+      const codeValue = ROLE_LABEL_TO_CODE[editorProps.value] || editorProps.value || 'user';
+      return (
+        <DropdownEditor
+          options={ROLE_OPTIONS}
+          value={codeValue}
+          onChange={(v) => {
+            editorProps.onChange(ROLE_LABEL_MAP[v] || v);
+            if (onFieldChange) onFieldChange('role', v);
+          }}
+          onCommit={editorProps.onCommit}
+          onCancel={editorProps.onCancel}
+          autoFocus={editorProps.autoFocus}
+        />
+      );
+    }
+    if (col.id === 'site_name1') {
+      return (
+        <DropdownEditor
+          options={siteOptions}
+          value={editorProps.value || ''}
+          onChange={(v) => {
+            if (v === '__navigate_to_sites__') {
+              editorProps.onCancel();
+              if (onNavigateToSites) onNavigateToSites();
+              return;
+            }
+            editorProps.onChange(v);
+            if (onFieldChange) onFieldChange('site_name1', v);
+          }}
+          onCommit={editorProps.onCommit}
+          onCancel={editorProps.onCancel}
+          autoFocus={editorProps.autoFocus}
+        />
+      );
+    }
+    return null;
+  }, [siteOptions, onFieldChange, onNavigateToSites]);
 
   const handleRowClick = (row) => {
     if (row.id === MEMBER_EDIT_NEW_ROW_KEY) return;
-    onSelectMember(row.id === selectedMemberId ? null : row.id);
+    toggleCheck(row.id);
   };
 
   return (
@@ -85,13 +195,38 @@ export function MemberListPanel({
         <AdvancedDataGrid
           loading={loading}
           columns={columns}
-          rows={gridData}
-          getRowId={(r) => r.id}
-          isRowLocked={null}
-          onRowClick={handleRowClick}
+          data={gridData}
+          keyField="id"
+          onRowSelect={handleRowClick}
           rowHeight={40}
-          headerRowHeight={MEMBER_GRID_COLUMN_WIDTHS.name}
-          {...getLockedRowEditGridProps({ headerFontSize: 12 })}
+          headerRowHeight={16}
+          headerFontSize={12}
+          isCellEditable={(row, col) => {
+            if (col.id === '__check') return false;
+            if (!isEditMode || !newMemberRow) return false;
+            const editKey = newMemberRow.id || MEMBER_EDIT_NEW_ROW_KEY;
+            return row.id === editKey && EDITABLE_MEMBER_COLS.has(col.id);
+          }}
+          onCellChange={(rowKey, colId, value) => {
+            if (onFieldChange) onFieldChange(colId, value);
+          }}
+          renderCellEditor={renderCellEditor}
+          renderCellDisplay={(row, col, val) => {
+            if (col.id === '__check') {
+              if (row.id === MEMBER_EDIT_NEW_ROW_KEY) return null;
+              return (
+                <input
+                  type="checkbox"
+                  checked={checkedIds.has(row.id)}
+                  onChange={(e) => { e.stopPropagation(); toggleCheck(row.id); }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#0f766e' }}
+                />
+              );
+            }
+            return val;
+          }}
+          {...getLockedRowEditGridProps(isEditMode, newMemberRow?.id || MEMBER_EDIT_NEW_ROW_KEY)}
         />
       </div>
 
@@ -163,8 +298,12 @@ export function MemberListPanel({
               회원 행 추가
             </button>
             <button
-              onClick={onStartEdit}
-              disabled={!selectedMemberId}
+              onClick={() => {
+                if (!isSingleChecked) return;
+                const id = [...checkedIds][0];
+                onStartEdit(id);
+              }}
+              disabled={!isSingleChecked}
               style={{ 
                 height: '34px', 
                 padding: '0 14px', 
@@ -174,15 +313,24 @@ export function MemberListPanel({
                 borderRadius: '8px',
                 fontWeight: 800,
                 fontSize: '0.76rem',
-                cursor: !selectedMemberId ? 'not-allowed' : 'pointer',
-                opacity: !selectedMemberId ? 0.6 : 1
+                cursor: !isSingleChecked ? 'not-allowed' : 'pointer',
+                opacity: !isSingleChecked ? 0.6 : 1
               }}
             >
-              수정
+              수정{isSingleChecked ? '' : ` (${checkedIds.size})`}
             </button>
             <button
-              onClick={onDelete}
-              disabled={!selectedMemberId || isDeleting}
+              onClick={() => {
+                if (!hasChecked) return;
+                const ids = [...checkedIds];
+                if (ids.length === 1) {
+                  onDelete(ids[0]);
+                } else {
+                  onDeleteMultiple(ids);
+                }
+                setCheckedIds(new Set());
+              }}
+              disabled={!hasChecked || isDeleting}
               style={{ 
                 height: '34px', 
                 padding: '0 14px', 
@@ -192,11 +340,11 @@ export function MemberListPanel({
                 borderRadius: '8px',
                 fontWeight: 800,
                 fontSize: '0.76rem',
-                cursor: (!selectedMemberId || isDeleting) ? 'not-allowed' : 'pointer',
-                opacity: (!selectedMemberId || isDeleting) ? 0.6 : 1
+                cursor: (!hasChecked || isDeleting) ? 'not-allowed' : 'pointer',
+                opacity: (!hasChecked || isDeleting) ? 0.6 : 1
               }}
             >
-              {isDeleting ? '삭제 중...' : '삭제'}
+              {isDeleting ? '삭제 중...' : `삭제${checkedIds.size > 1 ? ` (${checkedIds.size}건)` : ''}`}
             </button>
           </>
         )}

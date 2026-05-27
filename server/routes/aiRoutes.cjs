@@ -6,7 +6,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Gemini API Configuration
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = req_model => req_model || 'gemini-3.1-flash-lite';
+const GEMINI_MODEL = req_model => req_model || 'gemini-3.5-flash';
+console.log(`[aiRoutes] GEMINI_API_KEY loaded: ${GEMINI_API_KEY ? 'YES (' + GEMINI_API_KEY.substring(0, 8) + '...)' : 'NO'}`);
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // POST /api/generate-content

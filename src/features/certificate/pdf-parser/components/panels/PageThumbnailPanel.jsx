@@ -13,6 +13,7 @@ export function PageThumbnailPanel({
   onMovePage,
   onDeletePage,
   onFileChange,
+  onDocumentLoad,
   styles,
 }) {
   return (
@@ -43,7 +44,7 @@ export function PageThumbnailPanel({
       
       <div style={styles.thumbScroll}>
         {file && (
-          <Document file={file}>
+          <Document file={file} onLoadSuccess={(pdf) => onDocumentLoad?.(pdf)}>
             {Array.from({ length: numPages || 0 }, (_, index) => {
               const pageNum = index + 1;
               const isActive = activePage === pageNum;

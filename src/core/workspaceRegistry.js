@@ -7,7 +7,7 @@ import { DEFAULT_TAB, MENU_ITEMS } from './constants';
 const MemberManagementView = lazy(() => import('../features/members/index.jsx').then((m) => ({ default: m.MemberManagementView })));
 const BoardView = lazy(() => import('../features/board').then((m) => ({ default: m.BoardView })));
 const CertificateView = lazy(() => import('../features/certificate').then((m) => ({ default: m.CertificateView })));
-const WebviewPdfParser = lazy(() => import('../features/certificate/pdf-parser').then((m) => ({ default: m.WebviewPdfParser })));
+const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 
@@ -32,8 +32,8 @@ export const WORKSPACE_REGISTRY = {
     helpText: '성적서를 조회, 업로드, 다운로드합니다.'
   },
   pdf_parser: {
-    render: () => React.createElement(WebviewPdfParser),
-    helpText: 'AI로 수질성적서를 파싱하고 Drive/BigQuery에 업로드합니다. (Google AI Studio 웹앱)'
+    render: () => React.createElement(NewPdfParserView),
+    helpText: 'AI로 수질성적서를 파싱하고 Drive/BigQuery에 업로드합니다.'
   },
   gyeonggi_reports: {
     render: () => React.createElement('div', null, '경기대 요구 자료 작성 메인 화면'),

@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MemberModel } from './MemberModel';
 import { apiClient } from '../../core/api';
-
-export const SITE_EDIT_NEW_ROW_KEY = '__new_site_row__';
-export const MEMBER_EDIT_NEW_ROW_KEY = '__new_member_row__';
+import { MEMBER_EDIT_NEW_ROW_KEY, SITE_EDIT_NEW_ROW_KEY } from './constants';
 const ROLE_NOTE_MAP = {
     admin: '최고관리자',
     group_admin: '중앙관리자',
@@ -181,12 +179,13 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         }
     };
 
-    const startEditSelectedSiteRow = () => {
-        if (!selectedSiteId) {
+    const startEditSelectedSiteRow = (targetId) => {
+        const siteId = targetId || selectedSiteId;
+        if (!siteId) {
             showAlert?.('수정할 현장을 먼저 선택해 주세요.');
             return;
         }
-        const selected = sites.find(s => s.id === selectedSiteId);
+        const selected = sites.find(s => s.id === siteId);
         if (!selected) {
             showAlert?.('선택된 현장 정보를 찾을 수 없습니다.');
             return;
@@ -202,8 +201,9 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         setSiteEditRowKey(selected.id);
     };
 
-    const deleteSelectedSite = async () => {
-        if (!selectedSiteId) {
+    const deleteSelectedSite = async (targetId) => {
+        const siteId = targetId || selectedSiteId;
+        if (!siteId) {
             showAlert?.('삭제할 현장을 먼저 선택해 주세요.');
             return;
         }
@@ -214,12 +214,39 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
             async () => {
                 setIsDeletingSite(true);
                 try {
-                    await MemberModel.deleteSite(selectedSiteId);
+                    await MemberModel.deleteSite(siteId);
                     setNewSiteRow(null);
                     setSiteEditMode(false);
                     setSiteEditRowKey(null);
                     await loadSites();
                     showAlert?.('현장이 삭제되었습니다.');
+                } catch (err) {
+                    showAlert?.('현장 삭제 실패: ' + err.message);
+                } finally {
+                    setIsDeletingSite(false);
+                }
+            }
+        );
+    };
+
+    const deleteMultipleSites = async (ids) => {
+        if (!ids || ids.length === 0) return;
+
+        const label = ids.length === 1 ? '선택한 현장을' : `선택한 ${ids.length}개 현장을`;
+        showConfirm?.(
+            '현장 삭제',
+            `${label} 삭제하시겠습니까? 삭제 후 목록에서 숨김 처리됩니다.`,
+            async () => {
+                setIsDeletingSite(true);
+                try {
+                    for (const id of ids) {
+                        await MemberModel.deleteSite(id);
+                    }
+                    setNewSiteRow(null);
+                    setSiteEditMode(false);
+                    setSiteEditRowKey(null);
+                    await loadSites();
+                    showAlert?.(`${ids.length}개 현장이 삭제되었습니다.`);
                 } catch (err) {
                     showAlert?.('현장 삭제 실패: ' + err.message);
                 } finally {
@@ -270,13 +297,14 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         setMemberEditRowKey(null);
     };
 
-    const startEditSelectedMemberRow = () => {
-        if (!selectedMemberId) {
+    const startEditSelectedMemberRow = (targetId) => {
+        const memberId = targetId || selectedMemberId;
+        if (!memberId) {
             showAlert?.('수정할 회원을 먼저 선택해 주세요.');
             return;
         }
 
-        const selected = members.find(member => String(member.id) === String(selectedMemberId));
+        const selected = members.find(member => String(member.id) === String(memberId));
         if (!selected) {
             showAlert?.('선택된 회원 정보를 찾을 수 없습니다.');
             return;
@@ -332,8 +360,17 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         }
     };
 
-    const deleteSelectedMember = async () => {
-        if (!selectedMemberId) {
+    const updateEditingMemberField = (fieldId, value) => {
+        setNewMemberRow(prev => prev ? { ...prev, [fieldId]: value } : prev);
+    };
+
+    const updateEditingSiteField = (fieldId, value) => {
+        setNewSiteRow(prev => prev ? { ...prev, [fieldId]: value } : prev);
+    };
+
+    const deleteSelectedMember = async (targetId) => {
+        const memberId = targetId || selectedMemberId;
+        if (!memberId) {
             showAlert?.('삭제할 회원을 먼저 선택해 주세요.');
             return;
         }
@@ -344,7 +381,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
             async () => {
                 setIsDeletingMember(true);
                 try {
-                    await MemberModel.deleteMember(selectedMemberId);
+                    await MemberModel.deleteMember(memberId);
                     setNewMemberRow(null);
                     setMemberEditMode(false);
                     setMemberEditRowKey(null);
@@ -352,6 +389,32 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
                     showAlert?.('회원이 삭제되었습니다.');
                 } catch (err) {
                     showAlert?.('회원 삭제 실패: ' + err.message);
+                } finally {
+                    setIsDeletingMember(false);
+                }
+            }
+        );
+    };
+
+    const deleteMultipleMembers = async (ids) => {
+        if (!ids || ids.length === 0) return;
+        showConfirm?.(
+            '회원 일괄 삭제',
+            `선택한 ${ids.length}명의 회원을 삭제하시겠습니까?`,
+            async () => {
+                setIsDeletingMember(true);
+                try {
+                    for (const id of ids) {
+                        await MemberModel.deleteMember(id);
+                    }
+                    setNewMemberRow(null);
+                    setMemberEditMode(false);
+                    setMemberEditRowKey(null);
+                    await loadMembers();
+                    showAlert?.(`${ids.length}명의 회원이 삭제되었습니다.`);
+                } catch (err) {
+                    showAlert?.('회원 삭제 실패: ' + err.message);
+                    await loadMembers();
                 } finally {
                     setIsDeletingMember(false);
                 }
@@ -535,7 +598,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         selectedMemberId,
         selectMember,
         newMemberRow,
-        setNewMemberRow,
+        updateEditingMemberField,
         memberEditMode,
         memberEditRowKey,
         startNewMemberRow,
@@ -543,6 +606,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         startEditSelectedMemberRow,
         saveNewMemberRow,
         deleteSelectedMember,
+        deleteMultipleMembers,
         isSavingMember,
         isDeletingMember,
         sites,
@@ -550,7 +614,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         selectSite,
         newSiteRow,
         queuedSiteRows,
-        setNewSiteRow,
+        updateEditingSiteField,
         siteEditMode,
         siteEditRowKey,
         startNewSiteRow,
@@ -558,6 +622,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         saveNewSiteRow,
         startEditSelectedSiteRow,
         deleteSelectedSite,
+        deleteMultipleSites,
         isSavingSite,
         isDeletingSite,
         bootstrapMember,

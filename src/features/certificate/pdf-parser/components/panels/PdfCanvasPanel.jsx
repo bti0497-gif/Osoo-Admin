@@ -15,6 +15,7 @@ export function PdfCanvasPanel({
   onMouseDown,
   onMouseMove,
   onMouseUp,
+  onDocumentLoad,
   styles,
   fieldBorderColors,
   fieldBgColors,
@@ -32,7 +33,10 @@ export function PdfCanvasPanel({
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
           >
-            <Document file={file}>
+            <Document
+              file={file}
+              onLoadSuccess={(pdf) => onDocumentLoad?.(pdf)}
+            >
               <Page 
                 pageNumber={activePage} 
                 renderAnnotationLayer={false} 

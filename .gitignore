@@ -7,6 +7,7 @@ yarn-debug.log*
 # Google 서비스 계정 키 파일 (절대 커밋 금지)
 server/config/google-key.json
 server/config/*.json
+!server/config/*.example.json
 client_secret*.json
 client_secret_*.json
 yarn-error.log*
@@ -44,3 +45,6 @@ qntech-photo-test/
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase설정파일
+server/config/firebase-service-account.json

@@ -3,7 +3,7 @@
 /**
  * boardRoutes.cjs
  * ─────────────────────────────────────────────────────────────────────
- * 게시판 REST API (BigQuery 백엔드)
+ * 게시판 REST API (환경변수 BOARD_BACKEND에 따라 BigQuery 또는 Firebase)
  *
  * GET    /api/board/posts              게시글 목록
  * POST   /api/board/posts              게시글 작성
@@ -24,7 +24,7 @@ const {
   getPosts, getPost, createPost, updatePost, deletePost,
   getComments, createComment, deleteComment, getComment,
   isAdminRole, canViewPost
-} = require('../services/boardBigQueryService.cjs');
+} = require('../services/boardService.cjs');
 const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 
 function normalizeAttachments(value) {
@@ -114,7 +114,8 @@ module.exports = function () {
         content:     body.content,
         is_notice:   isAdminRole(user.role) ? body.is_notice : false,
         attachments: body.attachments != null ? normalizeAttachments(body.attachments) : undefined,
-        target_site: isAdminRole(user.role) ? body.target_site : existing.target_site
+        target_site: isAdminRole(user.role) ? body.target_site : existing.target_site,
+        author_role: existing.author_role || user.role
       });
       res.json({ success: true });
     } catch (err) { handleError(res, err, 'updatePost'); }
