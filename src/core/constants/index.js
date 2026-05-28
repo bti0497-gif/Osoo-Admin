@@ -20,6 +20,7 @@ export const MENU_REGISTRY = [
       { id: 'pdf_parser', label: 'PDF 파서', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
     ]
   },
+  { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
     children: [
       { id: 'template_manager', label: '양식관리', workspaceId: 'template_manager', appTarget: APP_TARGETS.ADMIN_APP },

@@ -6,9 +6,10 @@ const BACKEND_PORT_MAX = 8951;
 
 let backend = null;
 let frontend = null;
+let electron = null;
 let isShuttingDown = false;
 
-console.log('Restarting both Frontend (Vite) and Backend (Node) dev servers...');
+console.log('Starting Frontend (Vite), Backend (Node), and Electron...');
 
 function buildWindowsCleanupScript() {
     const scriptRoot = __dirname.replace(/'/g, "''");
@@ -30,7 +31,8 @@ Get-CimInstance Win32_Process |
             $_.CommandLine -match 'start\\.cjs' -or
             $_.CommandLine -match 'server\\.cjs' -or
             $_.CommandLine -match 'vite(?:\\.js)?' -or
-            $_.CommandLine -match 'npm(?:\\.cmd)?\\s+run\\s+dev(?::all)?'
+            $_.CommandLine -match 'npm(?:\\.cmd)?\\s+run\\s+dev(?::all)?' -or
+            $_.CommandLine -match 'electron(?:\\.exe)?'
         )
     } |
     ForEach-Object { [void]$candidateIds.Add([int]$_.ProcessId) }
@@ -96,8 +98,9 @@ function shutdown(exitCode = 0) {
     console.log('\nShutting down dev servers...');
     killProcessTree(frontend);
     killProcessTree(backend);
+    killProcessTree(electron);
 
-    setTimeout(() => process.exit(exitCode), 300);
+    setTimeout(() => process.exit(exitCode), 500);
 }
 
 function bindChildExit(childProcess, label) {
@@ -121,6 +124,12 @@ function bindChildExit(childProcess, label) {
     });
 }
 
+async function waitForServers() {
+    // 서버들이 준비될 시간을 줌 (3초)
+    console.log('[run-all] Waiting 3 seconds for servers to be ready...');
+    await new Promise(r => setTimeout(r, 3000));
+}
+
 async function startAll() {
     await cleanupExistingDevProcesses();
 
@@ -135,6 +144,17 @@ async function startAll() {
 
     bindChildExit(backend, 'backend');
     bindChildExit(frontend, 'frontend');
+
+    // Electron은 dev 서버를 사용하도록 강제 (빌드된 파일 무시)
+    await waitForServers();
+    console.log('[run-all] Starting Electron...');
+    electron = spawnCommand(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['electron', '.'], {
+        env: { 
+            ...process.env,
+            ELECTRON_FORCE_DEV_SERVER: '1'  // dev 서버 강제 사용
+        },
+    });
+    bindChildExit(electron, 'electron');
 
     process.on('SIGINT', () => shutdown(0));
     process.on('SIGTERM', () => shutdown(0));

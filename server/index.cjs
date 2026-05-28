@@ -48,6 +48,7 @@ app.use(require('./routes/aiRoutes.cjs')());
 app.use(require('./routes/locationRoutes.cjs')(BASE_DIR));
 app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter);
 app.use('/api/auth', require('./routes/authRoutes.cjs')());
+app.use(require('./routes/attendanceRoutes.cjs'));
 
 async function findFreePort(startPort, endPort) {
   for (let p = startPort; p <= endPort; p++) {

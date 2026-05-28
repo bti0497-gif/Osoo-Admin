@@ -81,7 +81,8 @@ function createWindow() {
   });
 
   const distIndex = path.join(__dirname, '..', 'dist', 'index.html');
-  const useDevServer = isDev && !fs.existsSync(distIndex);
+  const forceDevServer = process.env.ELECTRON_FORCE_DEV_SERVER === '1';
+  const useDevServer = isDev && (forceDevServer || !fs.existsSync(distIndex));
 
   if (useDevServer) {
     mainWindow.loadURL('http://localhost:8900');

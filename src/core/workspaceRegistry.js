@@ -10,6 +10,7 @@ const CertificateView = lazy(() => import('../features/certificate').then((m) =>
 const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
+const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
 
 // ============================================
 // 워크스페이스 레지스트리
@@ -46,6 +47,10 @@ export const WORKSPACE_REGISTRY = {
   template_builder: {
     render: () => React.createElement(TemplateBuilderView),
     helpText: '양식을 선택하고 BigQuery 데이터를 바인딩해 문서를 생성합니다.'
+  },
+  attendance_dashboard: {
+    render: () => React.createElement(AttendanceDashboardView),
+    helpText: '전국 현장관리자 출결현황을 조회합니다.'
   },
 };
 
