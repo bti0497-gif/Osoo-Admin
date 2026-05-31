@@ -8,6 +8,7 @@ const MemberManagementView = lazy(() => import('../features/members/index.jsx').
 const BoardView = lazy(() => import('../features/board').then((m) => ({ default: m.BoardView })));
 const CertificateView = lazy(() => import('../features/certificate').then((m) => ({ default: m.CertificateView })));
 const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView'));
+const WaterQualityQueryView = lazy(() => import('../features/certificate/water-quality-query/components/WaterQualityQueryView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
@@ -35,6 +36,10 @@ export const WORKSPACE_REGISTRY = {
   pdf_parser: {
     render: () => React.createElement(NewPdfParserView),
     helpText: 'AI로 수질성적서를 파싱하고 Drive/BigQuery에 업로드합니다.'
+  },
+  water_quality_query: {
+    render: () => React.createElement(WaterQualityQueryView),
+    helpText: 'BigQuery에 저장된 수질데이터를 월별/현장별로 조회합니다.'
   },
   gyeonggi_reports: {
     render: () => React.createElement('div', null, '경기대 요구 자료 작성 메인 화면'),

@@ -13,6 +13,7 @@ const adminHeaders = () => ({
 export function usePdfUpload() {
   const [uploadStatus, setUploadStatus] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null); // 진행 상태 추적
 
   /**
    * 단일 페이지 데이터 BigQuery에 INSERT
@@ -81,6 +82,18 @@ export function usePdfUpload() {
   const processUploads = useCallback(async (results, fileName) => {
     setUploading(true);
     
+    // 업로드 대상 계산
+    const bqTargets = results.filter(r => r.extracted?.include);
+    const driveTargets = results.filter(r => r.extracted?.include && r.imgBlob);
+    
+    setUploadProgress({
+      bqDone: 0,
+      bqTotal: bqTargets.length,
+      driveDone: 0,
+      driveTotal: driveTargets.length,
+      totalItems: bqTargets.length + driveTargets.length,
+    });
+    
     const stats = {
       imageOk: 0,
       imageFail: 0,
@@ -107,6 +120,12 @@ export function usePdfUpload() {
         } else {
           stats.jsonFail++;
         }
+        
+        // 진행 상태 업데이트
+        setUploadProgress(prev => ({
+          ...prev,
+          bqDone: prev.bqDone + 1,
+        }));
       }
 
       // DML 반영 대기
@@ -132,12 +151,23 @@ export function usePdfUpload() {
         } else {
           stats.imageFail++;
         }
+        
+        // 진행 상태 업데이트
+        setUploadProgress(prev => ({
+          ...prev,
+          driveDone: prev.driveDone + 1,
+        }));
       }
 
       setUploadStatus({
         ...stats,
         completed: true,
       });
+      
+      setUploadProgress(prev => ({
+        ...prev,
+        completed: true,
+      }));
 
       return stats;
     } catch (err) {
@@ -147,6 +177,10 @@ export function usePdfUpload() {
         error: err.message,
         completed: false,
       });
+      setUploadProgress(prev => ({
+        ...prev,
+        error: err.message,
+      }));
       return stats;
     } finally {
       setUploading(false);
@@ -159,12 +193,14 @@ export function usePdfUpload() {
   const resetStatus = useCallback(() => {
     setUploadStatus(null);
     setUploading(false);
+    setUploadProgress(null);
   }, []);
 
   return {
     // State
     uploadStatus,
     uploading,
+    uploadProgress, // 진행 상태 추가
     
     // Actions
     insertToBigQuery,

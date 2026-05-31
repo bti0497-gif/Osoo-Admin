@@ -15,6 +15,7 @@ import { movePage, deletePage } from '../utils/pdfManipulator';
 
 // Panels
 import { PageThumbnailPanel, PdfCanvasPanel, RoiToolbar, UploadStatusPanel } from './panels';
+import PdfUploadProgressWidget from './PdfUploadProgressWidget';
 
 // Styles
 import { getStyles } from './styles';
@@ -34,7 +35,7 @@ const fieldLabels = {
   date: '측정일',
   items: '측정항목',
   results: '측정결과',
-  location: '측정지점',
+  location: '측정현장',
 };
 
 const fieldBorderColors = {
@@ -114,7 +115,7 @@ export function NewPdfParserView() {
     completeBatch, resetBatch, progressPercent,
   } = usePdfBatch();
   
-  const { uploadStatus, processUploads, resetStatus, setUploadStatus } = usePdfUpload();
+  const { uploadStatus, uploading, uploadProgress, processUploads, resetStatus, setUploadStatus } = usePdfUpload();
 
   const { callGemini, postProcessResults } = usePdfGemini();
   
@@ -443,6 +444,13 @@ export function NewPdfParserView() {
         </div>
       )}
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
+
+      {/* PDF 업로드 진행 상황 위젯 */}
+      <PdfUploadProgressWidget 
+        uploadStatus={uploadProgress} 
+        uploading={uploading}
+        onClose={resetStatus}
+      />
     </div>
   );
 }

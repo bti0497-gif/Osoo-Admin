@@ -695,82 +695,36 @@ async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
     await bq.query({
       query: `
         INSERT INTO \`${DATASET_ID}.certificate_water_quality\` (
-          certificate_category, certificate_file_name, certificate_original_file_name,
-          drive_file_id, drive_web_view_link,
-          site_id, site_name, site_name_raw, local_id, report_date,
-          ss, bod, tn, tp, total_coliform, mlss, do, ph,
-          source_pdf_name, source_page_index, ai_confidence, site_match_confidence,
-          manual_review_required, warnings_json, source_payload_json,
-          created_at, updated_at, uploaded_at
+          site_name, site_name_raw, report_date,
+          items, results,
+          source_pdf_name, source_page_index,
+          uploaded_at
         )
         VALUES (
-          @certificate_category, @certificate_file_name, @certificate_original_file_name,
-          @drive_file_id, @drive_web_view_link,
-          @site_id, @site_name, @site_name_raw, @local_id, DATE(@report_date),
-          @ss, @bod, @tn, @tp, @total_coliform, @mlss, @do, @ph,
-          @source_pdf_name, @source_page_index, @ai_confidence, @site_match_confidence,
-          @manual_review_required, @warnings_json, @source_payload_json,
-          @created_at, @updated_at, @uploaded_at
+          @site_name, @site_name_raw, DATE(@report_date),
+          @items, @results,
+          @source_pdf_name, @source_page_index,
+          @uploaded_at
         )
       `,
       params: {
-      certificate_category: row.certificate_category || null,
-      certificate_file_name: row.certificate_file_name || null,
-      certificate_original_file_name: row.certificate_original_file_name || null,
-      drive_file_id: row.drive_file_id || null,
-      drive_web_view_link: row.drive_web_view_link || null,
-      site_id: row.site_id || null,
       site_name: row.site_name || null,
       site_name_raw: row.site_name_raw || null,
-      local_id: localId,
       report_date: reportDate,
-      ss: toNullableNumber(row.ss),
-      bod: toNullableNumber(row.bod),
-      tn: toNullableNumber(row.tn),
-      tp: toNullableNumber(row.tp),
-      total_coliform: toNullableNumber(row.total_coliform),
-      mlss: toNullableNumber(row.mlss),
-      do: toNullableNumber(row.do),
-      ph: toNullableNumber(row.ph),
+      items: buildItemsString(row),
+      results: buildResultsString(row),
       source_pdf_name: row.source_pdf_name || null,
       source_page_index: row.source_page_index != null ? Number(row.source_page_index) : null,
-      ai_confidence: toNullableNumber(row.ai_confidence),
-      site_match_confidence: toNullableNumber(row.site_match_confidence),
-      manual_review_required: Boolean(row.manual_review_required),
-      warnings_json: row.warnings_json || '[]',
-      source_payload_json: row.source_payload_json || '{}',
-      created_at: row.created_at || nowIso,
-      updated_at: nowIso,
       uploaded_at: nowIso,
     },
     types: {
-      certificate_category: 'STRING',
-      certificate_file_name: 'STRING',
-      certificate_original_file_name: 'STRING',
-      drive_file_id: 'STRING',
-      drive_web_view_link: 'STRING',
-      site_id: 'STRING',
       site_name: 'STRING',
       site_name_raw: 'STRING',
-      local_id: 'INT64',
       report_date: 'STRING',
-      ss: 'FLOAT64',
-      bod: 'FLOAT64',
-      tn: 'FLOAT64',
-      tp: 'FLOAT64',
-      total_coliform: 'FLOAT64',
-      mlss: 'FLOAT64',
-      do: 'FLOAT64',
-      ph: 'FLOAT64',
+      items: 'STRING',
+      results: 'STRING',
       source_pdf_name: 'STRING',
       source_page_index: 'INT64',
-      ai_confidence: 'FLOAT64',
-      site_match_confidence: 'FLOAT64',
-      manual_review_required: 'BOOL',
-      warnings_json: 'STRING',
-      source_payload_json: 'STRING',
-      created_at: 'TIMESTAMP',
-      updated_at: 'TIMESTAMP',
       uploaded_at: 'TIMESTAMP',
     },
   });
@@ -786,6 +740,34 @@ function toBaseName(filePath) {
   const normalized = String(filePath || '').replace(/\\/g, '/');
   const chunks = normalized.split('/').filter(Boolean);
   return chunks[chunks.length - 1] || '';
+}
+
+/**
+ * 측정항목 목록을 문자열로 변환 (예: "BOD,SS,TN,TP,총대장균군" 또는 "MLSS")
+ */
+function buildItemsString(row) {
+  const items = [];
+  if (row.bod != null) items.push('BOD');
+  if (row.ss != null) items.push('SS');
+  if (row.tn != null) items.push('TN');
+  if (row.tp != null) items.push('TP');
+  if (row.total_coliform != null) items.push('총대장균군');
+  if (row.mlss != null) items.push('MLSS');
+  return items.join(',');
+}
+
+/**
+ * 측정결과 값들을 문자열로 변환 (예: "12.5,8.2,15.3,0.8,1200" 또는 "2850")
+ */
+function buildResultsString(row) {
+  const results = [];
+  if (row.bod != null) results.push(String(row.bod));
+  if (row.ss != null) results.push(String(row.ss));
+  if (row.tn != null) results.push(String(row.tn));
+  if (row.tp != null) results.push(String(row.tp));
+  if (row.total_coliform != null) results.push(String(row.total_coliform));
+  if (row.mlss != null) results.push(String(row.mlss));
+  return results.join(',');
 }
 
 function isJsonFileName(fileName) {

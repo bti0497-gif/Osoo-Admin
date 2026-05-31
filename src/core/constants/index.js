@@ -18,6 +18,7 @@ export const MENU_REGISTRY = [
   { id: 'certificate', label: '성적서', icon: 'description', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'certificate', displayOrder: 40,
     children: [
       { id: 'pdf_parser', label: 'PDF 파서', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'water_quality_query', label: '수질데이터 조회', workspaceId: 'water_quality_query', appTarget: APP_TARGETS.ADMIN_APP },
     ]
   },
   { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },

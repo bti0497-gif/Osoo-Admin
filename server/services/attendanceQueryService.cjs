@@ -53,8 +53,8 @@ async function getDailyAttendance(date, siteId = null) {
   // TIMESTAMP 객체를 ISO 문자열로 변환
   return rows.map((row) => ({
     ...row,
-    login_time: row.login_time ? new Date(row.login_time).toISOString() : null,
-    logout_time: row.logout_time ? new Date(row.logout_time).toISOString() : null,
+    login_time: safeToISOString(row.login_time),
+    logout_time: safeToISOString(row.logout_time),
   }));
 }
 
@@ -96,8 +96,8 @@ async function getWeeklyAttendance(startDate, endDate, siteId = null) {
   // TIMESTAMP 객체를 ISO 문자열로 변환
   return rows.map((row) => ({
     ...row,
-    login_time: row.login_time ? new Date(row.login_time).toISOString() : null,
-    logout_time: row.logout_time ? new Date(row.logout_time).toISOString() : null,
+    login_time: safeToISOString(row.login_time),
+    logout_time: safeToISOString(row.logout_time),
   }));
 }
 
@@ -141,8 +141,8 @@ async function getMonthlyAttendance(yearMonth, siteId = null) {
   // TIMESTAMP 객체를 ISO 문자열로 변환
   return rows.map((row) => ({
     ...row,
-    login_time: row.login_time ? new Date(row.login_time).toISOString() : null,
-    logout_time: row.logout_time ? new Date(row.logout_time).toISOString() : null,
+    login_time: safeToISOString(row.login_time),
+    logout_time: safeToISOString(row.logout_time),
   }));
 }
 
@@ -172,3 +172,19 @@ module.exports = {
   getMonthlyAttendance,
   getSiteList,
 };
+
+/**
+ * 안전하게 날짜를 ISO 문자열로 변환 (Invalid time value 에러 방지)
+ * @param {*} value - BigQuery에서 반환된 값
+ * @returns {string|null}
+ */
+function safeToISOString(value) {
+  if (!value) return null;
+  try {
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString();
+  } catch (err) {
+    return null;
+  }
+}
