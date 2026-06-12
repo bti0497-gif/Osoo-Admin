@@ -1,4 +1,5 @@
 import { useAttendanceDashboard } from '../viewmodels/useAttendanceDashboard.js';
+import { AttendanceCalendarView } from './AttendanceCalendarView.jsx';
 
 /**
  * 출결 현황 대시보드 View
@@ -21,6 +22,9 @@ export function AttendanceDashboardView() {
     setSelectedRowId,
     refresh,
   } = useAttendanceDashboard();
+
+  const useCalendar = selectedSite !== 'all' && (period === 'weekly' || period === 'monthly');
+  const siteName = sites.find(s => s.site_id === selectedSite)?.site_name || selectedSite;
 
   return (
     <div style={styles.container}>
@@ -79,7 +83,17 @@ export function AttendanceDashboardView() {
       </header>
 
       {/* 그리드 영역 */}
-      <main style={styles.gridContainer}>
+      <main style={{ ...styles.gridContainer, padding: useCalendar ? '12px' : 0 }}>
+        {/* ── 달력 뷰 (특정 현장 + 주간/월별) ── */}
+        {useCalendar ? (
+          <AttendanceCalendarView
+            selectedDate={selectedDate}
+            selectedSite={selectedSite}
+            period={period}
+            siteName={siteName}
+          />
+        ) : (
+        <>
         {loading && (
           <div style={styles.loadingOverlay}>
             <div style={styles.spinner}></div>
@@ -107,9 +121,10 @@ export function AttendanceDashboardView() {
                 )}
                 <th style={{ ...styles.th, ...styles.thSite }}>현장명</th>
                 <th style={{ ...styles.th, ...styles.thWorker }}>근무자</th>
-                <th style={{ ...styles.th, ...styles.thCheckIn }}>출근시간</th>
-                <th style={{ ...styles.th, ...styles.thCheckOut }}>퇴근시간</th>
-                <th style={{ ...styles.th, ...styles.thNote }}>비고</th>
+                <th style={{ ...styles.th, ...styles.thCheckIn }}>출근</th>
+                <th style={{ ...styles.th, ...styles.thCheckOut }}>퇴근</th>
+                <th style={{ ...styles.th, ...styles.thStatus }}>판정</th>
+                <th style={{ ...styles.th, ...styles.thAccess }}>접속</th>
               </tr>
             </thead>
             <tbody>
@@ -127,17 +142,45 @@ export function AttendanceDashboardView() {
                     )}
                     <td style={{ ...styles.td, textAlign: 'left' }}>{row.siteName}</td>
                     <td style={{ ...styles.td, textAlign: 'center' }}>{row.worker}</td>
-                    <td style={{ ...styles.td, textAlign: 'center' }}>{row.checkIn}</td>
-                    <td style={{ ...styles.td, textAlign: 'center' }}>{row.checkOut}</td>
-                    <td style={{ ...styles.td, textAlign: 'center' }}>{row.note}</td>
+                    <td style={{ ...styles.td, textAlign: 'center', fontFamily: 'monospace' }}>{row.checkIn}</td>
+                    <td style={{ ...styles.td, textAlign: 'center', fontFamily: 'monospace',
+                      color: row.checkOut === '근무중' ? '#3b82f6' : 'inherit',
+                      fontWeight: row.checkOut === '근무중' ? 600 : 'normal',
+                    }}>{row.checkOut}</td>
+                    <td style={{ ...styles.td, textAlign: 'center' }}>
+                      {badgeSpan(row.judgment)}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: 'center' }}>
+                      <span title={row.remoteEvidence || row.remoteType || undefined}
+                        style={{ cursor: row.remoteEvidence ? 'help' : 'default' }}>
+                        {badgeSpan(row.access, !!row.remoteEvidence)}
+                      </span>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </main>
     </div>
+  );
+}
+
+function badgeSpan(item, dashed = false) {
+  if (!item) return '-';
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: '10px',
+      fontSize: '11px', fontWeight: 600,
+      background: `${item.color}22`,
+      color: item.color || '#94a3b8',
+      borderBottom: dashed ? '1px dashed currentColor' : 'none',
+    }}>
+      {item.label}
+    </span>
   );
 }
 
@@ -222,14 +265,14 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-  // 열 너비 비율: 번호(5%, 50px), 날짜(12%, 100px), 현장명(30%), 근무자(13%), 출근(11%, 60px), 퇴근(11%, 60px), 비고(9%, 50px)
-  thNo: { width: '5%', minWidth: '50px' },
-  thDate: { width: '12%', minWidth: '100px' },
-  thSite: { width: '30%', minWidth: '120px' },
-  thWorker: { width: '13%', minWidth: '80px' },
-  thCheckIn: { width: '11%', minWidth: '60px' },
-  thCheckOut: { width: '11%', minWidth: '60px' },
-  thNote: { width: '9%', minWidth: '50px' },
+  thNo: { width: '4%', minWidth: '40px' },
+  thDate: { width: '10%', minWidth: '90px' },
+  thSite: { width: '22%', minWidth: '100px' },
+  thWorker: { width: '10%', minWidth: '70px' },
+  thCheckIn: { width: '10%', minWidth: '70px' },
+  thCheckOut: { width: '10%', minWidth: '70px' },
+  thStatus: { width: '8%', minWidth: '60px' },
+  thAccess: { width: '8%', minWidth: '60px' },
   tr: {
     borderBottom: '1px solid #e2e8f0',
     cursor: 'pointer',

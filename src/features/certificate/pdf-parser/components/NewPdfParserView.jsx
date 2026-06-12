@@ -121,13 +121,29 @@ export function NewPdfParserView() {
   
   // Toast
   const [toast, setToast] = useState(null);
-  const showToast = (msg, type = 'success') => {
+  const showToast = useCallback((msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2000);
-  };
+  }, []);
 
   const styles = getStyles();
   const processing = batchProgress.active;
+
+  // 처리 완료 후 3초 뒤 자동 초기화
+  const isDone = batchProgress.stage === 'done';
+  useEffect(() => {
+    if (!isDone) return;
+    const timer = setTimeout(() => {
+      resetBatch();
+      resetStatus();
+      setFile(null);
+      setNumPages(0);
+      setPdfDoc(null);
+      setActivePage(1);
+      showToast('전송 완료! 초기화되었습니다.');
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [isDone, resetBatch, resetStatus, showToast]);
 
   // PDF 로드 완료
   const handleDocumentLoad = (pdf) => {
@@ -333,19 +349,7 @@ export function NewPdfParserView() {
                   <div style={{ color: '#64748b' }}>전송 데이터 없음</div>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  resetBatch();
-                  resetStatus();
-                  setFile(null);
-                  setNumPages(0);
-                  setPdfDoc(null);
-                  setActivePage(1);
-                }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '8px 24px', borderRadius: '6px', fontSize: '14px', fontWeight: 500, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer', alignSelf: 'flex-end' }}
-              >
-                닫기
-              </button>
+              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'right' }}>3초 후 자동으로 초기화됩니다...</div>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useWaterQualityQuery } from '../viewmodels/useWaterQualityQuery';
 
 /**
@@ -28,20 +28,28 @@ export default function WaterQualityQueryView() {
   // 월 선택을 위한 옵션
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
 
-  // 그리드 컬럼 정의 (간소화된 스키마)
+  // 그리드 컬럼 정의
   const columns = [
     { key: 'no', label: '번호', width: '60px' },
-    { key: 'report_date', label: '채수날짜', width: '120px' },
-    { key: 'site_name', label: '현장명', width: '200px' },
-    { key: 'items', label: '측정항목', width: '200px' },
-    { key: 'results', label: '측정결과', width: '200px' },
-    { key: 'uploaded_at', label: '업로드시간', width: '150px' },
+    { key: 'report_date', label: '채수날짜', width: '110px' },
+    { key: 'category', label: '종류', width: '90px' },
+    { key: 'site_name', label: '현장명', width: '180px' },
+    { key: 'bod', label: 'BOD', width: '70px' },
+    { key: 'ss', label: 'SS', width: '70px' },
+    { key: 'tn', label: 'TN', width: '70px' },
+    { key: 'tp', label: 'TP', width: '70px' },
+    { key: 'mlss', label: 'MLSS', width: '70px' },
+    { key: 'total_coliform', label: '총대장균군', width: '90px' },
   ];
 
   const styles = {
     container: {
       padding: '20px',
       fontFamily: 'system-ui, -apple-system, sans-serif',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
     },
     header: {
       marginBottom: '20px',
@@ -100,6 +108,8 @@ export default function WaterQualityQueryView() {
     },
     gridContainer: {
       overflowX: 'auto',
+      overflowY: 'auto',
+      flex: 1,
       border: '1px solid #e2e8f0',
       borderRadius: '8px',
     },
@@ -113,9 +123,12 @@ export default function WaterQualityQueryView() {
       backgroundColor: '#f1f5f9',
       color: '#475569',
       fontWeight: 600,
-      textAlign: 'left',
+      textAlign: 'center',
       borderBottom: '1px solid #e2e8f0',
       whiteSpace: 'nowrap',
+      position: 'sticky',
+      top: 0,
+      zIndex: 1,
     },
     td: {
       padding: '10px 8px',
@@ -147,6 +160,8 @@ export default function WaterQualityQueryView() {
       fontSize: '14px',
     },
   };
+
+  const [hoveredIdx, setHoveredIdx] = useState(null);
 
   return (
     <div style={styles.container}>
@@ -233,7 +248,12 @@ export default function WaterQualityQueryView() {
                   data.map((row, index) => (
                     <tr
                       key={index}
-                      style={index % 2 === 1 ? styles.trHover : undefined}
+                      onMouseEnter={() => setHoveredIdx(index)}
+                      onMouseLeave={() => setHoveredIdx(null)}
+                      style={{
+                        background: hoveredIdx === index ? '#e0f2fe' : index % 2 === 1 ? '#f8fafc' : '#fff',
+                        transition: 'background 0.1s',
+                      }}
                     >
                       {columns.map((col) => {
                         let value = row[col.key];
@@ -243,16 +263,8 @@ export default function WaterQualityQueryView() {
                         }
                         // 채수날짜: 날짜만 표시
                         else if (col.key === 'report_date' && value) {
-                          try {
-                            const date = new Date(value);
-                            value = date.toLocaleDateString('ko-KR', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                            });
-                          } catch {
-                            value = row[col.key];
-                          }
+                          const s = typeof value === 'object' && value?.value ? value.value : String(value);
+                          value = s.slice(0, 10);
                         }
                         // 업로드시간: 날짜+시간 표시
                         else if (col.key === 'uploaded_at' && value) {

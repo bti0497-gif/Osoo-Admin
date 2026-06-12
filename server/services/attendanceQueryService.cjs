@@ -20,42 +20,23 @@ async function getDailyAttendance(date, siteId = null) {
   if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
 
   let query = `
-    SELECT 
-      id,
-      site_id,
-      site_name,
-      member_id,
-      member_name,
-      date,
-      login_time,
-      logout_time,
-      location_matched,
-      remote_session_detected,
-      auto_logout
+    SELECT
+      id, site_id, site_name, member_id, member_name, date,
+      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
+      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
+      location_matched, remote_session_detected,
+      remote_session_type, remote_session_evidence,
+      auto_logout, uploaded_at
     FROM \`${DATASET_ID}.attendance\`
     WHERE date = @date
   `;
 
   const params = { date };
-
-  if (siteId) {
-    query += ` AND site_id = @siteId`;
-    params.siteId = siteId;
-  }
-
+  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
   query += ` ORDER BY site_name, member_name`;
 
-  const [rows] = await bq.query({
-    query,
-    params,
-  });
-
-  // TIMESTAMP 객체를 ISO 문자열로 변환
-  return rows.map((row) => ({
-    ...row,
-    login_time: safeToISOString(row.login_time),
-    logout_time: safeToISOString(row.logout_time),
-  }));
+  const [rows] = await bq.query({ query, params });
+  return rows.map(normalizeRow);
 }
 
 /**
@@ -69,36 +50,23 @@ async function getWeeklyAttendance(startDate, endDate, siteId = null) {
   if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
 
   let query = `
-    SELECT 
-      site_id,
-      site_name,
-      member_id,
-      member_name,
-      date,
-      login_time,
-      logout_time,
-      location_matched,
-      remote_session_detected
+    SELECT
+      id, site_id, site_name, member_id, member_name, date,
+      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
+      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
+      location_matched, remote_session_detected,
+      remote_session_type, remote_session_evidence,
+      auto_logout, uploaded_at
     FROM \`${DATASET_ID}.attendance\`
     WHERE date BETWEEN @startDate AND @endDate
   `;
 
   const params = { startDate, endDate };
-
-  if (siteId) {
-    query += ` AND site_id = @siteId`;
-    params.siteId = siteId;
-  }
-
-  query += ` ORDER BY date, site_name, member_name`;
+  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
+  query += ` ORDER BY date DESC, login_time DESC`;
 
   const [rows] = await bq.query({ query, params });
-  // TIMESTAMP 객체를 ISO 문자열로 변환
-  return rows.map((row) => ({
-    ...row,
-    login_time: safeToISOString(row.login_time),
-    logout_time: safeToISOString(row.logout_time),
-  }));
+  return rows.map(normalizeRow);
 }
 
 /**
@@ -111,39 +79,27 @@ async function getMonthlyAttendance(yearMonth, siteId = null) {
   if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
 
   const startDate = `${yearMonth}-01`;
-  const endDate = `${yearMonth}-31`;
+  const lastDay = new Date(new Date(`${yearMonth}-01`).getFullYear(), new Date(`${yearMonth}-01`).getMonth() + 1, 0).getDate();
+  const endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
 
   let query = `
-    SELECT 
-      site_id,
-      site_name,
-      member_id,
-      member_name,
-      date,
-      login_time,
-      logout_time,
-      location_matched,
-      remote_session_detected
+    SELECT
+      id, site_id, site_name, member_id, member_name, date,
+      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
+      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
+      location_matched, remote_session_detected,
+      remote_session_type, remote_session_evidence,
+      auto_logout, uploaded_at
     FROM \`${DATASET_ID}.attendance\`
     WHERE date BETWEEN @startDate AND @endDate
   `;
 
   const params = { startDate, endDate };
-
-  if (siteId) {
-    query += ` AND site_id = @siteId`;
-    params.siteId = siteId;
-  }
-
-  query += ` ORDER BY date, site_name, member_name`;
+  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
+  query += ` ORDER BY date DESC, login_time DESC`;
 
   const [rows] = await bq.query({ query, params });
-  // TIMESTAMP 객체를 ISO 문자열로 변환
-  return rows.map((row) => ({
-    ...row,
-    login_time: safeToISOString(row.login_time),
-    logout_time: safeToISOString(row.logout_time),
-  }));
+  return rows.map(normalizeRow);
 }
 
 /**
@@ -174,17 +130,12 @@ module.exports = {
 };
 
 /**
- * 안전하게 날짜를 ISO 문자열로 변환 (Invalid time value 에러 방지)
- * @param {*} value - BigQuery에서 반환된 값
- * @returns {string|null}
+ * BigQuery 값 정리 - { value: '...' } 객체 평탄화
  */
-function safeToISOString(value) {
-  if (!value) return null;
-  try {
-    const date = new Date(value);
-    if (isNaN(date.getTime())) return null;
-    return date.toISOString();
-  } catch (err) {
-    return null;
+function normalizeRow(row) {
+  const norm = {};
+  for (const [k, v] of Object.entries(row)) {
+    norm[k] = (v !== null && typeof v === 'object' && 'value' in v) ? v.value : v;
   }
+  return norm;
 }

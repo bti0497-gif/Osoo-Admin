@@ -639,6 +639,38 @@ async function upsertCertificateFileMeta({
   return targets.length;
 }
 
+/**
+ * 성적서 카테고리 결정 (파일명 접두어 기준)
+ * generateBasename 로직과 동일하게 유지
+ */
+function resolveCategory(row) {
+  const isNum = (v) => v != null && v !== '';
+  const hasOthers = isNum(row.bod) || isNum(row.tn) || isNum(row.tp) || isNum(row.total_coliform);
+  const hasMlss = isNum(row.mlss);
+  const hasSsOnly = isNum(row.ss) && !hasMlss && !hasOthers;
+  if (!hasOthers && hasMlss) return 'mlss';
+  if (!hasOthers && !hasMlss && hasSsOnly) return 'ss';
+  if (!hasOthers && !hasMlss && !hasSsOnly) return '기타_성적서';
+  return '성적서';
+}
+
+/**
+ * drive_file_name 생성: {category}_{YYYYMMDD}_{site_name}.jpg
+ */
+function buildDriveFileName(row, reportDate) {
+  const category = resolveCategory(row);
+  const dateCompact = (reportDate || '').replace(/-/g, '');
+  const siteNorm = String(row.site_name || '').replace(/[\/\\?%*:|"<>\s]/g, '_').trim();
+  return `${category}_${dateCompact}_${siteNorm}.jpg`;
+}
+
+/**
+ * 행 ID 생성: UUID v4
+ */
+function buildRowId() {
+  return require('crypto').randomUUID();
+}
+
 async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
   const bq = getBigQueryClient();
   if (!bq) throw new Error('BigQuery 연결이 필요합니다.');
@@ -648,92 +680,42 @@ async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
     console.log('[upsertCertificateRowToBigQuery] invalid_date:', row.report_date);
     return { inserted: false, reason: 'invalid_date' };
   }
-  const nowIso = new Date().toISOString();
-  const localId = Number(`${Date.now()}${String(uniqueIndex % 1000).padStart(3, '0')}`);
+  const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
+  const rowId = buildRowId();
+  const driveFileName = buildDriveFileName(row, reportDate);
+  const category = resolveCategory(row);
 
-  console.log('[upsertCertificateRowToBigQuery] INSERT:', {
-    reportDate,
-    siteId: row.site_id,
-    siteName: row.site_name,
-    ss: row.ss,
-    bod: row.bod,
+  console.log('[upsertCertificateRowToBigQuery] upsert:', {
+    reportDate, siteName: row.site_name, category, driveFileName,
   });
 
+  // insertRows API로 빠르게 추가 (스트리밍 방식 - DML보다 빠름)
+  // 중복 방지는 조회 시 uploaded_at 기준 최신 1건 사용
+  const dataset = bq.dataset(DATASET_ID);
+  const table = dataset.table('water_quality');
   try {
-    await bq.query({
-      query: `
-        DELETE FROM \`${DATASET_ID}.certificate_water_quality\`
-        WHERE report_date = DATE(@reportDate)
-          AND (
-            (@siteId IS NOT NULL AND site_id = @siteId)
-            OR (@siteName IS NOT NULL AND site_name = @siteName)
-          )
-          AND (
-            @sourcePdfName IS NULL
-            OR source_pdf_name IS NULL
-            OR source_pdf_name = @sourcePdfName
-          )
-      `,
-      params: {
-        reportDate,
-        siteId: row.site_id || null,
-        siteName: row.site_name || null,
-        sourcePdfName: row.source_pdf_name || null,
-      },
-      types: {
-        reportDate: 'STRING',
-        siteId: 'STRING',
-        siteName: 'STRING',
-        sourcePdfName: 'STRING',
-      },
-    });
-  } catch (delErr) {
-    console.error('[upsertCertificateRowToBigQuery] DELETE error:', delErr.message);
-  }
-
-  try {
-    await bq.query({
-      query: `
-        INSERT INTO \`${DATASET_ID}.certificate_water_quality\` (
-          site_name, site_name_raw, report_date,
-          items, results,
-          source_pdf_name, source_page_index,
-          uploaded_at
-        )
-        VALUES (
-          @site_name, @site_name_raw, DATE(@report_date),
-          @items, @results,
-          @source_pdf_name, @source_page_index,
-          @uploaded_at
-        )
-      `,
-      params: {
+    await table.insert([{
+      id: rowId,
+      uploaded_at: nowIso,
+      report_date: reportDate,
+      category,
       site_name: row.site_name || null,
       site_name_raw: row.site_name_raw || null,
-      report_date: reportDate,
-      items: buildItemsString(row),
-      results: buildResultsString(row),
+      bod: toNullableNumber(row.bod),
+      ss: toNullableNumber(row.ss),
+      tn: toNullableNumber(row.tn),
+      tp: toNullableNumber(row.tp),
+      mlss: toNullableNumber(row.mlss),
+      total_coliform: toNullableNumber(row.total_coliform),
+      drive_file_name: driveFileName,
       source_pdf_name: row.source_pdf_name || null,
-      source_page_index: row.source_page_index != null ? Number(row.source_page_index) : null,
-      uploaded_at: nowIso,
-    },
-    types: {
-      site_name: 'STRING',
-      site_name_raw: 'STRING',
-      report_date: 'STRING',
-      items: 'STRING',
-      results: 'STRING',
-      source_pdf_name: 'STRING',
-      source_page_index: 'INT64',
-      uploaded_at: 'TIMESTAMP',
-    },
-  });
+    }]);
   } catch (insErr) {
-    console.error('[upsertCertificateRowToBigQuery] INSERT error:', insErr.message);
+    console.error('[upsertCertificateRowToBigQuery] insertRows error:', insErr.message);
     throw insErr;
   }
 
-  return { inserted: true };
+  return { inserted: true, isDuplicate, category, driveFileName };
 }
 
 function toBaseName(filePath) {
@@ -2227,6 +2209,157 @@ module.exports = function () {
   // PDF 병합 다운로드 관련 로직은 server/utils/pdfMerger.cjs 모듈에서 관리됩니다
   // 이 파일(certificateRoutes.cjs)의 merge-download 핸들러만 참조합니다
   // ════════════════════════════════════════════════════════════════════════════
+
+  // ── 수질 성적서 목록 조회 (체크박스 리스트뷰용) ──────────────────────────────
+  router.get('/api/certificates/water-quality-list', async (req, res) => {
+    try {
+      const bq = getBigQueryClient();
+      if (!bq) return res.status(500).json({ success: false, message: 'BigQuery 연결 필요' });
+
+      const { year, month, siteName } = req.query;
+      const conditions = [];
+      const params = {};
+      const types = {};
+
+      if (year && month) {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endMonth = Number(month) === 12 ? `${Number(year) + 1}-01-01` : `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`;
+        conditions.push('report_date >= @startDate AND report_date < @endDate');
+        params.startDate = startDate;
+        params.endDate = endMonth;
+        types.startDate = 'STRING';
+        types.endDate = 'STRING';
+      }
+      if (siteName && siteName !== 'all') {
+        conditions.push('site_name = @siteName');
+        params.siteName = siteName;
+        types.siteName = 'STRING';
+      }
+      const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
+
+      const [rows] = await bq.query({
+        query: `
+          SELECT id, uploaded_at, report_date, category, site_name, drive_file_name, source_pdf_name
+          FROM (
+            SELECT *,
+              ROW_NUMBER() OVER (PARTITION BY report_date, site_name ORDER BY uploaded_at DESC) AS rn
+            FROM \`${DATASET_ID}.water_quality\`
+            WHERE ${whereClause}
+          )
+          WHERE rn = 1
+          ORDER BY report_date DESC, site_name
+        `,
+        params,
+        types,
+      });
+
+      return res.json({ success: true, rows });
+    } catch (err) {
+      console.error('[water-quality-list]', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── 수질 성적서 삭제 (id 배열) ─────────────────────────────────────────────
+  router.delete('/api/certificates/water-quality-rows', async (req, res) => {
+    try {
+      if (!ensureAdmin(req, res)) return;
+      const { ids } = req.body || {};
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ success: false, message: 'ids 배열이 필요합니다.' });
+      }
+      const bq = getBigQueryClient();
+      if (!bq) return res.status(500).json({ success: false, message: 'BigQuery 연결 필요' });
+
+      const placeholders = ids.map((_, i) => `@id${i}`).join(', ');
+      const params = Object.fromEntries(ids.map((id, i) => [`id${i}`, id]));
+      const types = Object.fromEntries(ids.map((_, i) => [`id${i}`, 'STRING']));
+
+      await bq.query({
+        query: `DELETE FROM \`${DATASET_ID}.water_quality\` WHERE id IN (${placeholders})`,
+        params,
+        types,
+      });
+
+      return res.json({ success: true, deleted: ids.length });
+    } catch (err) {
+      console.error('[water-quality-delete]', err.message);
+      if (err.message?.includes('streaming buffer')) {
+        return res.status(409).json({
+          success: false,
+          streamingBuffer: true,
+          message: '최근 업로드된 데이터는 잠시 후 삭제 가능합니다. (BigQuery 스트리밍 버퍼 대기 중)',
+        });
+      }
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── 수질 성적서 PDF 다운로드 (drive_file_name 기준 이미지 → PDF 병합) ──────
+  router.post('/api/certificates/water-quality-download-pdf', async (req, res) => {
+    try {
+      if (!ensureAdmin(req, res)) return;
+      const { drive_file_names, pdf_file_name } = req.body || {};
+      if (!Array.isArray(drive_file_names) || drive_file_names.length === 0) {
+        return res.status(400).json({ success: false, message: 'drive_file_names 배열이 필요합니다.' });
+      }
+      if (!drive || !CERTIFICATE_ROOT_FOLDER_ID) {
+        return res.status(400).json({ success: false, message: 'Drive 설정이 필요합니다.' });
+      }
+
+      const { mergeDriveFilesToPdf } = require('../utils/pdfMerger.cjs');
+      const { findFileInFolder, getOrCreateFolderPath } = require('../services/driveService.cjs');
+
+      // 파일명으로 Drive 파일 ID 조회 (폴더 구조: 성적서/{year}/{month}/{fileName})
+      const fileIds = [];
+      const notFound = [];
+
+      for (const fileName of drive_file_names) {
+        const parts = fileName.replace(/\.[^.]+$/, '').split('_');
+        const dateSegment = parts[1] || '';
+        const year = dateSegment.slice(0, 4);
+        const month = dateSegment.slice(4, 6);
+
+        console.log('[water-quality-download-pdf] 파일 탐색:', { fileName, year, month });
+
+        try {
+          const folder = await getOrCreateFolderPath(CERTIFICATE_ROOT_FOLDER_ID, ['성적서', year, month]);
+          const found = await findFileInFolder(folder.id, fileName);
+          console.log('[water-quality-download-pdf] 탐색 결과:', { fileName, found: found?.id || null });
+          if (found) {
+            fileIds.push(found.id);
+          } else {
+            notFound.push(fileName);
+          }
+        } catch (e) {
+          console.error('[water-quality-download-pdf] 폴더 탐색 실패:', { fileName, err: e.message });
+          notFound.push(fileName);
+        }
+      }
+
+      if (fileIds.length === 0) {
+        return res.status(404).json({ success: false, message: 'Drive에서 파일을 찾을 수 없습니다.', notFound });
+      }
+
+      const pdfName = pdf_file_name || (drive_file_names.length === 1
+        ? drive_file_names[0].replace(/\.[^.]+$/, '') + '.pdf'
+        : `성적서_${drive_file_names.length}건.pdf`);
+
+      const pdfResult = await mergeDriveFilesToPdf(drive, fileIds, pdfName);
+      const pdfBuffer = Buffer.isBuffer(pdfResult) ? pdfResult : Buffer.from(pdfResult.buffer);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(pdfName)}`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      if (notFound.length > 0) {
+        res.setHeader('X-Not-Found-Files', JSON.stringify(notFound));
+      }
+      return res.end(pdfBuffer);
+    } catch (err) {
+      console.error('[water-quality-download-pdf]', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
 
   return router;
 };

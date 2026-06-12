@@ -128,11 +128,6 @@ export function usePdfUpload() {
         }));
       }
 
-      // DML 반영 대기
-      if (stats.jsonOk > 0) {
-        await new Promise(r => setTimeout(r, 4000));
-      }
-
       // 2단계: Drive 업로드
       for (const result of results) {
         if (!result.extracted?.include || !result.imgBlob) continue;

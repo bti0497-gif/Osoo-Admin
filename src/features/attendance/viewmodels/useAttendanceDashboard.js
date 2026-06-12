@@ -72,9 +72,7 @@ export function useAttendanceDashboard() {
 
       const result = await res.json();
       if (result.success) {
-        // 데이터 가공: 그리드용 형식 (중복 ID 방지를 위해 인덱스 포함)
         const formatted = result.data.map((row, index) => {
-          // BigQuery { value: "..." } 형식 처리
           const rawDate = row.date?.value || row.date;
           return {
             id: `${row.site_id || 'unknown'}-${row.member_id || 'unknown'}-${rawDate || 'nodate'}-${index}`,
@@ -83,9 +81,12 @@ export function useAttendanceDashboard() {
             siteId: row.site_id,
             siteName: row.site_name || '-',
             worker: row.member_name || '-',
-            checkIn: formatTime(row.login_time),
-            checkOut: formatTime(row.logout_time),
-            note: getNote(row),
+            checkIn: row.login_time || '-',
+            checkOut: row.logout_time ? row.logout_time : (row.login_time ? '근무중' : '-'),
+            judgment: getJudgment(row),
+            access: getAccess(row),
+            remoteType: row.remote_session_type || null,
+            remoteEvidence: row.remote_session_evidence || null,
             raw: row,
           };
         });
@@ -131,48 +132,17 @@ export function useAttendanceDashboard() {
   };
 }
 
-// 시간 포맷팅 (BigQuery TIMESTAMP → HH:MM)
-function formatTime(timeValue) {
-  if (!timeValue) return '-';
-
-  // BigQuery가 { value: "..." } 형태로 반환하는 경우
-  if (timeValue && typeof timeValue === 'object' && timeValue.value) {
-    timeValue = timeValue.value;
-  }
-
-  // Date 객체인 경우 (BigQuery TIMESTAMP)
-  if (timeValue instanceof Date) {
-    return timeValue.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-  }
-
-  // ISO 8601 문자열인 경우 (예: 2026-05-28T09:30:00.000Z)
-  const timeStr = String(timeValue);
-  if (timeStr.includes('T')) {
-    const date = new Date(timeStr);
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-    }
-  }
-
-  // HH:MM:SS 형식
-  const match = timeStr.match(/(\d{2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : timeStr;
+// 판정: 출근 여부
+function getJudgment(row) {
+  if (!row.login_time) return { label: '미출근', color: '#94a3b8' };
+  if (row.auto_logout) return { label: '비정상', color: '#f97316' };
+  if (row.logout_time) return { label: '정상', color: '#22c55e' };
+  return { label: '근무중', color: '#3b82f6' };
 }
 
-// 비고 항목 생성 (정상/원격/비정상)
-function getNote(row) {
-  // 출근 기록 없음
-  if (!row.login_time) return '-';
-
-  // 출근과 퇴근 모두 있음
-  if (row.login_time && row.logout_time) {
-    // 장소 불일치 또는 원격 접속 감지
-    if (row.remote_session_detected || !row.location_matched) {
-      return '원격';
-    }
-    return '정상';
-  }
-
-  // 출근만 있고 퇴근 없음
-  return '비정상';
+// 접속: 원격 여부
+function getAccess(row) {
+  if (!row.login_time) return { label: '-', color: '#94a3b8' };
+  if (row.remote_session_detected) return { label: '원격', color: '#ef4444' };
+  return { label: '정상', color: '#22c55e' };
 }

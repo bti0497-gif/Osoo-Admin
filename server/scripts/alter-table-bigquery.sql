@@ -1,26 +1,33 @@
 -- BigQuery 콘솔에서 실행할 스키마 변경 쿼리
--- https://console.cloud.google.com/bigquery 실행 후 아래 쿼리를 순서대로 실행
+-- https://console.cloud.google.com/bigquery
+-- 프로젝트: work-jindan / 데이터셋: daily_log_system
 
--- BigQuery 콘솔에서 실행: work-jindan 프로젝트의 daily_log_system.water_quality 테이블 스키마 변경
+-- 1. 임시 백업 테이블 삭제 (이전 swap 시 생긴 것)
+DROP TABLE IF EXISTS `work-jindan.daily_log_system.water_quality-2026-05-31T12_55_19`;
 
--- 1. 기존 테이블 백업 (개발 중이라 선택)
--- CREATE TABLE `work-jindan.daily_log_system.water_quality_backup_20260531` 
--- CLONE `work-jindan.daily_log_system.water_quality`;
-
--- 2. 기존 테이블 삭제 (개발 데이터라 바로 삭제)
+-- 2. 기존 water_quality 삭제 (개발 데이터라 바로 삭제)
 DROP TABLE IF EXISTS `work-jindan.daily_log_system.water_quality`;
 
--- 3. 새 테이블 생성 (간소화된 스키마)
+-- 3. 새 테이블 생성 (성적서 파싱 전용 스키마)
 CREATE TABLE `work-jindan.daily_log_system.water_quality` (
-  site_name STRING,
-  site_name_raw STRING,
-  report_date DATE,
-  items STRING,
-  results STRING,
-  source_pdf_name STRING,
-  source_page_index INT64,
-  uploaded_at TIMESTAMP
+  id              STRING,       -- UUID (report_date + site_name 기반 고유키)
+  uploaded_at     TIMESTAMP,    -- 입력날짜 (이 데이터가 BigQuery에 저장된 시각)
+  report_date     DATE,         -- 분석날짜 (채수일)
+  category        STRING,       -- 성적서 종류: 성적서 / mlss / ss / 기타_성적서
+  site_name       STRING,       -- 현장명 (정제된)
+  site_name_raw   STRING,       -- 현장명 원본 (OCR 추출값)
+  bod             FLOAT64,      -- BOD 측정값
+  ss              FLOAT64,      -- SS 측정값
+  tn              FLOAT64,      -- TN 측정값
+  tp              FLOAT64,      -- TP 측정값
+  mlss            FLOAT64,      -- MLSS 측정값
+  total_coliform  FLOAT64,      -- 총대장균군 측정값
+  drive_file_name STRING,       -- 이미지 파일명: {category}_{YYYYMMDD}_{site_name}.jpg
+  source_pdf_name STRING        -- 원본 PDF 파일명
 );
 
--- 4. 확인
+-- 4. certificate_water_quality는 과거 호환용 - 사용 안 함 (필요시 나중에 DROP)
+-- DROP TABLE IF EXISTS `work-jindan.daily_log_system.certificate_water_quality`;
+
+-- 5. 확인
 SELECT * FROM `work-jindan.daily_log_system.water_quality` LIMIT 5;

@@ -1,5 +1,7 @@
 /**
- * BigQuery 수질데이터 (certificate_water_quality) 조회 서비스
+ * BigQuery 수질데이터 (water_quality) 조회 서비스
+ * 테이블: daily_log_system.water_quality
+ * 용도: 전문업체 성적서 파싱 데이터 저장/조회
  */
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
@@ -71,16 +73,32 @@ async function queryWaterQualityData(year, month, siteName = null) {
 
   let query = `
     SELECT
+      id,
+      uploaded_at,
+      report_date,
+      category,
       site_name,
       site_name_raw,
-      report_date,
-      items,
-      results,
-      source_pdf_name,
-      uploaded_at
-    FROM \`${DATASET}.${TABLE}\`
-    WHERE report_date >= @startDate
-      AND report_date < @endDate
+      bod,
+      ss,
+      tn,
+      tp,
+      mlss,
+      total_coliform,
+      drive_file_name,
+      source_pdf_name
+    FROM (
+      SELECT *,
+        ROW_NUMBER() OVER (
+          PARTITION BY report_date, site_name
+          ORDER BY uploaded_at DESC
+        ) AS rn
+      FROM \`${DATASET}.${TABLE}\`
+      WHERE report_date >= @startDate
+        AND report_date < @endDate
+        ${siteName && siteName !== 'all' ? 'AND site_name = @siteName' : ''}
+    )
+    WHERE rn = 1
   `;
 
   const params = {
@@ -89,11 +107,10 @@ async function queryWaterQualityData(year, month, siteName = null) {
   };
 
   if (siteName && siteName !== 'all') {
-    query += ` AND site_name = @siteName`;
     params.siteName = siteName;
   }
 
-  query += ` ORDER BY report_date DESC, site_name, uploaded_at`;
+  query += ` ORDER BY report_date DESC, site_name`;
 
 
   const [rows] = await bq.query({

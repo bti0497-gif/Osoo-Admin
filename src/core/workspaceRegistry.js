@@ -9,6 +9,7 @@ const BoardView = lazy(() => import('../features/board').then((m) => ({ default:
 const CertificateView = lazy(() => import('../features/certificate').then((m) => ({ default: m.CertificateView })));
 const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView'));
 const WaterQualityQueryView = lazy(() => import('../features/certificate/water-quality-query/components/WaterQualityQueryView'));
+const WaterQualityListView = lazy(() => import('../features/certificate/water-quality-list/components/WaterQualityListView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
@@ -36,6 +37,10 @@ export const WORKSPACE_REGISTRY = {
   pdf_parser: {
     render: () => React.createElement(NewPdfParserView),
     helpText: 'AI로 수질성적서를 파싱하고 Drive/BigQuery에 업로드합니다.'
+  },
+  water_quality_list: {
+    render: () => React.createElement(WaterQualityListView),
+    helpText: '업로드된 수질 성적서 목록을 조회하고 삭제/다운로드합니다.'
   },
   water_quality_query: {
     render: () => React.createElement(WaterQualityQueryView),
