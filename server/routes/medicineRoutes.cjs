@@ -37,8 +37,13 @@ function recalculateMedicineInventory(db, medicineName, metadata) {
 }
 
 module.exports = function (db) {
+  function getCurrentSiteId() {
+    return String(db.prepare('SELECT site_id FROM app_settings WHERE id = 1').get()?.site_id || '').trim();
+  }
+
   router.get('/api/medicines', (req, res) => {
-    const { date, site_id } = req.query;
+    const { date } = req.query;
+    const site_id = String(req.query.site_id || getCurrentSiteId() || '').trim();
     const logs = site_id
       ? db.prepare('SELECT * FROM medicine_logs WHERE date = ? AND site_id = ?').all(date, String(site_id))
       : db.prepare('SELECT * FROM medicine_logs WHERE date = ?').all(date);
@@ -47,7 +52,7 @@ module.exports = function (db) {
 
   router.get('/api/medicines/history', (req, res) => {
     try {
-      const { site_id } = req.query;
+      const site_id = String(req.query.site_id || getCurrentSiteId() || '').trim();
       const allRecords = site_id
         ? db.prepare('SELECT * FROM medicine_logs WHERE site_id = ? ORDER BY date ASC').all(String(site_id))
         : db.prepare('SELECT * FROM medicine_logs ORDER BY date ASC').all();
@@ -176,7 +181,15 @@ module.exports = function (db) {
     const { medicine_name, date, purchase_amount, usage_amount } = req.body;
     try {
       const metadata = getCurrentRecordMetadata(db, req.body);
-      const prevLog = db.prepare('SELECT current_inventory FROM medicine_logs WHERE medicine_name = ? AND date < ? ORDER BY date DESC LIMIT 1').get(medicine_name, date);
+      const prevLog = db.prepare(`
+        SELECT current_inventory
+        FROM medicine_logs
+        WHERE medicine_name = ?
+          AND date < ?
+          AND (site_id = ? OR ? = '')
+        ORDER BY date DESC
+        LIMIT 1
+      `).get(medicine_name, date, String(metadata.siteId || ''), String(metadata.siteId || ''));
       const startInventory = prevLog ? prevLog.current_inventory : 0;
       const current_inventory = startInventory + (purchase_amount || 0) - (usage_amount || 0);
 

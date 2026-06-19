@@ -14,6 +14,12 @@ const electronAPISchema = {
 
   // 웹뷰 프리로드 스크립트 경로 동적 제공
   getWebviewPreloadPath: () => ipcRenderer.invoke('webview:getPreloadPath'),
+  
+  // 파일 다운로드 (기본 다운로드 폴더에 자동 저장)
+  downloadFile: (url, fileName) => ipcRenderer.invoke('file:download', { url, fileName }),
+  
+  // 바이너리 버퍼를 다운로드 폴더에 저장 (대화상자 없음)
+  saveFileToDownloads: (fileName, buffer) => ipcRenderer.invoke('file:saveBuffer', { fileName, buffer }),
 
   // 하위 호환성 유지 (웹앱에서 호출해도 무시)
   send: (channel, data) => {

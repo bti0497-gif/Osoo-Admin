@@ -157,6 +157,25 @@ const CertificateListWidget = ({
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                 <span style={{ fontWeight: 700 }}>{item.fileName}</span>
+                                {item.driveFileName && (
+                                    <a 
+                                        href={`https://drive.google.com/file/d/${item.driveFileId}/view`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{ 
+                                            fontSize: '11px', 
+                                            color: '#3b82f6',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            marginTop: '2px'
+                                        }}
+                                    >
+                                        <span className="material-icons" style={{ fontSize: '14px' }}>open_in_new</span>
+                                        Google Drive에서 보기
+                                    </a>
+                                )}
                             </div>
                         </div>
                     );
@@ -452,6 +471,55 @@ const CertificateView = ({ currentUser, onTabChange }) => {
                 progress={deleteProgress} 
                 onClose={closeDeleteProgress} 
             />
+            
+            {/* 다운로드 프로그레스 다이얼로그 */}
+            {downloadProgress?.loading && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '12px',
+                        padding: '24px',
+                        width: '400px',
+                        maxWidth: '90vw',
+                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                            <div className="spinner" style={{ width: '24px', height: '24px' }} />
+                            <span style={{ fontWeight: 600, fontSize: '16px', color: '#1e293b' }}>
+                                성적서 다운로드 중...
+                            </span>
+                        </div>
+                        <div style={{ marginBottom: '8px' }}>
+                            <div style={{
+                                height: '8px',
+                                backgroundColor: '#e2e8f0',
+                                borderRadius: '4px',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    width: `${downloadProgress.percent}%`,
+                                    height: '100%',
+                                    backgroundColor: '#3b82f6',
+                                    borderRadius: '4px',
+                                    transition: 'width 0.3s ease'
+                                }} />
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#64748b' }}>
+                            <span>{downloadProgress.percent}%</span>
+                            <span>파일 다운로드 중...</span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

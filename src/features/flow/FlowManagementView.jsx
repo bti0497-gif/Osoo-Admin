@@ -18,35 +18,20 @@ const FlowManagementView = ({ currentUser }) => {
         updateReading, updateManualReading, submitBatch, refresh, pendingChanges
     } = useFlowViewModel(currentUser, { showAlert, flowTypes: flowMeterTypes });
 
-    const [selectedDate, setSelectedDate] = useState(null);
+    const todayStr = getTodayKST();
+
+    const [selectedDate, setSelectedDate] = useState(todayStr);
     const [isManualEditMode, setIsManualEditMode] = useState(false);
     const [doubleClickedCell, setDoubleClickedCell] = useState(null); // { date, colId } — 과거 행 셀 단위 편집
     const [activeInput, setActiveInput] = useState(null); // { date, colId, type }
     const [localValue, setLocalValue] = useState(null);
     const [isElecReverse, setIsElecReverse] = useState(() => localStorage.getItem('flowElecReverse') === 'true');
     const closeModeAfterBlurRef = useRef(false);
-    const didInitTodaySelectRef = useRef(false);
-    const didInitTodayScrollRef = useRef(false);
-
-    const todayStr = getTodayKST();
 
     const closeEditMode = useCallback(() => {
         setIsManualEditMode(false);
         setDoubleClickedCell(null);
     }, []);
-
-    useEffect(() => {
-        if (didInitTodaySelectRef.current) return;
-        if (!history.some((row) => row.date === todayStr)) return;
-        setSelectedDate(todayStr);
-        didInitTodaySelectRef.current = true;
-    }, [history, todayStr]);
-
-    useEffect(() => {
-        if (!didInitTodayScrollRef.current && history.length > 0) {
-            didInitTodayScrollRef.current = true;
-        }
-    }, [history.length]);
 
     // ESC 키로 수동 편집 모드 종료
     useEffect(() => {
@@ -253,15 +238,8 @@ const FlowManagementView = ({ currentUser }) => {
                         }}
                             onBlur={async () => {
                             if (isDiffActive && localValue !== null && localValue !== '') {
-                                // 적산 = 어제 적산 + 오늘 누계(사용량)
-                                const todayIdx = history.findIndex(h => h.date === row.date);
-                                const prevRow = todayIdx > 0 ? history[todayIdx - 1] : null;
-                                const prevData = prevRow ? (prevRow[flowName]?.isUserInput ? { reading: prevRow[flowName].raw } : correctData(prevRow[flowName])) : null;
-                                const prevReading = prevData?.reading ?? 0;
-                                const newReading = Number(prevReading) + Number(localValue);
-                                // 누계(사용량)와 적산을 각각 직접 저장 (자동계산 우회)
+                                // 누계(사용량)를 입력하면 ViewModel에서 적산을 역산한다.
                                 updateManualReading(row.date, flowName, 'diff', localValue);
-                                updateManualReading(row.date, flowName, 'raw', String(newReading));
                             }
                             setActiveInput(null);
                             setLocalValue(null);
@@ -454,7 +432,7 @@ const FlowManagementView = ({ currentUser }) => {
                         columns={gridCols}
                         data={history}
                         keyField="date"
-                        scrollToKey={didInitTodayScrollRef.current ? null : todayStr}
+                        scrollToKey={history.length > 0 ? todayStr : null}
                         width={calculatedWidth}
                         height={400}
                         rowHeaderWidth={84}

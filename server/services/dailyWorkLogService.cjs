@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { PDFDocument } = require('pdf-lib');
-const { getBigQueryClient, DATASET_ID } = require('./bigQueryClientService.cjs');
+const { syncCertificateCacheForSiteMonth } = require('./certificateCacheSyncService.cjs');
 
 const { convertExcelToPdf } = require('./excelPdfService.cjs');
 
@@ -121,28 +121,39 @@ function parseNamedCellEntries(workbook) {
 // --- Data Aggregation ---
 
 function getFlowReadings(db, date) {
-  const settings = getSiteSettings(db);
-  return db.prepare('SELECT * FROM flow_readings WHERE date = ? AND site_name = ?').all(date, settings.site_name);
+  const scope = getSiteScope(db);
+  return db.prepare(`SELECT * FROM flow_readings WHERE date = ? AND ${scope.clause}`).all(date, ...scope.params);
 }
 
 function getFlowReadingsForPrevDate(db, date) {
   const prevDate = getPreviousDate(date);
-  const settings = getSiteSettings(db);
-  return db.prepare('SELECT * FROM flow_readings WHERE date = ? AND site_name = ?').all(prevDate, settings.site_name);
+  const scope = getSiteScope(db);
+  return db.prepare(`SELECT * FROM flow_readings WHERE date = ? AND ${scope.clause}`).all(prevDate, ...scope.params);
 }
 
 function getMedicineLogs(db, date) {
-  const settings = getSiteSettings(db);
-  return db.prepare('SELECT * FROM medicine_logs WHERE date = ? AND site_name = ?').all(date, settings.site_name);
+  const scope = getSiteScope(db);
+  return db.prepare(`SELECT * FROM medicine_logs WHERE date = ? AND ${scope.clause}`).all(date, ...scope.params);
 }
 
 function getKitLogs(db, date) {
-  const settings = getSiteSettings(db);
-  return db.prepare('SELECT * FROM kit_logs WHERE date = ? AND site_name = ?').all(date, settings.site_name);
+  const scope = getSiteScope(db);
+  return db.prepare(`SELECT * FROM kit_logs WHERE date = ? AND ${scope.clause}`).all(date, ...scope.params);
 }
 
 function getSiteSettings(db) {
-  return db.prepare('SELECT site_name, manager_name, method, series, flow_option FROM app_settings WHERE id = 1').get() || {};
+  return db.prepare('SELECT site_id, site_name, manager_name, method, series, flow_option FROM app_settings WHERE id = 1').get() || {};
+}
+
+function getSiteScope(db) {
+  const settings = getSiteSettings(db);
+  const siteId = String(settings.site_id || '').trim();
+  if (siteId) return { clause: 'site_id = ?', params: [siteId], settings };
+
+  const siteName = String(settings.site_name || '').trim();
+  if (siteName) return { clause: 'site_name = ?', params: [siteName], settings };
+
+  return { clause: '1 = 1', params: [], settings };
 }
 
 /** flow_option이 비어 있으면: 2계열 → combined(1+2), 그 외 → single1 */
@@ -193,96 +204,17 @@ function enumerateMonthsInRange(startDate, endDate) {
 }
 
 async function syncCertificateCacheForMonth(db, monthDate) {
-  const bq = getBigQueryClient();
-  if (!bq) return { synced: false, reason: 'bigquery_unavailable' };
-
   const settings = getSiteSettings(db);
+  if (!settings.site_id) return { synced: false, reason: 'site_id_missing' };
   const siteName = String(settings.site_name || '').trim();
-  if (!siteName) return { synced: false, reason: 'site_name_missing' };
-
   const monthStart = String(monthDate || '').slice(0, 10);
-  const monthEnd = getMonthEndDate(monthStart);
-
-  const [rows] = await bq.query({
-    query: `
-      SELECT
-        report_date,
-        site_id,
-        site_name,
-        site_name_raw,
-        ss, bod, tn, tp, total_coliform, mlss, do, ph,
-        source_pdf_name,
-        source_page_index,
-        ai_confidence,
-        site_match_confidence,
-        manual_review_required,
-        warnings_json,
-        source_payload_json
-      FROM \`${DATASET_ID}.certificate_water_quality\`
-      WHERE report_date BETWEEN @monthStart AND @monthEnd
-        AND REPLACE(COALESCE(site_name, ''), ' ', '') = REPLACE(@siteName, ' ', '')
-      ORDER BY report_date ASC
-    `,
-    params: { monthStart, monthEnd, siteName },
-    types: {
-      monthStart: 'DATE',
-      monthEnd: 'DATE',
-      siteName: 'STRING',
-    },
+  return syncCertificateCacheForSiteMonth({
+    db,
+    siteId: String(settings.site_id),
+    siteName,
+    year: monthStart.slice(0, 4),
+    month: monthStart.slice(5, 7),
   });
-
-  const tx = db.transaction((items) => {
-    // 월 단위 캐시 갱신: 해당 월/현장 기존 데이터 제거 후 재적재
-    db.prepare(`
-      DELETE FROM certificate_water_quality
-      WHERE report_date BETWEEN ? AND ?
-        AND REPLACE(COALESCE(site_name, ''), ' ', '') = REPLACE(?, ' ', '')
-    `).run(monthStart, monthEnd, siteName);
-
-    const insertStmt = db.prepare(`
-      INSERT INTO certificate_water_quality (
-        report_date, site_id, site_name, site_name_raw,
-        ss, bod, tn, tp, total_coliform, mlss, do, ph,
-        source_pdf_name, source_page_index,
-        ai_confidence, site_match_confidence, manual_review_required,
-        warnings_json, source_payload_json,
-        created_at, last_modified, is_synced
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const nowIso = new Date().toISOString();
-    for (const r of items) {
-      const reportDate = normalizeDate(r.report_date);
-      if (!reportDate) continue;
-      insertStmt.run(
-        reportDate,
-        r.site_id ? String(r.site_id) : null,
-        r.site_name ? String(r.site_name) : null,
-        r.site_name_raw ? String(r.site_name_raw) : null,
-        r.ss ?? null,
-        r.bod ?? null,
-        r.tn ?? null,
-        r.tp ?? null,
-        r.total_coliform ?? null,
-        r.mlss ?? null,
-        r.do ?? null,
-        r.ph ?? null,
-        r.source_pdf_name ? String(r.source_pdf_name) : null,
-        r.source_page_index != null ? Number(r.source_page_index) : null,
-        r.ai_confidence ?? null,
-        r.site_match_confidence ?? null,
-        r.manual_review_required ? 1 : 0,
-        r.warnings_json ? String(r.warnings_json) : '[]',
-        r.source_payload_json ? String(r.source_payload_json) : '{}',
-        nowIso,
-        nowIso,
-        1
-      );
-    }
-  });
-  tx(Array.isArray(rows) ? rows : []);
-
-  return { synced: true, count: Array.isArray(rows) ? rows.length : 0 };
 }
 
 async function syncCertificateCacheForRange(db, startDate, endDate) {
@@ -294,23 +226,26 @@ async function syncCertificateCacheForRange(db, startDate, endDate) {
 
 // 기간 합계 조회 헬퍼
 function sumFlowField(db, type, field, startDate, endDate) {
+  const scope = getSiteScope(db);
   const row = db.prepare(
-    `SELECT SUM(${field}) as total FROM flow_readings WHERE type = ? AND date BETWEEN ? AND ?`
-  ).get(type, startDate, endDate);
+    `SELECT SUM(${field}) as total FROM flow_readings WHERE type = ? AND date BETWEEN ? AND ? AND ${scope.clause}`
+  ).get(type, startDate, endDate, ...scope.params);
   return row?.total ?? '';
 }
 
 function sumMedicineField(db, name, field, startDate, endDate) {
+  const scope = getSiteScope(db);
   const row = db.prepare(
-    `SELECT SUM(${field}) as total FROM medicine_logs WHERE medicine_name = ? AND date BETWEEN ? AND ?`
-  ).get(name, startDate, endDate);
+    `SELECT SUM(${field}) as total FROM medicine_logs WHERE medicine_name = ? AND date BETWEEN ? AND ? AND ${scope.clause}`
+  ).get(name, startDate, endDate, ...scope.params);
   return row?.total ?? '';
 }
 
 function sumKitField(db, name, field, startDate, endDate) {
+  const scope = getSiteScope(db);
   const row = db.prepare(
-    `SELECT SUM(${field}) as total FROM kit_logs WHERE kit_name = ? AND date BETWEEN ? AND ?`
-  ).get(name, startDate, endDate);
+    `SELECT SUM(${field}) as total FROM kit_logs WHERE kit_name = ? AND date BETWEEN ? AND ? AND ${scope.clause}`
+  ).get(name, startDate, endDate, ...scope.params);
   return row?.total ?? '';
 }
 
@@ -394,34 +329,35 @@ function getFlowByOption(flows, keyword, flowOption) {
  * flowOption에 따라 내부/외부 반송 기간 합계를 구하는 헬퍼
  */
 function sumFlowFieldByOption(db, keyword, field, startDate, endDate, flowOption) {
+  const scope = getSiteScope(db);
   if (!flowOption || flowOption === 'single1') {
     // 1계열: type이 keyword를 포함하고 '2'로 끝나지 않는 것
     const row = db.prepare(
-      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND type NOT LIKE '%2' AND date BETWEEN ? AND ?`
-    ).get(`%${keyword}%`, startDate, endDate);
+      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND type NOT LIKE '%2' AND date BETWEEN ? AND ? AND ${scope.clause}`
+    ).get(`%${keyword}%`, startDate, endDate, ...scope.params);
     return row?.total ?? '';
   }
 
   if (flowOption === 'single2') {
     // 2계열만: type이 keyword를 포함하고 '2'로 끝나는 것
     const row = db.prepare(
-      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND type LIKE '%2' AND date BETWEEN ? AND ?`
-    ).get(`%${keyword}%`, startDate, endDate);
+      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND type LIKE '%2' AND date BETWEEN ? AND ? AND ${scope.clause}`
+    ).get(`%${keyword}%`, startDate, endDate, ...scope.params);
     return row?.total ?? '';
   }
 
   if (flowOption === 'combined') {
     // 1+2계열 합산: keyword를 포함하는 모든 type의 합
     const row = db.prepare(
-      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND date BETWEEN ? AND ?`
-    ).get(`%${keyword}%`, startDate, endDate);
+      `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND date BETWEEN ? AND ? AND ${scope.clause}`
+    ).get(`%${keyword}%`, startDate, endDate, ...scope.params);
     return row?.total ?? '';
   }
 
   // fallback
   const row = db.prepare(
-    `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND date BETWEEN ? AND ?`
-  ).get(`%${keyword}%`, startDate, endDate);
+    `SELECT SUM(${field}) as total FROM flow_readings WHERE type LIKE ? AND date BETWEEN ? AND ? AND ${scope.clause}`
+  ).get(`%${keyword}%`, startDate, endDate, ...scope.params);
   return row?.total ?? '';
 }
 
@@ -457,6 +393,12 @@ function findFlowTypeNameByKeyword(db, keyword) {
 
   const partialMatch = normalizedItems.find((item) => item.normalizedName.includes(keyword));
   return partialMatch?.normalizedName || keyword;
+}
+
+function setBindingAliases(bindings, aliases, value) {
+  aliases.forEach((alias) => {
+    bindings[alias] = value;
+  });
 }
 
 function findMedicineNameByKeyword(db, keyword) {
@@ -509,6 +451,12 @@ function buildBindingsForDate(db, date) {
   bindings['유입누계'] = flowIn?.calculated_flow ?? '';
   bindings['월간유입'] = sumFlowField(db, flowInType, 'calculated_flow', monthStart, date);
   bindings['연간유입'] = sumFlowField(db, flowInType, 'calculated_flow', yearStart, date);
+  setBindingAliases(bindings, ['유입수전일', '유입수전일지침', '유입수금일', '유입수금일지침'], bindings['유입금일']);
+  bindings['유입수전일'] = bindings['유입전일'];
+  bindings['유입수전일지침'] = bindings['유입전일'];
+  setBindingAliases(bindings, ['유입수처리량', '유입수사용량', '유입수누계'], bindings['유입누계']);
+  setBindingAliases(bindings, ['유입수월간', '유입수월간누계', '월간유입수'], bindings['월간유입']);
+  setBindingAliases(bindings, ['유입수연간', '유입수연간누계', '연간유입수'], bindings['연간유입']);
 
   // 방류유량계 (방류도 대부분 1개이므로 flowOption 적용 안 함)
   const flowOut = findFlowByKeyword(flows, '방류');
@@ -519,6 +467,11 @@ function buildBindingsForDate(db, date) {
   bindings['방류누계'] = flowOut?.calculated_flow ?? '';
   bindings['월간방류'] = sumFlowField(db, flowOutType, 'calculated_flow', monthStart, date);
   bindings['연간방류'] = sumFlowField(db, flowOutType, 'calculated_flow', yearStart, date);
+  setBindingAliases(bindings, ['방류수전일', '방류수전일지침'], bindings['방류전일']);
+  setBindingAliases(bindings, ['방류수금일', '방류수금일지침'], bindings['방류금일']);
+  setBindingAliases(bindings, ['방류수처리량', '방류수사용량', '방류수누계'], bindings['방류누계']);
+  setBindingAliases(bindings, ['방류수월간', '방류수월간누계', '월간방류수'], bindings['월간방류']);
+  setBindingAliases(bindings, ['방류수연간', '방류수연간누계', '연간방류수'], bindings['연간방류']);
 
   // 내부반송유량계 ── flowOption 적용
   const flowInternal = getFlowByOption(flows, '내부반송', flowOption) || getFlowByOption(flows, '내부', flowOption);
@@ -565,12 +518,11 @@ function buildBindingsForDate(db, date) {
       medLog = findMedicineByKeyword(medicines, '팩') || findMedicineByKeyword(medicines, 'PAC') || medLog;
     }
 
-    const siteName = getSiteSettings(db).site_name;
     const purchase = medLog?.purchase_amount ?? '';
     const usage = medLog?.usage_amount ?? '';
     const inventory = medLog?.current_inventory ?? '';
-    const mTotal = db.prepare('SELECT SUM(usage_amount) as total FROM medicine_logs WHERE medicine_name = ? AND site_name = ? AND date >= ? AND date <= ?').get(medName, siteName, monthStart, date)?.total || 0;
-    const yTotal = db.prepare('SELECT SUM(usage_amount) as total FROM medicine_logs WHERE medicine_name = ? AND site_name = ? AND date >= ? AND date <= ?').get(medName, siteName, yearStart, date)?.total || 0;
+    const mTotal = sumMedicineField(db, medName, 'usage_amount', monthStart, date) || 0;
+    const yTotal = sumMedicineField(db, medName, 'usage_amount', yearStart, date) || 0;
 
     // 기본 이름들
     const baseNames = [medNameNoSpace];
@@ -636,8 +588,6 @@ function buildBindingsForDate(db, date) {
     return !name.includes('_purchase') && !name.includes('_usage') && !name.includes('_inventory');
   });
 
-  const siteName = getSiteSettings(db).site_name;
-
   allKitItems.forEach((item) => {
     const kitName = item.item_name;
     const kitNameNoSpace = kitName.replace(/\s+/g, '');
@@ -646,8 +596,8 @@ function buildBindingsForDate(db, date) {
     const purchase = kitLog?.purchase_amount ?? '';
     const usage = kitLog?.usage_amount ?? '';
     const inventory = kitLog?.current_inventory ?? '';
-    const mTotal = db.prepare('SELECT SUM(usage_amount) as total FROM kit_logs WHERE kit_name = ? AND site_name = ? AND date >= ? AND date <= ?').get(kitName, siteName, monthStart, date)?.total || 0;
-    const yTotal = db.prepare('SELECT SUM(usage_amount) as total FROM kit_logs WHERE kit_name = ? AND site_name = ? AND date >= ? AND date <= ?').get(kitName, siteName, yearStart, date)?.total || 0;
+    const mTotal = sumKitField(db, kitName, 'usage_amount', monthStart, date) || 0;
+    const yTotal = sumKitField(db, kitName, 'usage_amount', yearStart, date) || 0;
 
     const baseNames = [kitNameNoSpace];
     if (kitNameNoSpace.includes('암모니아') || kitNameNoSpace.toUpperCase().includes('NH3')) {
@@ -716,9 +666,9 @@ function buildBindingsForDate(db, date) {
     SELECT report_date, ss, bod, tn, tp, total_coliform, ph
     FROM certificate_water_quality
     WHERE report_date LIKE ?
-      AND REPLACE(COALESCE(site_name, ''), ' ', '') = REPLACE(?, ' ', '')
+      AND site_id = ?
     ORDER BY report_date ASC
-  `).all(`${monthKey}%`, settings.site_name || '');
+  `).all(`${monthKey}%`, String(settings.site_id || ''));
   const slot1 = certRows[0] || null;
   const slot2 = certRows[1] || null;
 

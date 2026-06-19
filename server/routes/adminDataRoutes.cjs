@@ -21,11 +21,11 @@ const TABLES = {
     columns: ['site_id', 'site_name', 'author', 'local_id', 'created_at', 'medicine_name', 'date', 'purchase_amount', 'usage_amount', 'current_inventory', 'photo_url', 'updated_at', 'uploaded_at'],
   },
   water_quality: {
-    label: '수질분석',
-    keyFields: ['site_id', 'local_id'],
-    dateField: 'date',
-    searchFields: ['site_name', 'author', 'measurement_group', 'source_label', 'location'],
-    columns: ['site_id', 'site_name', 'author', 'local_id', 'created_at', 'date', 'measurement_group', 'measurement_order', 'source_type', 'source_label', 'qntech_project_id', 'location', 'nh3_n', 'no3_n', 'po4_p', 'alkalinity', 'tn', 'tp', 'cod', 'ss', 'updated_at', 'uploaded_at'],
+    label: '성적서',
+    keyFields: ['id'],
+    dateField: 'report_date',
+    searchFields: ['category', 'drive_file_name', 'site_name', 'source_pdf_name'],
+    columns: ['id', 'uploaded_at', 'report_date', 'category', 'site_id', 'site_name', 'ss', 'bod', 'tn', 'tp', 'total_coliform', 'mlss', 'do', 'ph', 'drive_file_name', 'source_pdf_name', 'is_synced'],
   },
   kit_logs: {
     label: '키트관리',
@@ -40,13 +40,6 @@ const TABLES = {
     dateField: 'date',
     searchFields: ['site_name', 'author', 'location', 'facility_name', 'company', 'content', 'notes'],
     columns: ['site_id', 'site_name', 'author', 'local_id', 'created_at', 'date', 'location', 'facility_name', 'content', 'company', 'price', 'notes', 'updated_at', 'uploaded_at'],
-  },
-  certificate_water_quality: {
-    label: '성적서',
-    keyFields: ['site_id', 'local_id'],
-    dateField: 'report_date',
-    searchFields: ['certificate_category', 'certificate_file_name', 'site_name', 'site_name_raw', 'source_pdf_name'],
-    columns: ['certificate_category', 'certificate_file_name', 'certificate_original_file_name', 'drive_file_id', 'drive_web_view_link', 'site_id', 'site_name', 'site_name_raw', 'local_id', 'report_date', 'ss', 'bod', 'tn', 'tp', 'total_coliform', 'mlss', 'do', 'ph', 'source_pdf_name', 'source_page_index', 'ai_confidence', 'site_match_confidence', 'manual_review_required', 'warnings_json', 'source_payload_json', 'created_at', 'updated_at', 'uploaded_at'],
   },
   posts: {
     label: '게시글',

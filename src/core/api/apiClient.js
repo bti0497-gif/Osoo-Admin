@@ -97,7 +97,8 @@ export const apiClient = {
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
     const url = query ? `${endpoint}?${query}` : endpoint;
-    return request(url, { method: 'GET', ...options });
+    const { headers, ...restOptions } = options;
+    return request(url, { method: 'GET', headers, ...restOptions });
   },
 
   async post(endpoint, body, options = {}) {

@@ -137,6 +137,78 @@ export function useWaterQualityList() {
     }
   }, [rows, selectedIds]);
 
+  /**
+   * 선택된 항목의 이미지를 개별적으로 다운로드
+   * 각 이미지를 기본 다운로드 폴더에 저장 (서버를 통해 프록시)
+   */
+  const downloadSelectedImages = useCallback(async () => {
+    const selected = rows.filter(r => selectedIds.has(r.id));
+    if (selected.length === 0) return;
+
+    setDownloading(true);
+    let downloadedCount = 0;
+    let failedCount = 0;
+
+    try {
+      for (const row of selected) {
+        if (!row.drive_file_name) {
+          failedCount++;
+          continue;
+        }
+
+        try {
+          // 서버를 통해 이미지 다운로드 URL 가져오기
+          const res = await fetch(`${getApiBase()}/api/certificates/water-quality-download-image`, {
+            method: 'POST',
+            headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ drive_file_name: row.drive_file_name }),
+          });
+
+          if (!res.ok) {
+            console.warn(`[downloadImages] 실패: ${row.drive_file_name}`);
+            failedCount++;
+            continue;
+          }
+
+          // Electron 환경에서 기본 다운로드 폴더에 자동 저장
+          const blob = await res.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          const buffer = new Uint8Array(arrayBuffer);
+          
+          // Electron IPC로 파일 저장 (대화상자 없음)
+          if (window.electronAPI?.saveFileToDownloads) {
+            await window.electronAPI.saveFileToDownloads(row.drive_file_name, buffer);
+          } else {
+            // Fallback: 브라우저 다운로드
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = row.drive_file_name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+
+          downloadedCount++;
+
+          // 다운로드 간 약간의 지연
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err) {
+          console.error(`[downloadImages] 오류: ${row.drive_file_name}`, err);
+          failedCount++;
+        }
+      }
+
+      const message = `이미지 다운로드 완료: ${downloadedCount}건 성공${failedCount > 0 ? `, ${failedCount}건 실패` : ''}`;
+      setDeleteResult({ type: 'success', message });
+    } catch (err) {
+      setDeleteResult({ type: 'error', message: `이미지 다운로드 실패: ${err.message}` });
+    } finally {
+      setDownloading(false);
+    }
+  }, [rows, selectedIds]);
+
   return {
     rows, loading, error,
     selectedIds, toggleSelect, toggleAll,
@@ -145,6 +217,6 @@ export function useWaterQualityList() {
     sites, fetchSites,
     fetchList,
     deleteSelected, deleteResult, setDeleteResult,
-    downloading, downloadSelectedAsPdf,
+    downloading, downloadSelectedAsPdf, downloadSelectedImages,
   };
 }

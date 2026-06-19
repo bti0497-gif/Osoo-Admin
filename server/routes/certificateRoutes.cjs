@@ -3,7 +3,7 @@ const multer = require('multer');
 const JSZip = require('jszip');
 const path = require('path');
 const fs = require('fs');
-const { drive, getOrCreateFolder, uploadBufferToFolder } = require('../services/driveService.cjs');
+const { drive, getOrCreateFolder, uploadBufferToFolder, getOrCreateFolderPath, findFileInFolder } = require('../services/driveService.cjs');
 const { isSheetsConfigured: isSitesSheetsConfigured, getSites: getSitesFromSheets } = require('../services/sitesSheetsService.cjs');
 const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
@@ -18,6 +18,16 @@ console.log('[Certificates] Drive service:', drive ? 'available' : 'null');
 const CERTIFICATE_PREFIX_RE = /^(성적서|mlss)-(\d{8})(\.[^.]+)?$/i;
 const MANUAL_CERT_FILE_RE = /^(성적서|기타_성적서|mlss|ss)[_-](\d{8})[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i;
 const zipUploadProgressMap = new Map();
+
+async function hasBigQueryColumn(bq, tableName, columnName) {
+  try {
+    const [metadata] = await bq.dataset(DATASET_ID).table(tableName).getMetadata();
+    return (metadata?.schema?.fields || []).some((field) => field.name === columnName);
+  } catch (err) {
+    console.warn(`[BigQuery] ${tableName}.${columnName} 컬럼 확인 실패:`, err.message);
+    return false;
+  }
+}
 
 function toDisplayDate(yyyymmdd) {
   if (!/^\d{8}$/.test(String(yyyymmdd || ''))) return '';
@@ -549,16 +559,22 @@ async function upsertCertificateFileMeta({
     throw new Error('BigQuery 연결이 필요합니다. (certificate 파일 메타 동기화)');
   }
 
-  const nowIso = new Date().toISOString();
   const rawForFuzzy = String(siteNameRawFromFile ?? siteName ?? '').trim();
   const officialForFuzzy = String(siteName ?? '').trim();
+  const [metadata] = await bq.dataset(DATASET_ID).table('water_quality').getMetadata();
+  const fields = new Set((metadata.schema?.fields || []).map((field) => String(field.name || '')));
 
   const [candidates] = await bq.query({
     query: `
-      SELECT local_id, site_id, site_name, site_name_raw, source_payload_json
-      FROM \`${DATASET_ID}.certificate_water_quality\`
+      SELECT
+        id,
+        ${fields.has('site_id') ? 'site_id,' : 'CAST(NULL AS STRING) AS site_id,'}
+        site_name,
+        site_name_raw,
+        ${fields.has('source_payload_json') ? 'source_payload_json' : 'CAST(NULL AS STRING) AS source_payload_json'}
+      FROM \`${DATASET_ID}.water_quality\`
       WHERE report_date = @reportDate
-      ORDER BY local_id DESC
+      ORDER BY uploaded_at DESC
       LIMIT 200
     `,
     params: { reportDate },
@@ -597,43 +613,61 @@ async function upsertCertificateFileMeta({
 
   if (!targets.length) return 0;
 
-  for (const t of targets) {
-    const localId = Number(t.local_id);
-    if (!Number.isFinite(localId)) continue;
-    await bq.query({
-      query: `
-        UPDATE \`${DATASET_ID}.certificate_water_quality\`
-        SET
-          certificate_category = @category,
-          certificate_file_name = @uploadedFileName,
-          certificate_original_file_name = @originalFileName,
-          drive_file_id = @driveFileId,
-          drive_web_view_link = @driveWebViewLink,
-          updated_at = @updatedAt
-        WHERE report_date = @reportDate
-          AND local_id = @localId
-      `,
-      params: {
-        category: category || null,
-        uploadedFileName: uploadedFileName || null,
-        originalFileName: originalFileName || null,
-        driveFileId: driveFileId || null,
-        driveWebViewLink: driveWebViewLink || null,
-        updatedAt: nowIso,
-        reportDate,
-        localId,
-      },
-      types: {
-        category: 'STRING',
-        uploadedFileName: 'STRING',
-        originalFileName: 'STRING',
-        driveFileId: 'STRING',
-        driveWebViewLink: 'STRING',
-        updatedAt: 'TIMESTAMP',
-        reportDate: 'DATE',
-        localId: 'INT64',
-      },
-    });
+  const optionalUpdates = [];
+  const targetIds = targets.map((target) => String(target.id || '')).filter(Boolean);
+  const params = { reportDate, targetIds };
+  const types = { reportDate: 'DATE', targetIds: ['STRING'] };
+
+  if (fields.has('certificate_category')) {
+    optionalUpdates.push('certificate_category = @category');
+    params.category = category || null;
+    types.category = 'STRING';
+  }
+  if (fields.has('certificate_file_name')) {
+    optionalUpdates.push('certificate_file_name = @uploadedFileName');
+    params.uploadedFileName = uploadedFileName || null;
+    types.uploadedFileName = 'STRING';
+  }
+  if (fields.has('certificate_original_file_name')) {
+    optionalUpdates.push('certificate_original_file_name = @originalFileName');
+    params.originalFileName = originalFileName || null;
+    types.originalFileName = 'STRING';
+  }
+  if (fields.has('drive_file_id')) {
+    optionalUpdates.push('drive_file_id = @driveFileId');
+    params.driveFileId = driveFileId || null;
+    types.driveFileId = 'STRING';
+  }
+  if (fields.has('drive_web_view_link')) {
+    optionalUpdates.push('drive_web_view_link = @driveWebViewLink');
+    params.driveWebViewLink = driveWebViewLink || null;
+    types.driveWebViewLink = 'STRING';
+  }
+  if (fields.has('updated_at')) {
+    optionalUpdates.push('updated_at = @updatedAt');
+    params.updatedAt = new Date().toISOString();
+    types.updatedAt = 'TIMESTAMP';
+  }
+
+  if (optionalUpdates.length > 0 && targetIds.length > 0) {
+    try {
+      await bq.query({
+        query: `
+          UPDATE \`${DATASET_ID}.water_quality\`
+          SET ${optionalUpdates.join(', ')}
+          WHERE report_date = @reportDate
+            AND id IN UNNEST(@targetIds)
+        `,
+        params,
+        types,
+      });
+    } catch (err) {
+      if (String(err.message || '').includes('streaming buffer')) {
+        console.warn('[upsertCertificateFileMeta] metadata update skipped because rows are still in streaming buffer:', err.message);
+      } else {
+        throw err;
+      }
+    }
   }
 
   return targets.length;
@@ -678,12 +712,13 @@ async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
   const reportDate = normalizeDateLike(row.report_date || row.date || row.sampled_at);
   if (!reportDate) {
     console.log('[upsertCertificateRowToBigQuery] invalid_date:', row.report_date);
-    return { inserted: false, reason: 'invalid_date' };
+    return { inserted: false, reason: 'invalid_date', isDuplicate: false };
   }
   const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
   const rowId = buildRowId();
   const driveFileName = buildDriveFileName(row, reportDate);
   const category = resolveCategory(row);
+  let isDuplicate = false; // 중복 여부 플래그
 
   console.log('[upsertCertificateRowToBigQuery] upsert:', {
     reportDate, siteName: row.site_name, category, driveFileName,
@@ -712,6 +747,12 @@ async function upsertCertificateRowToBigQuery(row, uniqueIndex) {
     }]);
   } catch (insErr) {
     console.error('[upsertCertificateRowToBigQuery] insertRows error:', insErr.message);
+    // 중복 에러 체크 (BigQuery는 중복 키 에러시 특정 메시지 패턴)
+    const errorMessage = insErr.message || '';
+    if (errorMessage.includes('duplicate') || errorMessage.includes('already exists')) {
+      isDuplicate = true;
+      return { inserted: false, isDuplicate: true, reason: 'duplicate', category, driveFileName };
+    }
     throw insErr;
   }
 
@@ -1168,7 +1209,7 @@ module.exports = function () {
       console.log('[Certificates] BigQuery client:', bq ? 'initialized' : 'null');
       if (bq) {
         const where = [
-          "COALESCE(drive_file_id, JSON_EXTRACT_SCALAR(source_payload_json, '$.certificate_file.drive_file_id')) IS NOT NULL",
+          "drive_file_name IS NOT NULL",
         ];
         const params = {};
         const hasSingleSiteFilter = siteNameFilters.length === 1;
@@ -1187,13 +1228,13 @@ module.exports = function () {
 
         const query = `
           SELECT
-            local_id,
+            id AS local_id,
             report_date,
             site_name,
-            COALESCE(certificate_file_name, JSON_EXTRACT_SCALAR(source_payload_json, '$.certificate_file.file_name')) AS file_name,
-            COALESCE(certificate_category, JSON_EXTRACT_SCALAR(source_payload_json, '$.certificate_file.category')) AS category,
-            COALESCE(drive_file_id, JSON_EXTRACT_SCALAR(source_payload_json, '$.certificate_file.drive_file_id')) AS drive_file_id
-          FROM \`${DATASET_ID}.certificate_water_quality\`
+            drive_file_name AS file_name,
+            category,
+            CAST(NULL AS STRING) AS drive_file_id
+          FROM \`${DATASET_ID}.water_quality\`
           WHERE ${where.join(' AND ')}
           ORDER BY report_date DESC
           LIMIT 1000
@@ -1939,8 +1980,8 @@ module.exports = function () {
       // 1. BigQuery에서 해당 기간 데이터 조회 (drive_file_id 목록 확보)
       const [rows] = await bq.query({
         query: `
-          SELECT drive_file_id, certificate_file_name
-          FROM \`${DATASET_ID}.certificate_water_quality\`
+          SELECT drive_file_name
+          FROM \`${DATASET_ID}.water_quality\`
           WHERE EXTRACT(YEAR FROM report_date) = @year
             AND EXTRACT(MONTH FROM report_date) = @month
             ${siteName && siteName !== 'ALL' ? "AND site_name = @siteName" : ""}
@@ -1966,7 +2007,7 @@ module.exports = function () {
       // 3. BigQuery에서 메타데이터 삭제
       await bq.query({
         query: `
-          DELETE FROM \`${DATASET_ID}.certificate_water_quality\`
+          DELETE FROM \`${DATASET_ID}.water_quality\`
           WHERE EXTRACT(YEAR FROM report_date) = @year
             AND EXTRACT(MONTH FROM report_date) = @month
             ${siteName && siteName !== 'ALL' ? "AND site_name = @siteName" : ""}
@@ -2017,14 +2058,14 @@ module.exports = function () {
       }
 
       // 2. BigQuery에서 메타데이터 삭제 (drive_file_id 기준)
-      if (bq && deletedFiles.length > 0) {
+      if (bq && deletedFiles.length > 0 && await hasBigQueryColumn(bq, 'water_quality', 'drive_file_id')) {
         const placeholders = deletedFiles.map((_, i) => `@id${i}`).join(',');
         const params = {};
         deletedFiles.forEach((id, i) => { params[`id${i}`] = id; });
         
         await bq.query({
           query: `
-            DELETE FROM \`${DATASET_ID}.certificate_water_quality\`
+            DELETE FROM \`${DATASET_ID}.water_quality\`
             WHERE drive_file_id IN (${placeholders})
           `,
           params,
@@ -2064,8 +2105,8 @@ module.exports = function () {
 
       const [rows] = await bq.query({
         query: `
-          SELECT drive_file_id, certificate_file_name
-          FROM \`${DATASET_ID}.certificate_water_quality\`
+          SELECT drive_file_name
+          FROM \`${DATASET_ID}.water_quality\`
           WHERE EXTRACT(YEAR FROM report_date) = @year
             AND EXTRACT(MONTH FROM report_date) = @month
             ${siteName && siteName !== 'ALL' ? "AND site_name = @siteName" : ""}
@@ -2089,7 +2130,7 @@ module.exports = function () {
 
       await bq.query({
         query: `
-          DELETE FROM \`${DATASET_ID}.certificate_water_quality\`
+          DELETE FROM \`${DATASET_ID}.water_quality\`
           WHERE EXTRACT(YEAR FROM report_date) = @year
             AND EXTRACT(MONTH FROM report_date) = @month
             ${siteName && siteName !== 'ALL' ? "AND site_name = @siteName" : ""}
@@ -2134,13 +2175,13 @@ module.exports = function () {
         }
       }
 
-      if (bq && deletedFiles.length > 0) {
+      if (bq && deletedFiles.length > 0 && await hasBigQueryColumn(bq, 'water_quality', 'drive_file_id')) {
         const placeholders = deletedFiles.map((_, i) => `@id${i}`).join(',');
         const params = {};
         deletedFiles.forEach((id, i) => { params[`id${i}`] = id; });
         
         await bq.query({
-          query: `DELETE FROM \`${DATASET_ID}.certificate_water_quality\` WHERE drive_file_id IN (${placeholders})`,
+          query: `DELETE FROM \`${DATASET_ID}.water_quality\` WHERE drive_file_id IN (${placeholders})`,
           params,
         });
       }
@@ -2185,9 +2226,9 @@ module.exports = function () {
       }
 
       // 2. BigQuery에서 메타데이터 삭제
-      if (bq) {
+      if (bq && await hasBigQueryColumn(bq, 'water_quality', 'drive_file_id')) {
         await bq.query({
-          query: `DELETE FROM \`${DATASET_ID}.certificate_water_quality\` WHERE drive_file_id = @fileId`,
+          query: `DELETE FROM \`${DATASET_ID}.water_quality\` WHERE drive_file_id = @fileId`,
           params: { fileId },
         });
       }
@@ -2237,9 +2278,22 @@ module.exports = function () {
       }
       const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
 
+      // 스키마 확인하여 선택적 필드 결정
+      let driveFileIdField = "CAST(NULL AS STRING) AS drive_file_id";
+      let driveWebViewLinkField = "CAST(NULL AS STRING) AS drive_web_view_link";
+      try {
+        const [metadata] = await bq.dataset(DATASET_ID).table('water_quality').getMetadata();
+        const fields = new Set((metadata.schema?.fields || []).map((field) => String(field.name || '')));
+        if (fields.has('drive_file_id')) driveFileIdField = 'drive_file_id';
+        if (fields.has('drive_web_view_link')) driveWebViewLinkField = 'drive_web_view_link';
+      } catch (schemaErr) {
+        console.warn('[water-quality-list] 스키마 확인 실패 (무시):', schemaErr.message);
+      }
+
       const [rows] = await bq.query({
         query: `
-          SELECT id, uploaded_at, report_date, category, site_name, drive_file_name, source_pdf_name
+          SELECT id, uploaded_at, report_date, category, site_name, drive_file_name, source_pdf_name,
+                 ${driveFileIdField}, ${driveWebViewLinkField}
           FROM (
             SELECT *,
               ROW_NUMBER() OVER (PARTITION BY report_date, site_name ORDER BY uploaded_at DESC) AS rn
@@ -2361,6 +2415,57 @@ module.exports = function () {
     }
   });
 
+  // ── 수질 성적서 이미지 개별 다운로드 (drive_file_name 기준) ───────────────────
+  router.post('/api/certificates/water-quality-download-image', async (req, res) => {
+    try {
+      if (!ensureAdmin(req, res)) return;
+      const { drive_file_name } = req.body || {};
+      if (!drive_file_name) {
+        return res.status(400).json({ success: false, message: 'drive_file_name이 필요합니다.' });
+      }
+      if (!drive || !CERTIFICATE_ROOT_FOLDER_ID) {
+        return res.status(400).json({ success: false, message: 'Drive 설정이 필요합니다.' });
+      }
+
+      // 파일명에서 년도/월 추출 (예: mlss_20260210_xxx.jpg → 2026, 02)
+      const parts = drive_file_name.replace(/\.[^.]+$/, '').split('_');
+      const dateSegment = parts[1] || '';
+      const year = dateSegment.slice(0, 4);
+      const month = dateSegment.slice(4, 6);
+
+      console.log('[water-quality-download-image] 파일 검색:', { drive_file_name, year, month });
+
+      // 성적서/년/월 폴더 경로로 파일 검색
+      const folder = await getOrCreateFolderPath(CERTIFICATE_ROOT_FOLDER_ID, ['성적서', year, month]);
+      const file = await findFileInFolder(folder.id, drive_file_name);
+
+      if (!file) {
+        console.warn('[water-quality-download-image] 파일을 찾을 수 없음:', drive_file_name);
+        return res.status(404).json({ success: false, message: 'Drive에서 파일을 찾을 수 없습니다.' });
+      }
+
+      console.log('[water-quality-download-image] 파일 찾음:', file.id);
+
+      // 이미지 다운로드
+      const imageRes = await drive.files.get({
+        fileId: file.id,
+        alt: 'media',
+      }, { responseType: 'arraybuffer' });
+
+      const buffer = Buffer.from(imageRes.data);
+      const ext = drive_file_name.toLowerCase().endsWith('.png') ? 'png' : 'jpeg';
+
+      res.set('Content-Type', `image/${ext}`);
+      // 한글/특수문자 파일명을 RFC5987 형식으로 인코딩
+      const encodedFileName = encodeURIComponent(drive_file_name).replace(/['()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+      res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
+      return res.send(buffer);
+    } catch (err) {
+      console.error('[water-quality-download-image] 에러 상세:', err);
+      console.error('[water-quality-download-image] 스택:', err.stack);
+      return res.status(500).json({ success: false, message: err.message, stack: err.stack });
+    }
+  });
+
   return router;
 };
-

@@ -34,15 +34,63 @@ function monthRange(year, month) {
   return { monthStart, monthEnd };
 }
 
-async function syncCertificateCacheForSiteMonth({ db, siteName, year, month }) {
+function getConfiguredSite(db, overrides = {}) {
+  const row = db.prepare('SELECT site_id, site_name FROM app_settings WHERE id = 1').get() || {};
+  return {
+    siteId: String(overrides.siteId || overrides.site_id || row.site_id || '').trim(),
+    siteName: String(overrides.siteName || overrides.site_name || row.site_name || '').trim(),
+  };
+}
+
+function optionalSelect(fields, name, fallbackSql = 'NULL') {
+  return fields.has(name) ? name : `${fallbackSql} AS ${name}`;
+}
+
+function ensureLocalCertificateCacheTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS certificate_water_quality (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_date TEXT,
+      site_id TEXT,
+      site_name TEXT,
+      site_name_raw TEXT,
+      ss REAL,
+      bod REAL,
+      tn REAL,
+      tp REAL,
+      total_coliform REAL,
+      mlss REAL,
+      do REAL,
+      ph REAL,
+      source_pdf_name TEXT,
+      source_page_index INTEGER,
+      ai_confidence REAL,
+      site_match_confidence REAL,
+      manual_review_required INTEGER,
+      warnings_json TEXT,
+      source_payload_json TEXT,
+      created_at TEXT,
+      last_modified TEXT,
+      is_synced INTEGER DEFAULT 1
+    )
+  `);
+}
+
+async function syncCertificateCacheForSiteMonth({ db, siteName, siteId, year, month }) {
   const bq = getBigQueryClient();
   if (!bq) return { synced: false, reason: 'bigquery_unavailable', count: 0 };
 
-  const trimmedSite = String(siteName || '').trim();
-  if (!trimmedSite) return { synced: false, reason: 'site_name_missing', count: 0 };
+  const configuredSite = getConfiguredSite(db, { siteName, siteId });
+  if (!configuredSite.siteId) return { synced: false, reason: 'site_id_missing', count: 0 };
 
   const range = monthRange(year, month);
   if (!range) return { synced: false, reason: 'invalid_year_or_month', count: 0 };
+
+  ensureLocalCertificateCacheTable(db);
+
+  const [metadata] = await bq.dataset(DATASET_ID).table('water_quality').getMetadata();
+  const fields = new Set((metadata?.schema?.fields || []).map((field) => field.name));
+  const isSyncedFilter = fields.has('is_synced') ? 'AND COALESCE(is_synced, 0) = 0' : '';
 
   const [rows] = await bq.query({
     query: `
@@ -50,38 +98,46 @@ async function syncCertificateCacheForSiteMonth({ db, siteName, year, month }) {
         report_date,
         site_id,
         site_name,
-        site_name_raw,
-        ss, bod, tn, tp, total_coliform, mlss, do, ph,
-        source_pdf_name,
-        source_page_index,
-        ai_confidence,
-        site_match_confidence,
-        manual_review_required,
-        warnings_json,
-        source_payload_json
-      FROM \`${DATASET_ID}.certificate_water_quality\`
+        ${optionalSelect(fields, 'site_name_raw', 'site_name')},
+        ${optionalSelect(fields, 'ss')},
+        ${optionalSelect(fields, 'bod')},
+        ${optionalSelect(fields, 'tn')},
+        ${optionalSelect(fields, 'tp')},
+        ${optionalSelect(fields, 'total_coliform')},
+        ${optionalSelect(fields, 'mlss')},
+        ${optionalSelect(fields, 'do')},
+        ${optionalSelect(fields, 'ph')},
+        ${optionalSelect(fields, 'source_pdf_name')},
+        ${optionalSelect(fields, 'source_page_index')},
+        ${optionalSelect(fields, 'ai_confidence')},
+        ${optionalSelect(fields, 'site_match_confidence')},
+        ${optionalSelect(fields, 'manual_review_required', 'FALSE')},
+        ${optionalSelect(fields, 'warnings_json', "'[]'")},
+        ${optionalSelect(fields, 'source_payload_json', "'{}'")}
+      FROM \`${DATASET_ID}.water_quality\`
       WHERE report_date BETWEEN @monthStart AND @monthEnd
-        AND REPLACE(COALESCE(site_name, ''), ' ', '') = REPLACE(@siteName, ' ', '')
+        AND site_id = @siteId
+        ${isSyncedFilter}
       ORDER BY report_date ASC
     `,
     params: {
       monthStart: range.monthStart,
       monthEnd: range.monthEnd,
-      siteName: trimmedSite,
+      siteId: configuredSite.siteId,
     },
     types: {
       monthStart: 'DATE',
       monthEnd: 'DATE',
-      siteName: 'STRING',
+      siteId: 'STRING',
     },
   });
 
   const tx = db.transaction((items) => {
-    db.prepare(`
+    const deleteStmt = db.prepare(`
       DELETE FROM certificate_water_quality
-      WHERE report_date BETWEEN ? AND ?
-        AND REPLACE(COALESCE(site_name, ''), ' ', '') = REPLACE(?, ' ', '')
-    `).run(range.monthStart, range.monthEnd, trimmedSite);
+      WHERE report_date = ?
+        AND site_id = ?
+    `);
 
     const insertStmt = db.prepare(`
       INSERT INTO certificate_water_quality (
@@ -98,9 +154,11 @@ async function syncCertificateCacheForSiteMonth({ db, siteName, year, month }) {
     for (const r of items || []) {
       const reportDate = normalizeDate(r.report_date);
       if (!reportDate) continue;
+      const rowSiteId = r.site_id ? String(r.site_id) : configuredSite.siteId;
+      deleteStmt.run(reportDate, rowSiteId);
       insertStmt.run(
         reportDate,
-        r.site_id ? String(r.site_id) : null,
+        rowSiteId,
         r.site_name ? String(r.site_name) : null,
         r.site_name_raw ? String(r.site_name_raw) : null,
         r.ss ?? null,
@@ -125,6 +183,28 @@ async function syncCertificateCacheForSiteMonth({ db, siteName, year, month }) {
     }
   });
   tx(Array.isArray(rows) ? rows : []);
+
+  if (fields.has('is_synced') && Array.isArray(rows) && rows.length > 0) {
+    await bq.query({
+      query: `
+        UPDATE \`${DATASET_ID}.water_quality\`
+        SET is_synced = 1
+        WHERE report_date BETWEEN @monthStart AND @monthEnd
+          AND site_id = @siteId
+          AND COALESCE(is_synced, 0) = 0
+      `,
+      params: {
+        monthStart: range.monthStart,
+        monthEnd: range.monthEnd,
+        siteId: configuredSite.siteId,
+      },
+      types: {
+        monthStart: 'DATE',
+        monthEnd: 'DATE',
+        siteId: 'STRING',
+      },
+    });
+  }
 
   return { synced: true, count: Array.isArray(rows) ? rows.length : 0 };
 }

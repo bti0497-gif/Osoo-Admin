@@ -8,16 +8,13 @@ const adminHeaders = () => ({
 
 /**
  * PDF 업로드 처리 Hook
- * BigQuery INSERT 및 Drive 업로드
+ * 중앙관리자 앱은 로컬 SQLite 큐를 거치지 않고 서버 API를 통해 BigQuery와 Drive에 직접 전송한다.
  */
 export function usePdfUpload() {
   const [uploadStatus, setUploadStatus] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(null); // 진행 상태 추적
+  const [uploadProgress, setUploadProgress] = useState(null);
 
-  /**
-   * 단일 페이지 데이터 BigQuery에 INSERT
-   */
   const insertToBigQuery = useCallback(async (extractedData, sourcePdfName) => {
     try {
       const res = await fetch(`${getApiBase()}/api/certificates/import-from-ai`, {
@@ -31,10 +28,14 @@ export function usePdfUpload() {
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`BigQuery INSERT 실패: ${res.status} ${text.substring(0, 100)}`);
+        throw new Error(`BigQuery INSERT 실패: ${res.status} ${text.substring(0, 200)}`);
       }
 
       const data = await res.json().catch(() => ({}));
+      if (data.success === false) {
+        throw new Error(data.message || 'BigQuery INSERT 결과가 실패로 반환되었습니다.');
+      }
+
       return {
         success: true,
         manualReviewRequired: data.manual_review_required || false,
@@ -47,9 +48,6 @@ export function usePdfUpload() {
     }
   }, []);
 
-  /**
-   * 이미지를 Google Drive에 업로드
-   */
   const uploadToDrive = useCallback(async (blob, basename, category = '성적서', reportDate) => {
     try {
       const formData = new FormData();
@@ -65,10 +63,17 @@ export function usePdfUpload() {
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`Drive 업로드 실패: ${res.status} ${text.substring(0, 100)}`);
+        throw new Error(`Drive 업로드 실패: ${res.status} ${text.substring(0, 200)}`);
       }
 
       const data = await res.json();
+      if (!data.success || data.failed_count > 0 || data.uploaded_count === 0) {
+        const firstError = Array.isArray(data.errors) && data.errors.length > 0
+          ? data.errors[0]?.message
+          : null;
+        throw new Error(firstError || 'Drive 업로드 결과가 실패로 반환되었습니다.');
+      }
+
       return { success: true, data };
     } catch (err) {
       console.error('[usePdfUpload] Drive 업로드 실패:', err);
@@ -76,105 +81,121 @@ export function usePdfUpload() {
     }
   }, []);
 
-  /**
-   * 전체 업로드 프로세스 실행
-   */
   const processUploads = useCallback(async (results, fileName) => {
     setUploading(true);
-    
-    // 업로드 대상 계산
-    const bqTargets = results.filter(r => r.extracted?.include);
-    const driveTargets = results.filter(r => r.extracted?.include && r.imgBlob);
-    
+
+    const targets = results.filter((result) => result.extracted?.include);
+    const total = targets.length;
+
     setUploadProgress({
+      totalItems: total,
       bqDone: 0,
-      bqTotal: bqTargets.length,
+      bqTotal: total,
       driveDone: 0,
-      driveTotal: driveTargets.length,
-      totalItems: bqTargets.length + driveTargets.length,
+      driveTotal: total,
+      completed: false,
+      status: 'bq',
     });
-    
+
     const stats = {
-      imageOk: 0,
-      imageFail: 0,
       jsonOk: 0,
       jsonFail: 0,
+      imageOk: 0,
+      imageFail: 0,
       unmatchedSites: [],
     };
 
     try {
-      // 1단계: BigQuery INSERT
-      for (const result of results) {
-        if (!result.extracted?.include) continue;
-
-        const bqResult = await insertToBigQuery(result.extracted, fileName);
-        
-        if (bqResult.success) {
-          stats.jsonOk++;
-          if (bqResult.manualReviewRequired) {
-            stats.unmatchedSites.push({
-              name: bqResult.siteNameRaw || '알 수 없음',
-              unresolved: false,
-            });
+      console.log('[usePdfUpload] Step 1: BigQuery 전송 시작');
+      for (const result of targets) {
+        const extracted = result.extracted;
+        try {
+          const bqResult = await insertToBigQuery(extracted, fileName);
+          if (bqResult.success) {
+            stats.jsonOk += 1;
+            if (bqResult.manualReviewRequired || extracted.record?._site_unresolved) {
+              stats.unmatchedSites.push({
+                name: bqResult.siteNameRaw || extracted.record?.site_name || '미확인현장',
+                unresolved: Boolean(extracted.record?._site_unresolved),
+              });
+            }
+          } else {
+            stats.jsonFail += 1;
+            console.error('[usePdfUpload] BigQuery 전송 실패:', bqResult.error);
           }
-        } else {
-          stats.jsonFail++;
+        } catch (err) {
+          stats.jsonFail += 1;
+          console.error('[usePdfUpload] BigQuery 전송 예외:', err);
+        } finally {
+          setUploadProgress((prev) => ({
+            ...prev,
+            bqDone: prev.bqDone + 1,
+          }));
         }
-        
-        // 진행 상태 업데이트
-        setUploadProgress(prev => ({
-          ...prev,
-          bqDone: prev.bqDone + 1,
-        }));
       }
 
-      // 2단계: Drive 업로드
-      for (const result of results) {
-        if (!result.extracted?.include || !result.imgBlob) continue;
-
-        const basename = result.extracted.basename || `page_${results.indexOf(result) + 1}`;
-
-        const driveResult = await uploadToDrive(
-          result.imgBlob,
-          basename,
-          result.extracted.record?.category || '성적서',
-          result.extracted.record?.report_date
-        );
-
-        if (driveResult.success) {
-          stats.imageOk++;
-        } else {
-          stats.imageFail++;
-        }
-        
-        // 진행 상태 업데이트
-        setUploadProgress(prev => ({
-          ...prev,
-          driveDone: prev.driveDone + 1,
-        }));
+      if (stats.jsonOk > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
       }
 
-      setUploadStatus({
+      console.log('[usePdfUpload] Step 2: Drive 업로드 시작');
+      setUploadProgress((prev) => ({ ...prev, status: 'drive' }));
+
+      for (const result of targets) {
+        const extracted = result.extracted;
+        try {
+          if (!result.imgBlob) {
+            throw new Error('업로드할 페이지 이미지가 없습니다.');
+          }
+
+          const driveResult = await uploadToDrive(
+            result.imgBlob,
+            extracted.basename,
+            extracted.category || '성적서',
+            extracted.record?.report_date
+          );
+
+          if (driveResult.success) {
+            stats.imageOk += 1;
+          } else {
+            stats.imageFail += 1;
+            console.error('[usePdfUpload] Drive 업로드 실패:', driveResult.error);
+          }
+        } catch (err) {
+          stats.imageFail += 1;
+          console.error('[usePdfUpload] Drive 업로드 예외:', err);
+        } finally {
+          setUploadProgress((prev) => ({
+            ...prev,
+            driveDone: prev.driveDone + 1,
+          }));
+        }
+      }
+
+      const finalStatus = {
         ...stats,
         completed: true,
-      });
-      
-      setUploadProgress(prev => ({
-        ...prev,
-        completed: true,
-      }));
+        status: 'completed',
+      };
 
+      setUploadProgress((prev) => ({
+        ...prev,
+        ...finalStatus,
+      }));
+      setUploadStatus(finalStatus);
       return stats;
     } catch (err) {
-      console.error('[usePdfUpload] 프로세스 실패:', err);
-      setUploadStatus({
+      const errorStatus = {
         ...stats,
         error: err.message,
         completed: false,
-      });
-      setUploadProgress(prev => ({
+        status: 'error',
+      };
+      console.error('[usePdfUpload] 프로세스 실패:', err);
+      setUploadStatus(errorStatus);
+      setUploadProgress((prev) => ({
         ...prev,
-        error: err.message,
+        ...errorStatus,
       }));
       return stats;
     } finally {
@@ -182,9 +203,6 @@ export function usePdfUpload() {
     }
   }, [insertToBigQuery, uploadToDrive]);
 
-  /**
-   * 상태 리셋
-   */
   const resetStatus = useCallback(() => {
     setUploadStatus(null);
     setUploading(false);
@@ -192,19 +210,14 @@ export function usePdfUpload() {
   }, []);
 
   return {
-    // State
     uploadStatus,
     uploading,
-    uploadProgress, // 진행 상태 추가
-    
-    // Actions
+    uploadProgress,
     insertToBigQuery,
     uploadToDrive,
     processUploads,
     resetStatus,
     setUploadStatus,
-    
-    // Computed
     isComplete: uploadStatus?.completed || false,
     hasError: uploadStatus?.error != null,
   };

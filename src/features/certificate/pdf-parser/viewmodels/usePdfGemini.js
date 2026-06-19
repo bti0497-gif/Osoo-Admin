@@ -26,27 +26,57 @@ export function usePdfGemini() {
     try { return JSON.parse(localStorage.getItem('master_sites') || '[]'); } catch { return []; }
   });
 
-  // 현장명 마스터 로드
-  useEffect(() => {
-    const fetchMasterSites = async () => {
+  // 현장명 마스터 로드 (캐시 없을 때만 API 호출)
+  const fetchMasterSites = useCallback(async (force = false) => {
+    // 캐시가 있고 force가 아니면 API 호출 건너뛰기
+    const cached = localStorage.getItem('master_sites');
+    if (!force && cached) {
       try {
-        const res = await fetch(`${getApiBase()}/api/certificates/site-normalization`, {
-          headers: adminHeaders(),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const sites = (data.siteMaster || []).map(s => s.official_name).filter(Boolean);
+        const sites = JSON.parse(cached);
         if (sites.length > 0) {
+          console.log(`[usePdfGemini] 캐시된 ${sites.length}개 현장명 사용`);
           setMasterSites(sites);
-          localStorage.setItem('master_sites', JSON.stringify(sites));
-          console.log(`[usePdfGemini] ${sites.length}개 현장명 로드 완료`);
+          return;
         }
-      } catch (error) {
-        console.error('[usePdfGemini] 현장명 로드 실패, 캐시 사용:', error.message);
+      } catch { /* 무시 */ }
+    }
+
+    try {
+      const res = await fetch(`${getApiBase()}/api/certificates/site-normalization`, {
+        headers: adminHeaders(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const sites = (data.siteMaster || []).map(s => s.official_name).filter(Boolean);
+      if (sites.length > 0) {
+        setMasterSites(sites);
+        localStorage.setItem('master_sites', JSON.stringify(sites));
+        console.log(`[usePdfGemini] API로 ${sites.length}개 현장명 로드 완료`);
       }
-    };
-    fetchMasterSites();
+    } catch (error) {
+      console.error('[usePdfGemini] 현장명 로드 실패, 캐시 사용:', error.message);
+    }
   }, []);
+
+  // 앱 시작 시 1회만 실행 - 캐시 있으면 아예 API 호출 안함
+  useEffect(() => {
+    const cached = localStorage.getItem('master_sites');
+    if (cached) {
+      // 캐시 있음: 콘솔에만 출력하고 API 호출 안함
+      try {
+        const sites = JSON.parse(cached);
+        console.log(`[usePdfGemini] 캐시된 현장명 ${sites.length}개 사용 (API 호출 없음)`);
+      } catch {
+        // 캐시 파싱 실패 시에만 API 호출
+        fetchMasterSites(true);
+      }
+    } else {
+      // 캐시 없음: 처음 1회 API 호출
+      console.log('[usePdfGemini] 캐시 없음 - API에서 현장명 로드');
+      fetchMasterSites(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 마운트 시 1회만 실행
 
   /**
    * Gemini AI 프롬프트 생성
@@ -252,6 +282,7 @@ ${sitesMeta}
     generateBasename,
     postProcessResults,
     buildPrompt,
+    refreshSites: () => fetchMasterSites(true), // 수동 새로고침 (force=true)
   };
 }
 

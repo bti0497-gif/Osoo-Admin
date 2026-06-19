@@ -256,7 +256,7 @@ export const useFlowViewModel = (currentUser, { showAlert, flowTypes: flowTypesP
         }
     };
 
-    // 셀 편집: 수동 수정 모드 (적산·누계 개별 입력). 적산(raw) 변경 시 이후 날짜 누계 연쇄 재계산.
+    // 셀 편집: 수동 수정 모드 (적산·누계 개별 입력). 한쪽 값 입력 시 반대값도 즉시 맞춘다.
     const updateManualReading = (rowDate, type, field, val) => {
         const numVal = val === '' ? null : parseFloat(val);
         let pendingByDate = null;
@@ -268,17 +268,50 @@ export const useFlowViewModel = (currentUser, { showAlert, flowTypes: flowTypesP
             if (idx === -1) return prev;
 
             const currentCell = newHist[idx][type] || {};
+            let derivedRaw = numVal;
+            let derivedDiff = numVal;
+            let errorMsg = field === 'raw' ? null : currentCell.error;
+
+            if (field === 'diff') {
+                if (numVal === null || Number.isNaN(numVal)) {
+                    derivedRaw = null;
+                    derivedDiff = null;
+                } else if (type === '슬러지') {
+                    const previousCumulative = findPreviousSludgeCumulative(newHist, idx, rowDate, type);
+                    derivedRaw = Math.round((numVal - previousCumulative) * 10) / 10;
+                    derivedDiff = numVal;
+                    if (derivedRaw > 10000) errorMsg = '입력값이 정상 범위를 초과합니다.';
+                    else if (derivedRaw < 0) errorMsg = '반출량은 음수일 수 없습니다.';
+                    else errorMsg = null;
+                } else {
+                    let prevReading = null;
+                    for (let i = idx - 1; i >= 0; i -= 1) {
+                        const c = correctData(newHist[i][type]);
+                        if (c.reading !== null && c.reading !== undefined) {
+                            prevReading = Number(c.reading);
+                            break;
+                        }
+                    }
+
+                    derivedRaw = Math.round(((prevReading ?? 0) + numVal) * 10) / 10;
+                    derivedDiff = numVal;
+                    errorMsg = null;
+                }
+            }
+
             const newCell = {
                 ...currentCell,
-                [field]: numVal,
+                ...(field === 'diff'
+                    ? { raw: derivedRaw, diff: derivedDiff }
+                    : { [field]: numVal }),
                 isChanged: true,
                 isUserInput: true,
-                error: field === 'raw' ? null : currentCell.error,
+                error: errorMsg,
             };
 
             newHist[idx] = { ...newHist[idx], [type]: newCell };
 
-            if (field === 'raw') {
+            if (field === 'raw' || field === 'diff') {
                 pendingByDate = cascadeRecalculateType(
                     newHist,
                     idx,
@@ -295,7 +328,7 @@ export const useFlowViewModel = (currentUser, { showAlert, flowTypes: flowTypesP
             return newHist;
         });
 
-        if (field === 'raw' && pendingByDate) {
+        if ((field === 'raw' || field === 'diff') && pendingByDate) {
             setPendingChanges((p) => {
                 const nextPending = { ...p };
                 for (const [date, snap] of pendingByDate.entries()) {

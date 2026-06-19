@@ -56,17 +56,18 @@ function recalculateKitInventory(db, kitName, metadata) {
         SELECT id, COALESCE(purchase_amount, 0) AS purchase_amount, COALESCE(usage_amount, 0) AS usage_amount
         FROM kit_logs
         WHERE kit_name = ?
+          AND (site_id = ? OR ? = '')
         ORDER BY date ASC, id ASC
-    `).all(kitName);
+    `).all(kitName, String(metadata.siteId || ''), String(metadata.siteId || ''));
 
     const updateStmt = db.prepare(`
         UPDATE kit_logs
         SET current_inventory = ?,
-            site_id = ?,
-            site_name = ?,
-            author = ?,
-            last_modified = ?,
-            is_synced = ?
+            site_id = COALESCE(site_id, ?),
+            site_name = COALESCE(site_name, ?),
+            author = CASE WHEN current_inventory IS NOT ? THEN ? ELSE author END,
+            last_modified = CASE WHEN current_inventory IS NOT ? THEN ? ELSE last_modified END,
+            is_synced = CASE WHEN current_inventory IS NOT ? THEN ? ELSE is_synced END
         WHERE id = ?
     `);
 
@@ -77,8 +78,11 @@ function recalculateKitInventory(db, kitName, metadata) {
             runningInventory,
             metadata.siteId,
             metadata.siteName,
+            runningInventory,
             metadata.author,
+            runningInventory,
             metadata.lastModified,
+            runningInventory,
             metadata.isSynced,
             row.id
         );
@@ -86,9 +90,13 @@ function recalculateKitInventory(db, kitName, metadata) {
 }
 
 module.exports = function (db) {
+    function getCurrentSiteId() {
+        return String(db.prepare('SELECT site_id FROM app_settings WHERE id = 1').get()?.site_id || '').trim();
+    }
+
     router.get('/api/kits/history', (req, res) => {
         try {
-            const { site_id } = req.query;
+            const site_id = String(req.query.site_id || getCurrentSiteId() || '').trim();
             const allRecords = site_id
                 ? db.prepare('SELECT * FROM kit_logs WHERE site_id = ? ORDER BY date ASC').all(String(site_id))
                 : db.prepare('SELECT * FROM kit_logs ORDER BY date ASC').all();

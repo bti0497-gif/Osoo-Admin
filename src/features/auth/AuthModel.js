@@ -27,6 +27,33 @@ export const AuthModel = {
         return this.localLogin(name, password);
     },
 
+    async getActiveSiteSession() {
+        try {
+            const res = await fetch(`${getApiBase()}/api/settings`);
+            const data = await res.json();
+            if (!data.success || !data.settings) return null;
+            return {
+                site_id: data.settings.site_id || '',
+                site_name1: data.settings.site_name || '',
+                manager_name: data.settings.manager_name || '',
+                method: data.settings.method || '',
+                series: data.settings.series || ''
+            };
+        } catch (e) {
+            console.warn('Active site session load failed:', e);
+            return null;
+        }
+    },
+
+    async selectActiveSite(siteId) {
+        const res = await fetch(`${getApiBase()}/api/settings/select-site`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteId })
+        });
+        return res.json();
+    },
+
     saveSession(userData) {
         try {
             localStorage.setItem(SESSION_KEY, JSON.stringify({

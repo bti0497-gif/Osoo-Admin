@@ -53,6 +53,9 @@ module.exports = function (db, baseDir, appDataPath) {
   syncBundledTemplatesToAppData(baseDir, appDataPath);
 
   const upsertLocalSite = (site) => {
+    if (!db) {
+      return;
+    }
     if (!site?.id || !site?.site_name) {
       return;
     }
@@ -80,11 +83,11 @@ module.exports = function (db, baseDir, appDataPath) {
     );
   };
 
-  const syncLocalSites = db.transaction((sites) => {
+  const syncLocalSites = db ? db.transaction((sites) => {
     for (const site of sites || []) {
       upsertLocalSite(site);
     }
-  });
+  }) : () => console.log('[syncLocalSites] SQLite not available - skipped');
 
   const reportStorage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, file.fieldname === 'excel_original' ? excelOriginalsDir : reportsDir),
@@ -104,6 +107,9 @@ module.exports = function (db, baseDir, appDataPath) {
     try {
       cleanupDisallowedReportTemplates(reportsDir);
       const reportTemplates = listReportTemplates(baseDir, appDataPath);
+      if (!db) {
+        return res.json({ success: true, settings: {}, sludgeExportSettings: {}, configItems: [], credentials: [], reportTemplates });
+      }
       const settings = db.prepare('SELECT * FROM app_settings WHERE id = 1').get();
       const sludgeExportSettings = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
       const configItems = db.prepare('SELECT * FROM config_items ORDER BY category, display_order').all();
@@ -243,6 +249,12 @@ module.exports = function (db, baseDir, appDataPath) {
           series: site.series,
           is_active: site.is_active
         }));
+
+      // 중앙관리자 앱은 SQLite 없이 동작 - db 없으면 로컬 현장 선택 로직 건너뜀
+      if (!db) {
+        return res.json({ success: true, sites, currentSiteId: sites[0]?.id || null, source: 'sheets' });
+      }
+
       const current = db.prepare('SELECT site_id FROM app_settings WHERE id = 1').get();
       const fallbackSite = sites.find((site) => String(site.id) === String(current?.site_id)) || sites[0] || null;
 

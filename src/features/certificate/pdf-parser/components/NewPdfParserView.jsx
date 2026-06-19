@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { FileText, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { pdfjs } from 'react-pdf';
 import { PDFDocument } from 'pdf-lib';

@@ -144,7 +144,49 @@ async function getSiteList() {
   return rows.map(r => r.site_name);
 }
 
+/**
+ * 엑셀 파싱 결과를 water_quality 테이블에 배치 삽입
+ * @param {Array} rows - { site_name, report_date, ss, bod, tn, tp, mlss, total_coliform, source_type }
+ */
+async function insertRows(rows) {
+  const region = await findDatasetRegion();
+  const bq = getBigQueryClient();
+
+  const toNum = (v) => {
+    if (v === null || v === undefined || String(v).trim() === '' || String(v).trim() === '-') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
+  const { randomUUID } = require('crypto');
+
+  const insertData = rows.map(row => ({
+    id: randomUUID(),
+    uploaded_at: nowIso,
+    report_date: row.report_date || null,
+    category: row.source_type || 'excel',
+    site_name: row.site_name || null,
+    site_name_raw: row.site_name_raw || row.site_name || null,
+    ss: toNum(row.ss),
+    bod: toNum(row.bod),
+    tn: toNum(row.tn),
+    tp: toNum(row.tp),
+    mlss: toNum(row.mlss),
+    total_coliform: toNum(row.total_coliform),
+    drive_file_name: null,
+    source_pdf_name: row.source_pdf_name || null,
+  }));
+
+  const dataset = bq.dataset(DATASET);
+  const table = dataset.table(TABLE);
+  await table.insert(insertData, { location: region });
+
+  return { inserted: insertData.length };
+}
+
 module.exports = {
   queryWaterQualityData,
   getSiteList,
+  insertRows,
 };

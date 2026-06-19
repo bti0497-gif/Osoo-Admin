@@ -150,7 +150,7 @@ router.get('/api/gyeonggi/data-preview', async (req, res) => {
     
     let query = `
       SELECT report_date, site_name, ss, bod, tn, tp, total_coliform, mlss, do, ph
-      FROM \`${DATASET_ID}.certificate_water_quality\`
+      FROM \`${DATASET_ID}.water_quality\`
       WHERE report_date >= @startDate AND report_date <= @endDate
     `;
     
@@ -213,7 +213,7 @@ router.post('/api/gyeonggi/generate', async (req, res) => {
     const bq = getBigQueryClient();
     let query = `
       SELECT report_date, site_name, ss, bod, tn, tp, total_coliform, mlss, do, ph
-      FROM \`${DATASET_ID}.certificate_water_quality\`
+      FROM \`${DATASET_ID}.water_quality\`
       WHERE report_date >= @startDate AND report_date <= @endDate
     `;
     

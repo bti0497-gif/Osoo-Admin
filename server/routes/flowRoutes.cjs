@@ -3,6 +3,10 @@ const { getCurrentRecordMetadata } = require('../services/syncMetadataService.cj
 const router = express.Router();
 
 module.exports = function (db) {
+  function getCurrentSiteId() {
+    return String(db.prepare('SELECT site_id FROM app_settings WHERE id = 1').get()?.site_id || '').trim();
+  }
+
   function calculateSludgeYearlyCumulative(targetDate, previousCalculatedFlow, sludgeExport) {
     const currentYear = String(targetDate || '').slice(0, 4);
     const previousCumulative = previousCalculatedFlow ?? 0;
@@ -19,17 +23,18 @@ module.exports = function (db) {
       SELECT id, date, raw_value, sludge_export
       FROM flow_readings
       WHERE type = ?
+        AND (site_id = ? OR ? = '')
       ORDER BY date ASC, id ASC
-    `).all(type);
+    `).all(type, String(metadata.siteId || ''), String(metadata.siteId || ''));
 
     const updateStmt = dbConn.prepare(`
       UPDATE flow_readings
       SET calculated_flow = ?,
-          site_id = ?,
-          site_name = ?,
-          author = ?,
-          last_modified = ?,
-          is_synced = ?
+          site_id = COALESCE(site_id, ?),
+          site_name = COALESCE(site_name, ?),
+          author = CASE WHEN calculated_flow IS NOT ? THEN ? ELSE author END,
+          last_modified = CASE WHEN calculated_flow IS NOT ? THEN ? ELSE last_modified END,
+          is_synced = CASE WHEN calculated_flow IS NOT ? THEN ? ELSE is_synced END
       WHERE id = ?
     `);
 
@@ -66,8 +71,11 @@ module.exports = function (db) {
         flow,
         metadata.siteId,
         metadata.siteName,
+        flow,
         metadata.author,
+        flow,
         metadata.lastModified,
+        flow,
         metadata.isSynced,
         row.id
       );
@@ -75,7 +83,8 @@ module.exports = function (db) {
   }
 
   router.get('/api/flows', (req, res) => {
-    const { date, site_id } = req.query;
+    const { date } = req.query;
+    const site_id = String(req.query.site_id || getCurrentSiteId() || '').trim();
     const sql = site_id
       ? 'SELECT * FROM flow_readings WHERE date = ? AND site_id = ?'
       : 'SELECT * FROM flow_readings WHERE date = ?';
@@ -87,7 +96,7 @@ module.exports = function (db) {
 
   router.get('/api/flows/history', (req, res) => {
     try {
-      const { site_id } = req.query;
+      const site_id = String(req.query.site_id || getCurrentSiteId() || '').trim();
       const dates = site_id
         ? db.prepare('SELECT DISTINCT date FROM flow_readings WHERE site_id = ? ORDER BY date ASC').all(String(site_id))
         : db.prepare('SELECT DISTINCT date FROM flow_readings ORDER BY date ASC').all();
@@ -179,7 +188,15 @@ module.exports = function (db) {
     const { date, type, raw_value, is_reset, is_manual, manual_flow, sludge_export } = req.body;
     try {
       const metadata = getCurrentRecordMetadata(db, req.body);
-      const prevReading = db.prepare('SELECT raw_value, calculated_flow, date FROM flow_readings WHERE type = ? AND date < ? ORDER BY date DESC LIMIT 1').get(type, date);
+      const prevReading = db.prepare(`
+        SELECT raw_value, calculated_flow, date
+        FROM flow_readings
+        WHERE type = ?
+          AND date < ?
+          AND (site_id = ? OR ? = '')
+        ORDER BY date DESC
+        LIMIT 1
+      `).get(type, date, String(metadata.siteId || ''), String(metadata.siteId || ''));
 
       // 보정 로직 동일 적용
       const effectivePrevRaw = (prevReading?.raw_value === null && prevReading?.calculated_flow > 10000)

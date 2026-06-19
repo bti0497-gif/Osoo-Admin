@@ -9,7 +9,7 @@ export const APP_TARGETS = {
   SHARED_BEFORE_SPLIT: 'shared-before-split'
 };
 
-export const ADMIN_ROLES = ['admin', 'group_admin'];
+export const ADMIN_ROLES = ['admin', 'group_admin', 'central_admin'];
 
 export const MENU_REGISTRY = [
   { id: 'members', label: '회원 및 현장 관리', icon: 'admin_panel_settings', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'members', displayOrder: 10 },
@@ -17,12 +17,13 @@ export const MENU_REGISTRY = [
   { id: 'board', label: '소통게시판', icon: 'forum', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'board', displayOrder: 30 },
   { id: 'certificate', label: '성적서', icon: 'description', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'certificate', displayOrder: 40,
     children: [
-      { id: 'pdf_parser', label: 'PDF 파서', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'pdf_parser', label: '성적서 올리기', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'water_quality_list', label: '성적서 보기', workspaceId: 'water_quality_list', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'water_quality_query', label: '수질데이터 조회', workspaceId: 'water_quality_query', appTarget: APP_TARGETS.ADMIN_APP },
     ]
   },
   { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },
+  { id: 'monthly_report', label: '월운영일지', icon: 'summarize', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'monthly_report', displayOrder: 47 },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
     children: [
       { id: 'template_manager', label: '양식관리', workspaceId: 'template_manager', appTarget: APP_TARGETS.ADMIN_APP },

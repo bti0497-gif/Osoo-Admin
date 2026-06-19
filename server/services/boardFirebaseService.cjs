@@ -55,13 +55,19 @@ function newUUID() {
 // 권한 헬퍼
 // ─────────────────────────────────────────────────────────────────────
 function isAdminRole(role) {
-  return role === 'admin' || role === 'group_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
 }
 
 /**
- * 게시글 가시성 판단
- * - admin/group_admin: 모든 글 열람 가능
- * - user/manager: visible_sites에 'ALL' 또는 자기 현장명이 포함된 글만
+ * [CRITICAL] 게시글 가시성 판단 - 권한 체크 핵심 함수
+ * - admin/group_admin/central_admin: 모든 글 열람 가능
+ * - user/manager: visible_sites에 'ALL' 또는 자기 현장명이 포함된 글만, 또는 자기가 쓴 글
+ * 
+ * WARNING: 수정 시 반드시 다음 시나리오 테스트:
+ * 1. 관리자가 모든 글 보기
+ * 2. 현장관리자가 자기 현장 글 보기
+ * 3. 현장관리자가 자기가 쓴 글 보기
+ * 4. 답글(parent_id) 상속 권한 테스트
  */
 function canViewPost(post, user) {
   if (!post || post.is_deleted) return false;
@@ -86,9 +92,12 @@ function canViewPost(post, user) {
  */
 async function getPosts(role, siteName, userName) {
   const db = getFirestore();
-  const snapshot = await db.collection('posts')
-    .where('is_deleted', '==', false)
-    .get();
+
+  // posts와 comments를 병렬로 조회
+  const [snapshot, commentSnapshot] = await Promise.all([
+    db.collection('posts').where('is_deleted', '==', false).get(),
+    db.collection('comments').where('is_deleted', '==', false).get()
+  ]);
 
   const user = { role, site: siteName, name: userName };
   let posts = [];
@@ -99,11 +108,6 @@ async function getPosts(role, siteName, userName) {
       posts.push(data);
     }
   });
-
-  // 댓글 수 집계
-  const commentSnapshot = await db.collection('comments')
-    .where('is_deleted', '==', false)
-    .get();
 
   const commentCounts = {};
   commentSnapshot.forEach(doc => {
@@ -134,26 +138,45 @@ async function getPosts(role, siteName, userName) {
 /**
  * 게시글 단건 조회
  */
-async function getPost(id) {
+async function getPost(id, { incrementView = false } = {}) {
   const db = getFirestore();
-  const doc = await db.collection('posts').doc(id).get();
+  const ref = db.collection('posts').doc(id);
+  const doc = await ref.get();
   if (!doc.exists) return null;
   const data = { id: doc.id, ...doc.data() };
   if (data.is_deleted) return null;
   data.created_at = toISOString(data.created_at);
   data.updated_at = toISOString(data.updated_at);
+  if (incrementView) {
+    const newCount = (data.view_count || 0) + 1;
+    ref.update({ view_count: newCount }).catch(() => {});
+    data.view_count = newCount;
+  } else {
+    data.view_count = data.view_count || 0;
+  }
   return data;
 }
 
 /**
  * 게시글 생성
+ * - 답글(parent_id 존재)인 경우 부모 게시글의 visible_sites 상속
  */
 async function createPost(data) {
   const db = getFirestore();
   const now = new Date().toISOString();
   const id = newUUID();
 
-  const visibleSites = buildVisibleSites(data);
+  // 답글인 경우 부모 게시글의 visible_sites 상속
+  let visibleSites = buildVisibleSites(data);
+  if (data.parent_id) {
+    const parentDoc = await db.collection('posts').doc(data.parent_id).get();
+    if (parentDoc.exists) {
+      const parentData = parentDoc.data();
+      if (parentData.visible_sites) {
+        visibleSites = parentData.visible_sites;
+      }
+    }
+  }
 
   const row = {
     id,
@@ -168,6 +191,7 @@ async function createPost(data) {
     attachments:   data.attachments  || '[]',
     parent_id:     data.parent_id    || null,
     is_deleted:    false,
+    view_count:    0,
     created_at:    now,
     updated_at:    now
   };

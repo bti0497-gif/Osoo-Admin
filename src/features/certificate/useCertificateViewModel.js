@@ -72,6 +72,7 @@ export const useCertificateViewModel = (currentUser, { showToast, showAlert } = 
     const fileInputRef = useRef(null);
     const batchProcess = useBatchProcess();
     const [records, setRecords] = useState([]);
+    const [downloadProgress, setDownloadProgress] = useState({ loading: false, current: 0, total: 0, percent: 0 });
     const [isLoading, setIsLoading] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteProgress, setDeleteProgress] = useState({
@@ -380,10 +381,36 @@ export const useCertificateViewModel = (currentUser, { showToast, showAlert } = 
         }
     }, [showToast]);
 
-    const handleDownloadSelected = useCallback(() => {
-        downloadMergedFiles(
-            selectedIds,
-            selectedYear,
+    const handleDownloadSelected = useCallback(async () => {
+        if (selectedIds.length === 0) return;
+        
+        try {
+            setDownloadProgress({ loading: true, current: 0, total: selectedIds.length, percent: 0 });
+            
+            await CertificateModel.downloadMergedPdfWithProgress(
+                selectedIds,
+                selectedYear,
+                (current, total, percent) => {
+                    setDownloadProgress({ loading: true, current, total, percent });
+                }
+            );
+            
+            // 다운로드 완료 후 선택 해제 및 목록 새로고침
+            setCheckedIds([]);
+            await loadData(selectedYear, selectedMonth, currentSite, currentPage, pageSize);
+            showToast?.('성적서 다운로드가 완료되었습니다.', 'success');
+        } catch (error) {
+            console.error('[handleDownloadSelected] 다운로드 실패:', error);
+            showToast?.('다운로드 중 오류가 발생했습니다.', 'error');
+        } finally {
+            setDownloadProgress({ loading: false, current: 0, total: 0, percent: 0 });
+        }
+    }, [selectedIds, selectedYear, setCheckedIds, loadData, currentSite, currentPage, pageSize, showToast]);
+
+    // 기존 downloadMergedFiles 함수는 유지하되 내부적으로 새 함수 사용
+    const downloadMergedFiles = useCallback((
+        selectedIds,
+        selectedYear,
             selectedMonth,
             selectedSite,
             showAlert,
@@ -476,4 +503,7 @@ export const useCertificateViewModel = (currentUser, { showToast, showAlert } = 
         isDeleting,
         deleteProgress,
         closeDeleteProgress,
+        // 다운로드 프로그레스
+        downloadProgress,
+        closeDownloadProgress,
     };};

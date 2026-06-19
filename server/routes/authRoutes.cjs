@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { getMembers, upsertMember, deleteMember, isSheetsConfigured } = require('../services/membersSheetsService.cjs');
 
-const ADMIN_ROLES = new Set(['admin', 'group_admin']);
+const ADMIN_ROLES = new Set(['admin', 'group_admin', 'central_admin']);
 
 module.exports = () => {
     const router = express.Router();

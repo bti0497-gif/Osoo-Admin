@@ -6,15 +6,24 @@ const isAdminUser = (member) => ADMIN_ROLES.includes(String(member?.role || ''))
 
 // TODO: 중앙관리자 앱은 특정 로그인이 필요 없으므로 바이패스 활성화
 // 로그인 기능을 다시 활성화하려면 false로 변경
-const BYPASS_LOGIN = true;
+const BYPASS_LOGIN = false;
 
 const DEFAULT_ADMIN_USER = {
     id: 'central_admin',
     name: '중앙관리자',
     role: 'central_admin',
-    site_name1: '전체현장',
+    site_name1: '',
     managed_sites: [],
 };
+
+const mergeSiteSession = (baseUser, siteSession) => ({
+    ...baseUser,
+    ...(siteSession?.site_id ? { site_id: siteSession.site_id } : {}),
+    ...(siteSession?.site_name1 ? { site_name1: siteSession.site_name1 } : {}),
+    ...(siteSession?.manager_name ? { name: siteSession.manager_name } : {}),
+    ...(siteSession?.method ? { method: siteSession.method } : {}),
+    ...(siteSession?.series ? { series: siteSession.series } : {}),
+});
 
 export const useAuthViewModel = () => {
     const [user, setUser] = useState(BYPASS_LOGIN ? DEFAULT_ADMIN_USER : null);
@@ -28,9 +37,15 @@ export const useAuthViewModel = () => {
 
     useEffect(() => {
         if (BYPASS_LOGIN) {
-            // 바이패스 모드: 기본 관리자로 자동 로그인
-            setUser(DEFAULT_ADMIN_USER);
-            setIsLoading(false);
+            const restoreBypassSession = async () => {
+                try {
+                    const siteSession = await AuthModel.getActiveSiteSession();
+                    setUser(mergeSiteSession(DEFAULT_ADMIN_USER, siteSession));
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+            restoreBypassSession();
             return;
         }
 
@@ -53,9 +68,10 @@ export const useAuthViewModel = () => {
 
     const login = async (name, password) => {
         if (BYPASS_LOGIN) {
-            // 바이패스 모드: 로그인 무시하고 기본 관리자로 설정
-            setUser(DEFAULT_ADMIN_USER);
-            return { success: true, user: DEFAULT_ADMIN_USER, locationMatched: true };
+            const siteSession = await AuthModel.getActiveSiteSession();
+            const bypassUser = mergeSiteSession(DEFAULT_ADMIN_USER, siteSession);
+            setUser(bypassUser);
+            return { success: true, user: bypassUser, locationMatched: true };
         }
 
         setIsLoading(true);
@@ -80,8 +96,8 @@ export const useAuthViewModel = () => {
 
     const logout = async () => {
         if (BYPASS_LOGIN) {
-            // 바이패스 모드: 로그아웃해도 다시 기본 관리자로 복귀
-            setUser(DEFAULT_ADMIN_USER);
+            const siteSession = await AuthModel.getActiveSiteSession();
+            setUser(mergeSiteSession(DEFAULT_ADMIN_USER, siteSession));
             return;
         }
         AuthModel.clearSession();
@@ -89,7 +105,21 @@ export const useAuthViewModel = () => {
         await refreshLoginHint();
     };
 
-    const switchActiveSite = async () => ({ success: true, site: null });
+    const switchActiveSite = async (siteId) => {
+        if (!siteId) return { success: false, site: null };
+        const result = await AuthModel.selectActiveSite(siteId);
+        if (result?.success) {
+            const site = result.site || {};
+            setUser(prev => mergeSiteSession(prev || DEFAULT_ADMIN_USER, {
+                site_id: site.id || siteId,
+                site_name1: site.site_name || prev?.site_name1 || '',
+                manager_name: site.manager_name || prev?.name || '',
+                method: site.method || prev?.method || '',
+                series: site.series || prev?.series || '',
+            }));
+        }
+        return result;
+    };
 
     return {
         user,

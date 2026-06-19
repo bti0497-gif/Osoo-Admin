@@ -26,7 +26,7 @@ export default function WaterQualityListView() {
     sites, fetchSites,
     fetchList,
     deleteSelected, deleteResult, setDeleteResult,
-    downloading, downloadSelectedAsPdf,
+    downloading, downloadSelectedAsPdf, downloadSelectedImages,
   } = useWaterQualityList();
 
   useEffect(() => {
@@ -83,6 +83,14 @@ export default function WaterQualityListView() {
             ) : 'PDF 다운로드'}
           </button>
           <button
+            onClick={downloadSelectedImages}
+            disabled={!hasSelection || downloading}
+            style={btnStyle('#22c55e', !hasSelection || downloading)}
+            title="선택된 항목의 원본 이미지를 개별적으로 다운로드합니다"
+          >
+            {downloading ? '다운로드 중...' : '이미지 다운로드'}
+          </button>
+          <button
             onClick={() => {
               if (window.confirm(`선택된 ${selectedIds.size}건을 삭제하시겠습니까?`)) deleteSelected();
             }}
@@ -127,8 +135,8 @@ export default function WaterQualityListView() {
             boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
           }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '50%', border: '4px solid #e2e8f0', borderTopColor: '#2563eb', animation: 'spin 0.7s linear infinite' }} />
-            <div style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>PDF 생성 중...</div>
-            <div style={{ fontSize: '12px', color: '#64748b' }}>{selectedIds.size}개 파일을 병합하고 있습니다.</div>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>다운로드 중...</div>
+            <div style={{ fontSize: '12px', color: '#64748b' }}>{selectedIds.size}개 파일을 처리하고 있습니다.</div>
           </div>
         </div>
       )}

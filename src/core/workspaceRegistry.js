@@ -7,12 +7,13 @@ import { DEFAULT_TAB, MENU_ITEMS } from './constants';
 const MemberManagementView = lazy(() => import('../features/members/index.jsx').then((m) => ({ default: m.MemberManagementView })));
 const BoardView = lazy(() => import('../features/board').then((m) => ({ default: m.BoardView })));
 const CertificateView = lazy(() => import('../features/certificate').then((m) => ({ default: m.CertificateView })));
-const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView'));
+const CertificateUploadView = lazy(() => import('../features/certificate/upload/components/CertificateUploadView').then((m) => ({ default: m.CertificateUploadView })));
 const WaterQualityQueryView = lazy(() => import('../features/certificate/water-quality-query/components/WaterQualityQueryView'));
 const WaterQualityListView = lazy(() => import('../features/certificate/water-quality-list/components/WaterQualityListView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
+const MonthlyReportView = lazy(() => import('../features/monthly-report/MonthlyReportView').then((m) => ({ default: m.MonthlyReportView })));
 
 // ============================================
 // 워크스페이스 레지스트리
@@ -35,8 +36,8 @@ export const WORKSPACE_REGISTRY = {
     helpText: '성적서를 조회, 업로드, 다운로드합니다.'
   },
   pdf_parser: {
-    render: () => React.createElement(NewPdfParserView),
-    helpText: 'AI로 수질성적서를 파싱하고 Drive/BigQuery에 업로드합니다.'
+    render: () => React.createElement(CertificateUploadView),
+    helpText: '엑셀(수치→BigQuery)과 PDF(이미지→Drive)를 업로드합니다.'
   },
   water_quality_list: {
     render: () => React.createElement(WaterQualityListView),
@@ -61,6 +62,10 @@ export const WORKSPACE_REGISTRY = {
   attendance_dashboard: {
     render: () => React.createElement(AttendanceDashboardView),
     helpText: '전국 현장관리자 출결현황을 조회합니다.'
+  },
+  monthly_report: {
+    render: () => React.createElement(MonthlyReportView),
+    helpText: '월별 유량/약품 데이터를 현장별 Excel 월운영일지로 내보냅니다.'
   },
 };
 

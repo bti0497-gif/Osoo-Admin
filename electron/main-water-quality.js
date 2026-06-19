@@ -17,7 +17,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env.local') });
 // BigQuery 설정 (기존 서비스와 동일한 방식)
 const BQ_KEY_FILE = path.join(__dirname, '../server/config/work-jindan-194620a46d59.json');
 const BQ_DATASET = 'daily_log_system';
-const BQ_TABLE = 'certificate_water_quality';
+const BQ_TABLE = 'water_quality';
 
 // Drive 설정
 const CERTIFICATE_DRIVE_FOLDER_ID = 
@@ -57,19 +57,21 @@ async function insertToBigQuery(records) {
 
     // 레코드 정규화
     const normalizedRecords = records.map(r => ({
+      id: `${r.report_date || new Date().toISOString().split('T')[0]}-${r.site_name || 'unknown'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      uploaded_at: new Date().toISOString(),
+      site_id: r.site_id ? String(r.site_id) : null,
       site_name: r.site_name || '미확인현장',
       report_date: r.report_date || new Date().toISOString().split('T')[0],
       category: r.category || '성적서',
-      method: r.method || null,
-      series: r.series || null,
       ph: r.ph || null,
-      cod: r.cod || null,
       ss: r.ss || null,
+      bod: r.bod || null,
       tn: r.tn || null,
       tp: r.tp || null,
-      temp: r.temp || null,
+      mlss: r.mlss || null,
+      total_coliform: r.total_coliform || null,
       source_pdf_name: r.source_pdf_name || null,
-      created_at: new Date().toISOString(),
+      is_synced: 0,
     }));
 
     await bq.dataset(datasetId).table(tableId).insert(normalizedRecords);

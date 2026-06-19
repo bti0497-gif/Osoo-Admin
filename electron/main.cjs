@@ -234,3 +234,43 @@ ipcMain.handle('pdf:save', async (_event, options = {}) => {
   fs.writeFileSync(filePath, pdfBuffer);
   return { canceled: false, filePath };
 });
+
+// 파일 다운로드 (기본 다운로드 폴더에 자동 저장)
+ipcMain.handle('file:download', async (_event, { url, fileName }) => {
+  try {
+    const downloadsPath = app.getPath('downloads');
+    const filePath = path.join(downloadsPath, fileName);
+    
+    // URL에서 파일 다운로드
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status}`);
+    }
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(filePath, buffer);
+    
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('[file:download] Error:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// 바이너리 버퍼를 다운로드 폴더에 저장 (대화상자 없음)
+ipcMain.handle('file:saveBuffer', async (_event, { fileName, buffer }) => {
+  try {
+    const downloadsPath = app.getPath('downloads');
+    const filePath = path.join(downloadsPath, fileName);
+    
+    // Uint8Array를 Buffer로 변환
+    const nodeBuffer = Buffer.from(buffer);
+    fs.writeFileSync(filePath, nodeBuffer);
+    
+    console.log('[file:saveBuffer] Saved:', filePath);
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('[file:saveBuffer] Error:', err);
+    return { success: false, error: err.message };
+  }
+});

@@ -1,5 +1,5 @@
 /**
- * BigQuery 수질데이터 (certificate_water_quality) 조회 라우트
+ * BigQuery 성적서 수질데이터 (water_quality) 조회 라우트
  */
 const express = require('express');
 const { queryWaterQualityData, getSiteList } = require('../services/certificateWaterQualityService.cjs');
@@ -72,6 +72,40 @@ router.get('/api/certificates/water-quality/sites', async (req, res) => {
     res.status(500).json({
       success: false,
       error: err.message,
+    });
+  }
+});
+
+/**
+ * 엑셀 데이터 Batch Insert API
+ * POST /api/certificates/water-quality/batch-insert
+ */
+router.post('/api/certificates/water-quality/batch-insert', async (req, res) => {
+  try {
+    const { rows } = req.body || {};
+    
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'rows 배열이 필요합니다.'
+      });
+    }
+
+    // BigQuery에 배치 삽입
+    const { insertRows } = require('../services/certificateWaterQualityService.cjs');
+    
+    const result = await insertRows(rows);
+    
+    res.json({
+      success: true,
+      inserted: result.inserted || rows.length,
+      message: `${rows.length}행이 BigQuery에 삽입되었습니다.`
+    });
+  } catch (err) {
+    console.error('[batch-insert] 삽입 실패:', err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message
     });
   }
 });

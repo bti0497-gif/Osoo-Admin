@@ -1,23 +1,17 @@
 import React from 'react';
 
-/**
- * PDF 업로드 진행 상황 표시 위젯
- * BigQuery 저장 + Drive 업로드 단계별 진행률 표시
- */
 export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClose }) {
-  if (!uploading && !uploadStatus) return null;
-
   const isAllComplete = uploadStatus?.completed;
 
-  // 완료 후 3초 후 자동으로 닫기
   React.useEffect(() => {
-    if (isAllComplete && onClose) {
-      const timer = setTimeout(() => {
-        onClose();
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
+    if (!isAllComplete || !onClose) return undefined;
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000);
+    return () => clearTimeout(timer);
   }, [isAllComplete, onClose]);
+
+  if (!uploading && !uploadStatus) return null;
 
   const styles = {
     overlay: {
@@ -99,7 +93,6 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
     },
   };
 
-  // 진행률 계산
   const totalItems = uploadStatus?.totalItems || 0;
   const bqDone = uploadStatus?.bqDone || 0;
   const bqTotal = uploadStatus?.bqTotal || 0;
@@ -108,8 +101,8 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
 
   const bqPercent = bqTotal > 0 ? Math.round((bqDone / bqTotal) * 100) : 0;
   const drivePercent = driveTotal > 0 ? Math.round((driveDone / driveTotal) * 100) : 0;
-  const totalPercent = totalItems > 0 
-    ? Math.round(((bqDone + driveDone) / (bqTotal + driveTotal)) * 100) 
+  const totalPercent = totalItems > 0
+    ? Math.round(((bqDone + driveDone) / (bqTotal + driveTotal)) * 100)
     : 0;
 
   const isBqComplete = bqDone >= bqTotal && bqTotal > 0;
@@ -119,44 +112,41 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
     <div style={styles.overlay}>
       <div style={styles.card}>
         <div style={styles.title}>
-          {isAllComplete ? '✅ 업로드 완료' : '📤 업로드 진행 중'}
+          {isAllComplete ? '업로드 완료' : '업로드 진행 중'}
         </div>
 
-        {/* BigQuery 단계 */}
         <div style={styles.stage}>
           <div style={styles.stageLabel}>
             <span>BigQuery 데이터 저장</span>
             <span>{isBqComplete ? '완료' : `${bqDone}/${bqTotal}`}</span>
           </div>
           <div style={styles.progressBar}>
-            <div 
+            <div
               style={{
                 ...styles.progressFill,
                 width: `${bqPercent}%`,
                 ...(isBqComplete ? styles.complete : {}),
-              }} 
+              }}
             />
           </div>
         </div>
 
-        {/* Drive 업로드 단계 */}
         <div style={styles.stage}>
           <div style={styles.stageLabel}>
             <span>Google Drive 이미지 업로드</span>
             <span>{isDriveComplete ? '완료' : `${driveDone}/${driveTotal}`}</span>
           </div>
           <div style={styles.progressBar}>
-            <div 
+            <div
               style={{
                 ...styles.progressFill,
                 width: `${drivePercent}%`,
                 ...(isDriveComplete ? styles.complete : {}),
-              }} 
+              }}
             />
           </div>
         </div>
 
-        {/* 전체 진행률 */}
         <div style={styles.totalProgress}>
           <div style={styles.totalLabel}>
             <span>전체 진행률</span>
@@ -164,7 +154,6 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
           </div>
         </div>
 
-        {/* 닫기 버튼 (완료 시에만 표시) */}
         {isAllComplete && onClose && (
           <button style={styles.closeButton} onClick={onClose}>
             닫기

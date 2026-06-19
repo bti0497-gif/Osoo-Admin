@@ -15,7 +15,7 @@ const BQ_KEY_FILE = path.join(__dirname, '../server/config/work-jindan-194620a46
 const DRIVE_KEY_FILE = path.join(__dirname, '../server/config/google-key.json');
 
 const BQ_DATASET = 'daily_log_system';
-const BQ_TABLE = 'certificate_water_quality';
+const BQ_TABLE = 'water_quality';
 
 const CERTIFICATE_DRIVE_FOLDER_ID = 
   String(process.env.CERTIFICATE_DRIVE_FOLDER_ID || process.env.GOOGLE_DRIVE_FOLDER_ID || '1Po-gd-OKlaeGyL-Ppjc6_wKgSLEM4iX4').trim();
@@ -88,7 +88,7 @@ async function insertToBigQuery(records, sourcePdfName = null) {
       continue;
     }
 
-    const localId = Number(`${Date.now()}${String(i % 1000).padStart(3, '0')}`);
+    const rowId = `${reportDate}-${siteName}-${Date.now()}-${i}`;
 
     try {
       // 1. 기존 동일 날짜/현장 데이터 삭제 (중복 방지)
@@ -119,25 +119,22 @@ async function insertToBigQuery(records, sourcePdfName = null) {
       await bq.query({
         query: `
           INSERT INTO \`${BQ_DATASET}.${BQ_TABLE}\` (
-            site_id, site_name, site_name_raw, local_id, report_date,
+            id, uploaded_at, report_date, category, site_id, site_name,
             ss, bod, tn, tp, total_coliform, mlss, do, ph,
-            source_pdf_name, source_page_index, ai_confidence, site_match_confidence,
-            manual_review_required, warnings_json, source_payload_json,
-            created_at, updated_at, uploaded_at
+            source_pdf_name, is_synced
           )
           VALUES (
-            @site_id, @site_name, @site_name_raw, @local_id, DATE(@report_date),
+            @id, @uploaded_at, DATE(@report_date), @category, @site_id, @site_name,
             @ss, @bod, @tn, @tp, @total_coliform, @mlss, @do, @ph,
-            @source_pdf_name, @source_page_index, @ai_confidence, @site_match_confidence,
-            @manual_review_required, @warnings_json, @source_payload_json,
-            @created_at, @updated_at, @uploaded_at
+            @source_pdf_name, @is_synced
           )
         `,
         params: {
+          id: rowId,
+          uploaded_at: nowIso,
+          category: rawRecord.category || '성적서',
           site_id: rawRecord.site_id || null,
           site_name: siteName,
-          site_name_raw: rawRecord.site_name_raw || siteName,
-          local_id: localId,
           report_date: reportDate,
           ss: toNullableNumber(rawRecord.ss),
           bod: toNullableNumber(rawRecord.bod),
@@ -148,21 +145,14 @@ async function insertToBigQuery(records, sourcePdfName = null) {
           do: toNullableNumber(rawRecord.do),
           ph: toNullableNumber(rawRecord.ph),
           source_pdf_name: sourcePdfName,
-          source_page_index: rawRecord.source_page_index != null ? Number(rawRecord.source_page_index) : (i + 1),
-          ai_confidence: toNullableNumber(rawRecord.ai_confidence || 0.9),
-          site_match_confidence: toNullableNumber(rawRecord.site_match_confidence || 1.0),
-          manual_review_required: Boolean(rawRecord.manual_review_required || false),
-          warnings_json: JSON.stringify(rawRecord.warnings || []),
-          source_payload_json: JSON.stringify(r),
-          created_at: nowIso,
-          updated_at: nowIso,
-          uploaded_at: nowIso,
+          is_synced: 0,
         },
         types: {
+          id: 'STRING',
+          uploaded_at: 'TIMESTAMP',
+          category: 'STRING',
           site_id: 'STRING',
           site_name: 'STRING',
-          site_name_raw: 'STRING',
-          local_id: 'INT64',
           report_date: 'STRING',
           ss: 'FLOAT64',
           bod: 'FLOAT64',
@@ -173,15 +163,7 @@ async function insertToBigQuery(records, sourcePdfName = null) {
           do: 'FLOAT64',
           ph: 'FLOAT64',
           source_pdf_name: 'STRING',
-          source_page_index: 'INT64',
-          ai_confidence: 'FLOAT64',
-          site_match_confidence: 'FLOAT64',
-          manual_review_required: 'BOOL',
-          warnings_json: 'STRING',
-          source_payload_json: 'STRING',
-          created_at: 'TIMESTAMP',
-          updated_at: 'TIMESTAMP',
-          uploaded_at: 'TIMESTAMP',
+          is_synced: 'INT64',
         }
       });
       successCount++;
@@ -260,33 +242,22 @@ async function uploadImagesToDrive(images, onProgress) {
       // 2. BigQuery 연동 행에 드라이브 링크 업데이트
       if (parsedDate && parsedSiteName) {
         try {
-          const nowIso = new Date().toISOString();
           const [updateResult] = await bq.query({
             query: `
               UPDATE \`${BQ_DATASET}.${BQ_TABLE}\`
               SET
-                certificate_category = '성적서',
-                certificate_file_name = @filename,
-                certificate_original_file_name = @filename,
-                drive_file_id = @driveFileId,
-                drive_web_view_link = @driveWebViewLink,
-                updated_at = @updatedAt
+                category = '성적서',
+                drive_file_name = @filename
               WHERE report_date = DATE(@reportDate)
                 AND site_name = @siteName
             `,
             params: {
               filename,
-              driveFileId,
-              driveWebViewLink,
-              updatedAt: nowIso,
               reportDate: parsedDate,
               siteName: parsedSiteName,
             },
             types: {
               filename: 'STRING',
-              driveFileId: 'STRING',
-              driveWebViewLink: 'STRING',
-              updatedAt: 'TIMESTAMP',
               reportDate: 'STRING',
               siteName: 'STRING',
             }

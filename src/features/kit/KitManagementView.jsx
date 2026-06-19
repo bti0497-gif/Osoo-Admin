@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useKitViewModel } from './useKitViewModel';
 import { useDialog } from '../../components/common/DialogContext';
 import AdvancedDataGrid from '../../components/common/AdvancedDataGrid';
@@ -18,34 +18,19 @@ const KitManagementView = ({ currentUser }) => {
         updateAmount, syncAnalysisKits, refresh, pendingChanges
     } = useKitViewModel(currentUser, { showAlert });
 
-    const [selectedDate, setSelectedDate] = useState(null);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const [selectedDate, setSelectedDate] = useState(todayStr);
     const [doubleClickedCell, setDoubleClickedCell] = useState(null); // { date, colId }
     const [selectedUsageCell, setSelectedUsageCell] = useState(null); // { date, kitName }
     const [activeInput, setActiveInput] = useState(null);
     const [localValue, setLocalValue] = useState(null);
     const [isCellSelecting, setIsCellSelecting] = useState(false);
-    const didInitTodaySelectRef = useRef(false);
-    const didInitTodayScrollRef = useRef(false);
-
-    const todayStr = new Date().toISOString().split('T')[0];
     const syncBaseDate = selectedDate || todayStr;
 
     const closeEditMode = () => {
         setDoubleClickedCell(null);
     };
-
-    useEffect(() => {
-        if (didInitTodaySelectRef.current) return;
-        if (!history.some((row) => row.date === todayStr)) return;
-        setSelectedDate(todayStr);
-        didInitTodaySelectRef.current = true;
-    }, [history, todayStr]);
-
-    useEffect(() => {
-        if (!didInitTodayScrollRef.current && history.length > 0) {
-            didInitTodayScrollRef.current = true;
-        }
-    }, [history.length]);
 
     useEffect(() => {
         const handleEsc = (e) => {
@@ -351,7 +336,7 @@ const KitManagementView = ({ currentUser }) => {
                 columns={gridCols}
                 data={history}
                 keyField="date"
-                scrollToKey={didInitTodayScrollRef.current ? null : todayStr}
+                scrollToKey={history.length > 0 ? todayStr : null}
                 width={calculatedWidth}
                 height={300}
 
@@ -505,12 +490,12 @@ const KitManagementView = ({ currentUser }) => {
             </div>
         </div>
 
-        {/* 분析키트 구매 입력 모달 */}
+        {/* 분석키트 구매 입력 모달 */}
         {showPurchaseModal && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                 <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', width: 360, padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#1e293b' }}>분析키트 구매 입력</span>
+                        <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#1e293b' }}>분석키트 구매 입력</span>
                         <button onClick={() => setShowPurchaseModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.1rem', lineHeight: 1 }}>✕</button>
                     </div>
                     {/* 날짜 선택 */}

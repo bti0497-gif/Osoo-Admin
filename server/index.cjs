@@ -6,10 +6,16 @@ const cors = require('cors');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 
 const BASE_DIR = path.join(__dirname, '..');
-const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Admin_App');
+const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Handle_App');
 if (!fs.existsSync(appDataPath)) {
   fs.mkdirSync(appDataPath, { recursive: true });
 }
+// 중앙관리자 앱은 SQLite 사용 안함
+const db = null;
+
+// 현장 마스터 캐시 초기화 (appDataPath 결정 후 바로 실행)
+const siteMasterCache = require('./services/siteMasterCacheService.cjs');
+const { getSites: getSitesForCache } = require('./services/sitesSheetsService.cjs');
 
 const app = express();
 app.use(cors());
@@ -40,16 +46,33 @@ app.get('/', (req, res) => {
 
 app.get('/api/ping', (req, res) => res.json({ ok: true }));
 
-app.use(require('./routes/adminSettingsRoutes.cjs')());
-app.use(require('./routes/boardRoutes.cjs')());
-app.use(require('./routes/certificateRoutes.cjs')());
-app.use(require('./routes/certificateWaterQualityRoutes.cjs'));
-app.use(require('./routes/adminDataRoutes.cjs')());
-app.use(require('./routes/aiRoutes.cjs')());
-app.use(require('./routes/locationRoutes.cjs')(BASE_DIR));
-app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter);
-app.use('/api/auth', require('./routes/authRoutes.cjs')());
-app.use(require('./routes/attendanceRoutes.cjs'));
+// [CRITICAL] API 라우트 등록 - 삭제/수정 시 해당 기능 완전 테스트 필수
+// 순서: 일반 라우트 먼저, 마지막에 에러 처리
+app.use(require('./routes/settingsRoutes.cjs')(db, BASE_DIR, appDataPath)); // 현장 설정/현장 선택
+app.use(require('./routes/flowRoutes.cjs')(db));              // 유량 관리
+app.use(require('./routes/medicineRoutes.cjs')(db));          // 약품 관리
+app.use(require('./routes/kitRoutes.cjs')(db));               // 키트 관리
+app.use(require('./routes/waterQualityRoutes.cjs')(db, BASE_DIR)); // 수질 분석
+app.use(require('./routes/dailyWorkLogRoutes.cjs')(db, BASE_DIR, appDataPath)); // 일일운영일지
+app.use(require('./routes/excelRoutes.cjs')(db, BASE_DIR, appDataPath)); // 일지 미리보기/엑셀
+app.use(require('./routes/facilityRoutes.cjs')(db));          // 시설 관리
+app.use(require('./routes/medicineInRoutes.cjs')(db, BASE_DIR, appDataPath)); // 공사입력 도우미
+app.use(require('./routes/medicineRegisterRoutes.cjs')(db, BASE_DIR, appDataPath)); // 약품관리대장
+app.use(require('./routes/sludgePhotoRoutes.cjs')(db, BASE_DIR, appDataPath)); // 슬러지 사진
+app.use(require('./routes/adminSettingsRoutes.cjs')());    // 관리자 설정 (/api/admin/*)
+app.use(require('./routes/boardRoutes.cjs')());            // 게시판 (/api/board/*) - 인증/권한 중요
+app.use(require('./routes/certificateRoutes.cjs')());      // 성적서 (/api/certificates/*)
+app.use(require('./routes/certificateQueueRoutes.cjs')());  // 성적서 업로드 큐 (로컬 저장 + 순차 동기화)
+app.use(require('./routes/siteMasterRoutes.cjs'));             // 현장 마스터 캐시
+app.use(require('./routes/monthlyReportRoutes.cjs'));          // 월운영일지 Excel 내보내기
+app.use(require('./routes/certificateWaterQualityRoutes.cjs')); // 수질 데이터
+app.use(require('./routes/adminDataRoutes.cjs')());        // 데이터 관리
+app.use(require('./routes/aiRoutes.cjs')());               // AI 기능
+app.use(require('./routes/locationRoutes.cjs')(BASE_DIR)); // 위치 정보
+app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter); // 경기도 API
+app.use('/api/auth', require('./routes/authRoutes.cjs')()); // 인증
+app.use(require('./routes/attendanceRoutes.cjs'));        // 출근부
+app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR));   // 파일 업로드/다운로드 (/api/upload, /api/download)
 
 async function findFreePort(startPort, endPort) {
   for (let p = startPort; p <= endPort; p++) {
@@ -75,6 +98,12 @@ function writePortFile(port) {
 function startListening(actualPort) {
   writePortFile(actualPort);
 
+  // 현장 마스터 캐시 초기화 및 백그라운드 갱신
+  siteMasterCache.init(appDataPath);
+  siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
+    console.warn('[siteMasterCache] 초기 갱신 실패 (캐시 파일 사용):', err.message);
+  });
+
   const server = app.listen(actualPort, '127.0.0.1', () => {
     console.log(`Local Bridge Server running at http://localhost:${actualPort}`);
     if (actualPort !== API_PORT_MIN) {
@@ -89,6 +118,11 @@ if (process.env.ELECTRON === '1') {
     startListening(actualPort);
   });
 } else {
+  siteMasterCache.init(appDataPath);
+  siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
+    console.warn('[siteMasterCache] 초기 갱신 실패 (캐시 파일 사용):', err.message);
+  });
+
   const fixedPort = API_PORT_MIN;
   const server = app.listen(fixedPort, '127.0.0.1', () => {
     writePortFile(fixedPort);

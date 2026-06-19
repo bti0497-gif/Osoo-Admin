@@ -87,6 +87,52 @@ export const CertificateModel = {
     },
 
     /**
+     * 병합된 PDF 다운로드 (프로그레스 추적 가능)
+     * @param {string[]} fileIds - 다운로드할 파일 ID 목록
+     * @param {number} year - 연도
+     * @param {Function} onProgress - 프로그레스 콜백 (current, total, percent)
+     * @param {object} authHeaders - 인증 헤더
+     */
+    async downloadMergedPdfWithProgress(fileIds, year, onProgress, authHeaders = {}) {
+        const total = fileIds.length;
+        
+        // 프로그레스 시작
+        if (onProgress) onProgress(0, total, 0);
+        
+        // 먼저 서버에 병합 요청하여 파일 URL 받기
+        const response = await apiClient.post('/api/certificates/download-merged-pdf', {
+            fileIds,
+            year,
+            waitForMerge: true
+        }, {
+            headers: authHeaders,
+            responseType: 'blob',
+            onDownloadProgress: (progressEvent) => {
+                if (progressEvent.total) {
+                    const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    if (onProgress) onProgress(1, 1, percent);
+                }
+            }
+        });
+        
+        // 다운로드 완료
+        if (onProgress) onProgress(1, 1, 100);
+        
+        // Blob으로 다운로드
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `성적서_${year}_${new Date().getMonth() + 1}월.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        return { success: true };
+    },
+
+    /**
      * 선택한 성적서 삭제 (Drive + BigQuery)
      * @param {string[]} fileIds - 삭제할 Drive 파일 ID 목록
      * @param {object} authHeaders - 인증 헤더

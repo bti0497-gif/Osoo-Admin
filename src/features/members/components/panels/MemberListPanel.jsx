@@ -51,47 +51,11 @@ export function MemberListPanel({
   onSelectMember,
   newMemberRow,
   onFieldChange,
-  onStartNewRow,
-  onStartEdit,
-  onDelete,
-  onDeleteMultiple,
-  onSave,
-  onCancel,
-  isSaving,
-  isDeleting,
   isEditMode,
   loading,
-  getManagedSiteNames,
   onNavigateToSites,
 }) {
-  const [checkedIds, setCheckedIds] = useState(new Set());
-
-  const allIds = useMemo(() => {
-    const safe = Array.isArray(members) ? members.filter(Boolean) : [];
-    return safe.map(m => m.id);
-  }, [members]);
-
-  const toggleCheck = useCallback((id) => {
-    setCheckedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleAll = useCallback(() => {
-    setCheckedIds(prev => {
-      if (prev.size === allIds.length && allIds.length > 0) return new Set();
-      return new Set(allIds);
-    });
-  }, [allIds]);
-
-  const hasChecked = checkedIds.size > 0;
-  const isSingleChecked = checkedIds.size === 1;
-
   const columns = useMemo(() => ([
-    { id: '__check', label: '☐', width: 40, align: 'center' },
     { id: 'name', label: '회원명', width: MEMBER_GRID_COLUMN_WIDTHS.name, align: 'center' },
     { id: 'password', label: '비밀번호', width: MEMBER_GRID_COLUMN_WIDTHS.password, align: 'center' },
     { id: 'role', label: '권한', width: MEMBER_GRID_COLUMN_WIDTHS.role, align: 'center' },
@@ -186,13 +150,14 @@ export function MemberListPanel({
 
   const handleRowClick = (row) => {
     if (row.id === MEMBER_EDIT_NEW_ROW_KEY) return;
-    toggleCheck(row.id);
+    if (onSelectMember) onSelectMember(row.id);
   };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ flex: 1, overflow: 'auto' }}>
         <AdvancedDataGrid
+          height="100%"
           loading={loading}
           columns={columns}
           data={gridData}
@@ -202,7 +167,6 @@ export function MemberListPanel({
           headerRowHeight={16}
           headerFontSize={12}
           isCellEditable={(row, col) => {
-            if (col.id === '__check') return false;
             if (!isEditMode || !newMemberRow) return false;
             const editKey = newMemberRow.id || MEMBER_EDIT_NEW_ROW_KEY;
             return row.id === editKey && EDITABLE_MEMBER_COLS.has(col.id);
@@ -211,143 +175,10 @@ export function MemberListPanel({
             if (onFieldChange) onFieldChange(colId, value);
           }}
           renderCellEditor={renderCellEditor}
-          renderCellDisplay={(row, col, val) => {
-            if (col.id === '__check') {
-              if (row.id === MEMBER_EDIT_NEW_ROW_KEY) return null;
-              return (
-                <input
-                  type="checkbox"
-                  checked={checkedIds.has(row.id)}
-                  onChange={(e) => { e.stopPropagation(); toggleCheck(row.id); }}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#0f766e' }}
-                />
-              );
-            }
-            return val;
-          }}
+          highlightSelectionRow={true}
+          selectedRowKey={selectedMemberId}
           {...getLockedRowEditGridProps(isEditMode, newMemberRow?.id || MEMBER_EDIT_NEW_ROW_KEY)}
         />
-      </div>
-
-      {/* Toolbar */}
-      <div style={{ 
-        padding: '0.75rem 1.25rem', 
-        borderTop: '1px solid #e2e8f0', 
-        display: 'flex', 
-        gap: '0.5rem',
-        background: '#fff'
-      }}>
-        {isEditMode ? (
-          <>
-            <button
-              onClick={onCancel}
-              style={{ 
-                height: '34px', 
-                padding: '0 14px', 
-                background: '#fff', 
-                color: '#475569', 
-                border: '1px solid #cbd5e1',
-                borderRadius: '8px',
-                fontWeight: 800,
-                fontSize: '0.76rem',
-                cursor: 'pointer'
-              }}
-            >
-              취소
-            </button>
-            <button
-              onClick={onSave}
-              disabled={isSaving}
-              style={{ 
-                height: '34px', 
-                padding: '0 14px', 
-                background: '#0f766e', 
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 800,
-                fontSize: '0.76rem',
-                cursor: isSaving ? 'not-allowed' : 'pointer',
-                opacity: isSaving ? 0.7 : 1
-              }}
-            >
-              {isSaving ? '저장 중...' : (newMemberRow?.id ? '수정 저장' : '회원 저장')}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={onStartNewRow}
-              style={{ 
-                height: '34px', 
-                padding: '0 14px', 
-                background: '#0f766e', 
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 800,
-                fontSize: '0.76rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}
-            >
-              <span style={{ fontSize: '14px' }}>+</span>
-              회원 행 추가
-            </button>
-            <button
-              onClick={() => {
-                if (!isSingleChecked) return;
-                const id = [...checkedIds][0];
-                onStartEdit(id);
-              }}
-              disabled={!isSingleChecked}
-              style={{ 
-                height: '34px', 
-                padding: '0 14px', 
-                background: '#fff', 
-                color: '#1f2937', 
-                border: '1px solid #9ca3af',
-                borderRadius: '8px',
-                fontWeight: 800,
-                fontSize: '0.76rem',
-                cursor: !isSingleChecked ? 'not-allowed' : 'pointer',
-                opacity: !isSingleChecked ? 0.6 : 1
-              }}
-            >
-              수정{isSingleChecked ? '' : ` (${checkedIds.size})`}
-            </button>
-            <button
-              onClick={() => {
-                if (!hasChecked) return;
-                const ids = [...checkedIds];
-                if (ids.length === 1) {
-                  onDelete(ids[0]);
-                } else {
-                  onDeleteMultiple(ids);
-                }
-                setCheckedIds(new Set());
-              }}
-              disabled={!hasChecked || isDeleting}
-              style={{ 
-                height: '34px', 
-                padding: '0 14px', 
-                background: '#ef4444', 
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 800,
-                fontSize: '0.76rem',
-                cursor: (!hasChecked || isDeleting) ? 'not-allowed' : 'pointer',
-                opacity: (!hasChecked || isDeleting) ? 0.6 : 1
-              }}
-            >
-              {isDeleting ? '삭제 중...' : `삭제${checkedIds.size > 1 ? ` (${checkedIds.size}건)` : ''}`}
-            </button>
-          </>
-        )}
       </div>
     </div>
   );

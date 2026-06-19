@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BoardModel } from './BoardModel';
+import { MemberModel } from '../members/MemberModel';
 
 const toTimestampMs = (value) => {
     if (!value) return 0;
@@ -41,6 +42,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
     const [selectedPost, setSelectedPost] = useState(null);
     const [comments, setComments] = useState([]);
     const [form, setForm] = useState({ title: '', content: '', is_notice: 0, attachments: '', parent_id: null, target_site: '' });
+    const [sites, setSites] = useState([]); // 현장 목록 (관리자용 글쓰기)
     const postsPerPage = 10;
 
     const getReplyParentPost = (parentId) => {
@@ -58,36 +60,76 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
         setViewMode('form');
     };
 
+    /**
+     * [CRITICAL] 게시글 정렬 로직
+     * 1. 공지글 스레드 (is_notice=1인 글 + 그 답글들) - 최상단 고정
+     *    - 공지글 먼저 (created_at DESC)
+     *    - 그 답글들 (created_at ASC)
+     * 2. 일반글 스레드 - 공지글 아래에 일반 순서로 표시 (lastActivity DESC)
+     *
+     * WARNING: 공지글 체크 해제 시 해당 글은 일반 스레드로 이동됨
+     */
     const sortThreadedPosts = (data) => {
-        const notices = data.filter(p => p.is_notice === 1).map(p => ({ ...p, depth: 0 }));
-        const regulars = data.filter(p => p.is_notice !== 1);
+        // 모든 게시글을 맵으로 저장 (공지글 답글 찾기 위해)
+        const allPostMap = {};
+        data.forEach(p => { allPostMap[p.id] = p; });
 
-        const postMap = {};
-        regulars.forEach(p => { postMap[p.id] = p; });
+        // Root ID와 현재 게시글의 깊이(Depth), 그리고 루트가 공지글인지 찾는 함수
+        // is_notice는 true, 1, '1' 등 다양한 형식일 수 있음
+        const isNoticeValue = (val) => val === true || val === 1 || val === '1' || val === 'true';
 
-        // Root ID와 현재 게시글의 깊이(Depth)를 함께 찾는 함수
         const getThreadInfo = (post) => {
             let current = post;
             let depth = 0;
             let visited = new Set();
-            while (current.parent_id && postMap[current.parent_id] && !visited.has(current.parent_id)) {
+            while (current.parent_id && allPostMap[current.parent_id] && !visited.has(current.parent_id)) {
                 visited.add(current.id);
-                current = postMap[current.parent_id];
+                current = allPostMap[current.parent_id];
                 depth++;
             }
-            return { rootId: current.id, depth };
+            return { rootId: current.id, depth, isNoticeThread: isNoticeValue(current.is_notice) };
         };
 
-        const threads = {};
-        regulars.forEach(p => {
-            const { rootId, depth } = getThreadInfo(p);
-            p.depth = depth; // 게시글 데이터에 깊이 주입
-            if (!threads[rootId]) threads[rootId] = { items: [] };
-            threads[rootId].items.push(p);
+        // 공지글 스레드와 일반 스레드 분리
+        const noticeThreads = {};  // 공지글 스레드 (is_notice=1인 루트)
+        const regularThreads = {}; // 일반 스레드
+
+        data.forEach(p => {
+            const { rootId, depth, isNoticeThread } = getThreadInfo(p);
+            p.depth = depth;
+
+            if (isNoticeThread) {
+                if (!noticeThreads[rootId]) noticeThreads[rootId] = { items: [], rootCreatedAt: 0 };
+                noticeThreads[rootId].items.push(p);
+                if (!p.parent_id) {
+                    noticeThreads[rootId].rootCreatedAt = toTimestampMs(p.created_at);
+                }
+            } else {
+                if (!regularThreads[rootId]) regularThreads[rootId] = { items: [], lastActivity: 0 };
+                regularThreads[rootId].items.push(p);
+            }
         });
 
-        const threadList = Object.keys(threads).map(rootId => {
-            const thread = threads[rootId];
+        // 공지글 스레드 정렬: 공지글 최신순, 답글은 생성일순
+        const sortedNoticePosts = [];
+        const sortedNoticeThreadList = Object.values(noticeThreads)
+            .sort((a, b) => b.rootCreatedAt - a.rootCreatedAt);
+
+        sortedNoticeThreadList.forEach(thread => {
+            // 공지글 먼저
+            const rootPost = thread.items.find(p => !p.parent_id);
+            if (rootPost) sortedNoticePosts.push(rootPost);
+
+            // 답글들은 생성일순
+            const replies = thread.items.filter(p => p.parent_id)
+                .sort((a, b) => toTimestampMs(a.created_at) - toTimestampMs(b.created_at));
+            sortedNoticePosts.push(...replies);
+        });
+
+        // 일반 스레드 정렬: 최근 활동 순
+        const sortedRegularPosts = [];
+        const regularThreadList = Object.keys(regularThreads).map(rootId => {
+            const thread = regularThreads[rootId];
             const lastActivity = thread.items.reduce((max, curr) => {
                 const currTime = toTimestampMs(curr.created_at);
                 return currTime > max ? currTime : max;
@@ -95,20 +137,17 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             return { rootId, items: thread.items, lastActivity };
         });
 
-        threadList.sort((a, b) => b.lastActivity - a.lastActivity);
+        regularThreadList.sort((a, b) => b.lastActivity - a.lastActivity);
 
-        const sortedRegulars = [];
-        threadList.forEach(t => {
-            // 스레드 내 정렬: 단순히 일직선이 아니라 트리 구조 유지가 필요하지만,
-            // 게시판 목록 특성상 '부모 우선 + 생성일순'으로 평탄화하되
-            // depth를 통해 위계를 표현함.
-            // 재귀적 평탄화 함수
+        regularThreadList.forEach(t => {
             const flatten = (parentId = null) => {
-                const children = t.items.filter(item => (item.parent_id === parentId || (!parentId && !item.parent_id && !sortedRegulars.includes(item))));
+                const children = t.items.filter(item =>
+                    (item.parent_id === parentId || (!parentId && !item.parent_id && !sortedRegularPosts.includes(item)))
+                );
                 children.sort((a, b) => toTimestampMs(a.created_at) - toTimestampMs(b.created_at));
                 children.forEach(child => {
-                    if (!sortedRegulars.includes(child)) {
-                        sortedRegulars.push(child);
+                    if (!sortedRegularPosts.includes(child)) {
+                        sortedRegularPosts.push(child);
                         flatten(child.id);
                     }
                 });
@@ -116,7 +155,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             flatten();
         });
 
-        return [...notices, ...sortedRegulars];
+        return [...sortedNoticePosts, ...sortedRegularPosts];
     };
 
     const loadPosts = useCallback(async () => {
@@ -134,6 +173,18 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
     }, [currentUser, showAlert]);
 
     useEffect(() => { loadPosts(); }, [loadPosts]);
+
+    // 현장 목록 로드 (관리자용)
+    const loadSites = useCallback(async () => {
+        try {
+            const data = await MemberModel.fetchSites();
+            setSites(data.sites || []);
+        } catch (error) {
+            console.error('Failed to load sites:', error);
+        }
+    }, []);
+
+    useEffect(() => { loadSites(); }, [loadSites]);
 
     const updateForm = (patch) => setForm(prev => ({ ...prev, ...patch }));
 
@@ -175,11 +226,16 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
     const viewPost = async (post) => {
         try {
             const detail = await BoardModel.fetchPost(post.id, currentUser);
+            if (!detail) {
+                showAlert?.('게시글을 찾을 수 없습니다.');
+                return;
+            }
             setSelectedPost(detail);
             setViewMode('detail');
             loadComments(post.id);
-        } catch {
-            showAlert?.('게시글을 불러올 수 없습니다.');
+        } catch (err) {
+            console.error('[viewPost] Error:', err);
+            showAlert?.('게시글을 불러올 수 없습니다: ' + (err.message || '권한이 없거나 존재하지 않는 게시글입니다.'));
         }
     };
 
@@ -278,6 +334,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
         submitComment,
         deleteComment,
         uploadFile,
+        sites, // 현장 목록 (관리자용 글쓰기)
         viewMode,
         setViewMode,
         searchTerm,

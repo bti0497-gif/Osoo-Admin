@@ -1,15 +1,28 @@
 import { apiClient } from '../../core/api';
 
 /**
- * _user 헬퍼 — 현재 로그인 사용자 정보를 요청 body에 포함시킨다.
- * boardRoutes.cjs는 이 정보를 기준으로 가시성 필터와 권한 체크를 수행한다.
+ * [CRITICAL] 사용자 인증 정보 생성
+ * 게시판 API는 인증/권한 체크가 엄격하므로 모든 요청에 정확한 사용자 정보 필요
+ * 
+ * 반환값:
+ * - _user: query params 또는 body에 포함될 객체
+ * - headers: HTTP 헤더(x-user-*)에 포함될 값들 (encodeURIComponent 적용)
+ * 
+ * WARNING: 
+ * - 헤더 인코딩은 반드시 encodeURIComponent 사용
+ * - role 값은 서버의 isAdminRole()과 일치해야 함 ('admin', 'group_admin', 'central_admin')
+ * - 수정 시 boardRoutes.cjs의 extractUser()와 함께 테스트 필수
  */
 function userPayload(currentUser) {
+    const name = currentUser?.name || 'unknown';
+    const role = currentUser?.role || 'user';
+    const site = currentUser?.site_name1 || '';
     return {
-        _user: {
-            name: currentUser?.name || 'unknown',
-            role: currentUser?.role || 'user',
-            site: currentUser?.site_name1 || ''
+        _user: { name, role, site },
+        headers: {
+            'x-user-name': encodeURIComponent(name),
+            'x-user-role': encodeURIComponent(role),
+            'x-user-site': encodeURIComponent(site)
         }
     };
 }
@@ -32,7 +45,8 @@ export const BoardModel = {
     },
 
     async fetchPost(id, currentUser) {
-        const res = await apiClient.get(`/api/board/posts/${id}`, userPayload(currentUser)._user);
+        const { _user, headers } = userPayload(currentUser);
+        const res = await apiClient.get(`/api/board/posts/${id}`, _user, { headers });
         if (!res.success) throw new Error(res.message || '게시글 로드 실패');
         return res.data;
     },
@@ -57,14 +71,16 @@ export const BoardModel = {
     },
 
     async fetchComments(postId, currentUser) {
-        const res = await apiClient.get(`/api/board/posts/${postId}/comments`, userPayload(currentUser)._user);
+        const { _user, headers } = userPayload(currentUser);
+        const res = await apiClient.get(`/api/board/posts/${postId}/comments`, _user, { headers });
         if (!res.success) throw new Error(res.message || '댓글 로드 실패');
         return res.data;
     },
 
     async saveComment(postId, commentData, currentUser) {
-        const body = { ...commentData, ...userPayload(currentUser) };
-        const res = await apiClient.post(`/api/board/posts/${postId}/comments`, body);
+        const { _user, headers } = userPayload(currentUser);
+        const body = { ...commentData, _user };
+        const res = await apiClient.post(`/api/board/posts/${postId}/comments`, body, { headers });
         if (!res.success) throw new Error(res.message || '댓글 작성 실패');
         return res.data;
     },

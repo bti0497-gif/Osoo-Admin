@@ -1,3 +1,14 @@
+/**
+ * [CRITICAL] 파일 업로드/다운로드 라우트
+ * - /api/upload: 파일 업로드 (multipart/form-data)
+ * - /api/download: 로컬 파일 다운로드
+ * - /api/photo/upload: 사진 업로드 및 리사이즈
+ * 
+ * WARNING: 
+ * - 업로드된 파일은 로컬(uploads/)과 Google Drive에 동시 저장
+ * - Drive 업로드 실패 시에도 로컬 저장은 완료 (fallback)
+ * - 파일명 인코딩 문제 주의 (latin1 -> utf8 변환 로직)
+ */
 const express = require('express');
 const multer = require('multer');
 const sharp = require('sharp');
@@ -70,9 +81,12 @@ module.exports = function(baseDir) {
         requestBody: { role: 'reader', type: 'anyone' },
         supportsAllDrives: true,
       });
+      // webContentLink: 로그인 없이 직접 다운로드 가능
+      // webViewLink: Google 계정 로그인 필요할 수 있음
+      const directDownloadUrl = driveRes.data.webContentLink || `https://drive.google.com/uc?id=${driveRes.data.id}&export=download`;
       res.json({
         success: true,
-        url: driveRes.data.webViewLink,
+        url: directDownloadUrl,
         driveUrl: driveRes.data.webViewLink,
         localUrl,
         uploadedToDrive: true,

@@ -33,14 +33,17 @@ function normalizeAttachments(value) {
 }
 
 // ── 요청에서 현재 사용자 추출 ──────────────────────────────────────
-// 우선순위: 헤더 > body._user > query params
+// [CRITICAL] 이 함수는 인증/권한 체크의 핵심입니다. 수정 시 모든 보드 API 테스트 필수
+// 우선순위: 헤더(x-user-*) > body._user > query params
+// 헤더 값은 decodeUserContextHeader로 디코딩되며, trim()으로 공백/줄바꿈 제거됨
 function extractUser(req) {
   const u = req.body?._user || {};
-  const fromHeader = (h, fallback) => decodeUserContextHeader(h || '') || fallback;
+  // fromHeader: 헤더값 디코딩 후 trim, 없으면 fallback 사용
+  const fromHeader = (h, fallback) => decodeUserContextHeader(h || '').trim() || fallback;
   return {
-    name: fromHeader(req.headers['x-user-name'], u.name || req.query._name || 'unknown'),
-    role: fromHeader(req.headers['x-user-role'], u.role || req.query._role || 'user'),
-    site: fromHeader(req.headers['x-user-site'], u.site || req.query._site || ''),
+    name: fromHeader(req.headers['x-user-name'], u.name || req.query._name || req.query.name || 'unknown'),
+    role: fromHeader(req.headers['x-user-role'], u.role || req.query._role || req.query.role || 'user'),
+    site: fromHeader(req.headers['x-user-site'], u.site || req.query._site || req.query.site || ''),
   };
 }
 
@@ -65,7 +68,7 @@ module.exports = function () {
   router.get('/api/board/posts/:id', async (req, res) => {
     const user = extractUser(req);
     try {
-      const post = await getPost(req.params.id);
+      const post = await getPost(req.params.id, { incrementView: true });
       if (!post) return res.status(404).json({ success: false, message: '게시글 없음' });
       if (!canViewPost(post, user)) {
         return res.status(403).json({ success: false, message: '게시글 조회 권한 없음' });

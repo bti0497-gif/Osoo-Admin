@@ -58,13 +58,15 @@ const BoardView = ({ currentUser }) => {
         submitPost, deletePost, viewPost, editPost,
         selectedPost, comments, submitComment, deleteComment, uploadFile,
         viewMode, setViewMode, searchTerm, setSearchTerm,
-        currentPage, setCurrentPage, totalPages, resetForm, loadPosts, replyToPost
+        currentPage, setCurrentPage, totalPages, resetForm, loadPosts, replyToPost,
+        sites // 현장 목록 (관리자용)
     } = useBoardViewModel(currentUser, { showAlert, showConfirm });
 
     const [replyTo, setReplyTo] = useState(null);
+    const [uploadProgress, setUploadProgress] = useState({ loading: false, percent: 0, fileName: '' });
     const fileInputRef = useRef(null);
 
-    const isAdmin = ['admin', 'group_admin'].includes(currentUser?.role);
+    const isAdmin = ['admin', 'group_admin', 'central_admin'].includes(currentUser?.role);
     const isAuthor = (authorName) => currentUser?.name === authorName;
     const resolveAttachmentHref = (attachment) => {
         const rawUrl = String(attachment?.url || '').trim();
@@ -112,15 +114,41 @@ const BoardView = ({ currentUser }) => {
             return;
         }
 
-        const result = await uploadFile(file, {
-            boardId: form.id || 'draft',
-            date: new Date().toISOString(),
-        });
-        if (result) {
-            const current = form.attachments ? JSON.parse(form.attachments) : [];
-            current.push({ url: result.url, name: result.originalName, size: result.size });
-            updateForm({ attachments: JSON.stringify(current) });
+        // 업로드 시작 - 프로그레스 표시
+        setUploadProgress({ loading: true, percent: 0, fileName: file.name });
+
+        // 프로그레스 애니메이션 (실제 진행률 추적이 어려우므로 인디터미네이트로 표시)
+        const progressInterval = setInterval(() => {
+            setUploadProgress(prev => ({
+                ...prev,
+                percent: Math.min(prev.percent + 10, 90) // 90%까지 증가, 완료 시 100%
+            }));
+        }, 300);
+
+        try {
+            const result = await uploadFile(file, {
+                boardId: form.id || 'draft',
+                date: new Date().toISOString(),
+            });
+
+            clearInterval(progressInterval);
+
+            if (result) {
+                setUploadProgress({ loading: true, percent: 100, fileName: file.name });
+                const current = form.attachments ? JSON.parse(form.attachments) : [];
+                current.push({ url: result.url, name: result.originalName, size: result.size });
+                updateForm({ attachments: JSON.stringify(current) });
+                // 잠시 후 프로그레스바 숨김
+                setTimeout(() => setUploadProgress({ loading: false, percent: 0, fileName: '' }), 500);
+            } else {
+                setUploadProgress({ loading: false, percent: 0, fileName: '' });
+            }
+        } catch (err) {
+            clearInterval(progressInterval);
+            setUploadProgress({ loading: false, percent: 0, fileName: '' });
+            await showAlert('파일 업로드 중 오류가 발생했습니다.');
         }
+
         e.target.value = '';
     };
 
@@ -205,45 +233,53 @@ const BoardView = ({ currentUser }) => {
     const getReplies = (parentId) => comments.filter(c => c.parent_id === parentId);
 
     return (
-        <div className="panel-container justify-center">
-            <div className="dynamic-panel w-[850px] shadow-2xl border-slate-200">
-
-                {/* ════════════════════════════════════════════ */}
-                {/* ── 목록 모드 ── */}
-                {/* ════════════════════════════════════════════ */}
-                {viewMode === 'list' ? (
-                    <>
-                        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '2px solid #e2e8f0', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#1e293b', letterSpacing: '-0.025em' }}>
-                                    소통게시판
-                                </h1>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
-                                    총 {allPostsCount}건
-                                </span>
-                            </div>
+        <div style={{
+            position: 'fixed',
+            top: '48px', // 상단 메뉴 높이
+            left: '250px', // 왼쪽 사이드바 너비 (CSS에서 .sidebar width: 250px)
+            right: 0,
+            bottom: '32px', // 하단 상태바 높이 (status-bar height: 32px)
+            backgroundColor: '#fff',
+            display: 'flex',
+            flexDirection: 'column'
+        }}>
+            {/* ════════════════════════════════════════════ */}
+            {/* ── 목록 모드 ── */}
+            {/* ════════════════════════════════════════════ */}
+            {viewMode === 'list' ? (
+                <>
+                    {/* [고정 헤더] 게시판 이름 + 총 게시물 */}
+                    <div style={{ padding: '0.75rem 0', borderBottom: '2px solid #e2e8f0', flexShrink: 0, backgroundColor: '#fff' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 1.5rem' }}>
+                            <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#1e293b', letterSpacing: '-0.025em' }}>
+                                소통게시판
+                            </h1>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+                                총 {allPostsCount}건
+                            </span>
                         </div>
+                    </div>
 
-                        {/* 컬럼 헤더 */}
-                        <div style={{
-                            display: 'flex', alignItems: 'center',
-                            padding: '0.5rem 1.5rem',
-                            backgroundColor: '#f8fafc',
-                            borderBottom: '1px solid #e2e8f0',
-                            flexShrink: 0,
-                            fontSize: '0.6875rem', fontWeight: 800, color: '#94a3b8',
-                            textTransform: 'uppercase', letterSpacing: '0.08em',
-                            textAlign: 'center' // 전체 헤더 중앙 정렬
-                        }}>
-                            <span style={{ width: '40px', textAlign: 'center' }}>번호</span>
-                            <span style={{ flex: 1, textAlign: 'center' }}>제목</span>
-                            <span style={{ width: '80px', textAlign: 'center' }}>작성자</span>
-                            <span style={{ width: '100px', textAlign: 'center' }}>일시</span>
-                            <span style={{ width: '40px', textAlign: 'center' }}>조회</span>
-                        </div>
+                    {/* [고정 헤더] 컬럼 헤더 - 모든 칼럼 가운데 정렬, 목록과 패딩 맞춤 */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center',
+                        padding: '0.5rem 1.5rem',
+                        backgroundColor: '#f8fafc',
+                        borderBottom: '1px solid #e2e8f0',
+                        flexShrink: 0,
+                        fontSize: '0.6875rem', fontWeight: 800, color: '#94a3b8',
+                        textTransform: 'uppercase', letterSpacing: '0.08em'
+                    }}>
+                        <span style={{ width: '40px', textAlign: 'center' }}>번호</span>
+                        <span style={{ flex: 1, textAlign: 'center' }}>제목</span>
+                        <span style={{ width: '90px', textAlign: 'center' }}>작성자</span>
+                        <span style={{ width: '130px', textAlign: 'center' }}>대상</span>
+                        <span style={{ width: '100px', textAlign: 'center' }}>일시</span>
+                        <span style={{ width: '40px', textAlign: 'center' }}>조회</span>
+                    </div>
 
-                        {/* 게시글 목록 */}
-                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {/* [스크롤 영역] 게시글 목록 - 패딩은 행에서만 적용 */}
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
                             {loading ? (
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontWeight: 700, fontSize: '0.875rem' }}>
                                     데이터를 불러오는 중...
@@ -299,8 +335,11 @@ const BoardView = ({ currentUser }) => {
                                                         <span style={{ fontSize: '0.6875rem', flexShrink: 0 }}>📎</span>
                                                     )}
                                                 </div>
-                                                <span style={{ width: '80px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '0.75rem' }}>
+                                                <span style={{ width: '90px', textAlign: 'center', fontWeight: 600, color: '#475569', fontSize: '0.75rem' }}>
                                                     {p.author}
+                                                </span>
+                                                <span style={{ width: '130px', textAlign: 'center', fontWeight: 600, color: '#7c3aed', fontSize: '0.75rem' }}>
+                                                    {p.target_site || (p.author_role === 'admin' || p.author_role === 'group_admin' || p.author_role === 'central_admin' ? '전체' : '-')}
                                                 </span>
                                                 <span style={{ width: '100px', textAlign: 'center', color: '#94a3b8', fontSize: '0.6875rem' }}>
                                                     {formatDate(p.created_at)}
@@ -313,15 +352,16 @@ const BoardView = ({ currentUser }) => {
                                     })}
                                 </div>
                             )}
-                        </div>
+                    </div>
 
-                        {/* 하단: 페이지네이션 + 검색 + 글쓰기 */}
-                        <div style={{
-                            padding: '0.75rem 1.5rem',
-                            borderTop: '2px solid #e2e8f0',
-                            flexShrink: 0,
-                            display: 'flex', alignItems: 'center', gap: '0.75rem'
-                        }}>
+                    {/* [고정 푸터] 페이지네이션 + 검색 + 글쓰기 */}
+                    <div style={{
+                        padding: '0.75rem 1.5rem',
+                        borderTop: '2px solid #e2e8f0',
+                        flexShrink: 0,
+                        backgroundColor: '#fff',
+                        display: 'flex', alignItems: 'center', gap: '0.75rem'
+                    }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                                 <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
                                     style={{ width: '28px', height: '28px', border: 'none', background: 'none', cursor: currentPage === 1 ? 'default' : 'pointer', color: currentPage === 1 ? '#cbd5e1' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.875rem' }}>‹</button>
@@ -524,36 +564,39 @@ const BoardView = ({ currentUser }) => {
                                     )}
                                 </div>
 
-                                {/* 관리자 전용: 대상 현장 선택 */}
+                                {/* 관리자 전용: 대상 현장 선택 (콤보박스) */}
                                 {isAdmin && (
                                     <div style={{ marginBottom: '0.75rem' }}>
                                         <label style={{ display: 'block', fontSize: '0.6875rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>대상 현장</label>
-                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8125rem', fontWeight: 700, cursor: 'pointer' }}>
-                                                <input type="radio" name="target_site" value=""
-                                                    checked={!form.target_site}
-                                                    onChange={() => updateForm({ target_site: '' })} />
-                                                전체 현장
-                                            </label>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8125rem', fontWeight: 700, cursor: 'pointer' }}>
-                                                <input type="radio" name="target_site" value="specific"
-                                                    checked={!!form.target_site}
-                                                    onChange={() => updateForm({ target_site: form.target_site || '' })} />
-                                                특정 현장
-                                            </label>
-                                            {!!form.target_site !== false && (
-                                                <input
-                                                    value={form.target_site}
-                                                    onChange={e => updateForm({ target_site: e.target.value })}
-                                                    placeholder="현장명 입력"
-                                                    style={{ border: '1.5px solid #e2e8f0', height: '32px', padding: '0 10px', fontSize: '0.8125rem', fontWeight: 600, outline: 'none', borderRadius: '6px', width: '160px' }}
-                                                    onFocus={e => e.target.style.borderColor = '#1e293b'}
-                                                    onBlur={e => e.target.style.borderColor = '#e2e8f0'}
-                                                />
-                                            )}
-                                        </div>
+                                        <select
+                                            value={form.target_site || ''}
+                                            onChange={e => updateForm({ target_site: e.target.value })}
+                                            style={{
+                                                width: '100%',
+                                                maxWidth: '300px',
+                                                height: '36px',
+                                                padding: '0 12px',
+                                                border: '1.5px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 600,
+                                                color: '#1e293b',
+                                                outline: 'none',
+                                                backgroundColor: '#fff',
+                                                cursor: 'pointer'
+                                            }}
+                                            onFocus={e => e.target.style.borderColor = '#1e293b'}
+                                            onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                        >
+                                            <option value="">전체 현장 (모든 현장관리자에게 표시)</option>
+                                            {sites.map(site => (
+                                                <option key={site.site_id || site.id} value={site.site_name}>
+                                                    {site.site_name} (해당 현장관리자에게만 표시)
+                                                </option>
+                                            ))}
+                                        </select>
                                         <p style={{ fontSize: '0.625rem', color: '#94a3b8', marginTop: '4px', fontWeight: 600 }}>
-                                            * 전체: 모든 현장관리자 + 중앙관리자에게 표시 / 특정 현장: 해당 현장관리자 + 중앙관리자에게만 표시
+                                            * 전체 선택 시 모든 현장관리자와 중앙관리자가 볼 수 있습니다.
                                         </p>
                                     </div>
                                 )}
@@ -576,10 +619,38 @@ const BoardView = ({ currentUser }) => {
                                     <label style={{ display: 'block', fontSize: '0.6875rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>첨부파일</label>
                                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} style={{ display: 'none' }} />
                                     <button type="button" onClick={() => fileInputRef.current?.click()}
-                                        style={{ height: '32px', padding: '0 12px', border: '1.5px solid #e2e8f0', borderRadius: '6px', backgroundColor: '#f8fafc', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span className="material-icons" style={{ fontSize: '14px' }}>attach_file</span> 파일 추가
+                                        disabled={uploadProgress.loading}
+                                        style={{
+                                            height: '32px', padding: '0 12px', border: '1.5px solid #e2e8f0', borderRadius: '6px',
+                                            backgroundColor: uploadProgress.loading ? '#e2e8f0' : '#f8fafc',
+                                            fontSize: '0.75rem', fontWeight: 700, color: uploadProgress.loading ? '#94a3b8' : '#475569',
+                                            cursor: uploadProgress.loading ? 'not-allowed' : 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: '4px'
+                                        }}>
+                                        <span className="material-icons" style={{ fontSize: '14px' }}>attach_file</span>
+                                        {uploadProgress.loading ? '업로드 중...' : '파일 추가'}
                                     </button>
                                     <p style={{ fontSize: '0.625rem', color: '#94a3b8', marginTop: '4px', fontWeight: 600 }}>* 최대 50MB까지 업로드 가능합니다. (한글 파일명 지원)</p>
+
+                                    {/* 업로드 프로그레스바 */}
+                                    {uploadProgress.loading && (
+                                        <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '6px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#0369a1' }}>
+                                                <span className="material-icons" style={{ fontSize: '16px' }}>cloud_upload</span>
+                                                {uploadProgress.fileName} 업로드 중...
+                                            </div>
+                                            <div style={{ width: '100%', height: '6px', backgroundColor: '#e0f2fe', borderRadius: '3px', overflow: 'hidden' }}>
+                                                <div style={{
+                                                    width: `${uploadProgress.percent}%`,
+                                                    height: '100%',
+                                                    backgroundColor: '#0ea5e9',
+                                                    borderRadius: '3px',
+                                                    transition: 'width 0.3s ease'
+                                                }} />
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {getAttachments(form.attachments).map((att, i) => (
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', padding: '4px 8px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.75rem', color: '#475569', fontWeight: 600 }}>
                                             <span className="material-icons" style={{ fontSize: '14px', color: '#94a3b8' }}>attach_file</span>
@@ -593,10 +664,27 @@ const BoardView = ({ currentUser }) => {
                                 {/* 버튼 */}
                                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                                     <button type="button" onClick={() => { setViewMode('list'); resetForm(); }}
-                                        style={{ flex: 1, height: '48px', borderRadius: '12px', border: '1.5px solid #e2e8f0', backgroundColor: 'white', fontWeight: 800, fontSize: '0.9375rem', color: '#64748b', cursor: 'pointer' }}>취소</button>
+                                        disabled={uploadProgress.loading}
+                                        style={{
+                                            flex: 1, height: '48px', borderRadius: '12px', border: '1.5px solid #e2e8f0',
+                                            backgroundColor: uploadProgress.loading ? '#f1f5f9' : 'white',
+                                            fontWeight: 800, fontSize: '0.9375rem',
+                                            color: uploadProgress.loading ? '#94a3b8' : '#64748b',
+                                            cursor: uploadProgress.loading ? 'not-allowed' : 'pointer'
+                                        }}>
+                                        {uploadProgress.loading ? '업로드 중...' : '취소'}
+                                    </button>
                                     <button type="submit"
-                                        style={{ flex: 2, height: '48px', borderRadius: '12px', border: 'none', backgroundColor: '#1e293b', color: 'white', fontWeight: 900, fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(30,41,59,0.2)' }}>
-                                        {form.id ? '수정하기' : '게시하기'}
+                                        disabled={uploadProgress.loading}
+                                        style={{
+                                            flex: 2, height: '48px', borderRadius: '12px', border: 'none',
+                                            backgroundColor: uploadProgress.loading ? '#64748b' : '#1e293b',
+                                            color: 'white', fontWeight: 900, fontSize: '1rem',
+                                            cursor: uploadProgress.loading ? 'not-allowed' : 'pointer',
+                                            boxShadow: '0 4px 12px rgba(30,41,59,0.2)',
+                                            opacity: uploadProgress.loading ? 0.7 : 1
+                                        }}>
+                                        {uploadProgress.loading ? '파일 업로드 중...' : (form.id ? '수정하기' : '게시하기')}
                                     </button>
                                 </div>
                             </form>
@@ -604,7 +692,6 @@ const BoardView = ({ currentUser }) => {
                     </>
                 )}
             </div>
-        </div>
     );
 };
 
