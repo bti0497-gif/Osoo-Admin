@@ -80,17 +80,19 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
         }
     };
 
-    const selectSite = async (siteId) => {
-        try {
-            await MemberModel.selectSite(siteId);
-            setSelectedSiteId(siteId);
-            const selected = sites.find(s => s.id === siteId);
-            if (selected) {
-                setBootstrapMember(prev => ({ ...prev, name: prev.name || selected.manager_name || '' }));
-            }
-        } catch (err) {
-            showAlert?.('현장 선택 실패: ' + err.message);
+    const selectSite = (siteId) => {
+        // UI 선택 상태를 먼저 즉시 반영해야 클릭한 행과 "수정" 대상이 일치한다.
+        // 서버 동기화를 await하면 응답 지연/실패 시 selectedSiteId가 갱신되지 않아
+        // "수정" 버튼을 눌렀을 때 첫 번째 행으로 포커스가 튀는 문제가 발생한다.
+        setSelectedSiteId(siteId);
+        const selected = sites.find(s => s.id === siteId);
+        if (selected) {
+            setBootstrapMember(prev => ({ ...prev, name: prev.name || selected.manager_name || '' }));
         }
+        // 서버 동기화는 백그라운드로 실행 — 실패해도 UI 선택에는 영향을 주지 않는다.
+        MemberModel.selectSite(siteId).catch((err) => {
+            console.warn('현장 선택 서버 동기화 실패:', err?.message || err);
+        });
     };
 
     const startNewSiteRow = () => {
