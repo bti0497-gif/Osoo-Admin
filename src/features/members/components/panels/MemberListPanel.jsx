@@ -104,6 +104,7 @@ export function MemberListPanel({
     safeSites
       .filter(s => s && s.site_name)
       .forEach(s => opts.push({ value: s.site_name, label: s.site_name }));
+    opts.push({ value: '양방향', label: '양방향 (2개 이상 현장 담당)' });
     opts.push({ value: '__navigate_to_sites__', label: '현장 추가...' });
     return opts;
   }, [sites]);
