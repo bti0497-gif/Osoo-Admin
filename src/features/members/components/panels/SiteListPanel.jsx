@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo } from 'react';
 import AdvancedDataGrid from '../../../../components/common/AdvancedDataGrid';
 import { getLockedRowEditGridProps } from '../../../../components/common/advancedDataGridPresets';
 import { 
@@ -20,7 +20,6 @@ export function SiteListPanel({
   onSelectSite,
   newSiteRow,
   onFieldChange,
-  queuedSiteRows,
   isEditMode,
   loading,
   members,
@@ -43,16 +42,16 @@ export function SiteListPanel({
     [members]
   );
 
-  const getManagedSiteNamesByManager = (managerName) => {
-    const normalizedManager = String(managerName || '').trim();
-    if (!normalizedManager) return [];
-    return safeSites
-      .filter((site) => String(site?.manager_name || '').trim() === normalizedManager)
-      .map((site) => String(site?.site_name || '').trim())
-      .filter(Boolean);
-  };
-
   const gridData = useMemo(() => {
+    const getManagedSiteNamesByManager = (managerName) => {
+      const normalizedManager = String(managerName || '').trim();
+      if (!normalizedManager) return [];
+      return safeSites
+        .filter((site) => String(site?.manager_name || '').trim() === normalizedManager)
+        .map((site) => String(site?.site_name || '').trim())
+        .filter(Boolean);
+    };
+
     let rows = safeSites.map(site => {
       const managerName = String(site?.manager_name || '').trim();
       const managedSites = getManagedSiteNamesByManager(managerName);
@@ -70,10 +69,16 @@ export function SiteListPanel({
     });
 
     if (newSiteRow) {
-      if (newSiteRow.id) {
+      if (newSiteRow.siteId) {
         rows = rows.map(row => (
-          row.id === newSiteRow.id
-            ? { ...row, ...newSiteRow }
+          String(row.id) === String(newSiteRow.siteId)
+            ? { 
+                ...row, 
+                site_name: newSiteRow.siteName,
+                manager_name: newSiteRow.managerName,
+                method: newSiteRow.method,
+                series: newSiteRow.series
+              }
             : row
         ));
       } else {
@@ -89,7 +94,7 @@ export function SiteListPanel({
     }
 
     return rows;
-  }, [safeSites, safeMembers, selectedSiteId, newSiteRow]);
+  }, [safeSites, safeMembers, newSiteRow]);
 
   const handleRowClick = (row) => {
     if (row.id === SITE_EDIT_NEW_ROW_KEY) return;
@@ -106,13 +111,13 @@ export function SiteListPanel({
           data={gridData}
           keyField="id"
           onRowSelect={handleRowClick}
-          rowHeight={40}
-          headerRowHeight={16}
+          rowHeight={32}
+          headerRowHeight={28}
           headerFontSize={12}
           isCellEditable={(row, col) => {
             if (!isEditMode || !newSiteRow) return false;
             const editKey = newSiteRow.siteId || SITE_EDIT_NEW_ROW_KEY;
-            return row.id === editKey && EDITABLE_SITE_COLS.has(col.id);
+            return String(row.id) === String(editKey) && EDITABLE_SITE_COLS.has(col.id);
           }}
           onCellChange={(rowKey, colId, value) => {
             if (onFieldChange) {
@@ -120,6 +125,7 @@ export function SiteListPanel({
               onFieldChange(fieldKey, value);
             }
           }}
+          selectionMode="row"
           highlightSelectionRow={true}
           selectedRowKey={selectedSiteId}
           {...getLockedRowEditGridProps(isEditMode, newSiteRow?.siteId || SITE_EDIT_NEW_ROW_KEY)}

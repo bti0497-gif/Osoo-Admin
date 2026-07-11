@@ -79,7 +79,7 @@ export function MemberListPanel({
     if (newMemberRow) {
       if (newMemberRow.id) {
         rows = rows.map(row => (
-          row.id === newMemberRow.id
+          String(row.id) === String(newMemberRow.id)
             ? { ...row, ...newMemberRow, role: ROLE_LABEL_MAP[newMemberRow.role] || newMemberRow.role }
             : row
         ));
@@ -163,18 +163,19 @@ export function MemberListPanel({
           data={gridData}
           keyField="id"
           onRowSelect={handleRowClick}
-          rowHeight={40}
-          headerRowHeight={16}
+          rowHeight={32}
+          headerRowHeight={28}
           headerFontSize={12}
           isCellEditable={(row, col) => {
             if (!isEditMode || !newMemberRow) return false;
             const editKey = newMemberRow.id || MEMBER_EDIT_NEW_ROW_KEY;
-            return row.id === editKey && EDITABLE_MEMBER_COLS.has(col.id);
+            return String(row.id) === String(editKey) && EDITABLE_MEMBER_COLS.has(col.id);
           }}
           onCellChange={(rowKey, colId, value) => {
             if (onFieldChange) onFieldChange(colId, value);
           }}
           renderCellEditor={renderCellEditor}
+          selectionMode="row"
           highlightSelectionRow={true}
           selectedRowKey={selectedMemberId}
           {...getLockedRowEditGridProps(isEditMode, newMemberRow?.id || MEMBER_EDIT_NEW_ROW_KEY)}
