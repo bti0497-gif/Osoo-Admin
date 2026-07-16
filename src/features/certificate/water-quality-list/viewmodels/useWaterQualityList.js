@@ -19,13 +19,7 @@ export function useWaterQualityList() {
   const [downloading, setDownloading] = useState(false);
 
   const fetchSites = useCallback(async () => {
-    try {
-      const res = await fetch(`${getApiBase()}/api/certificates/water-quality/sites`, {
-        headers: adminHeaders(),
-      });
-      const json = await res.json();
-      setSites(json.sites || []);
-    } catch {}
+    setSites([]);
   }, []);
 
   const fetchList = useCallback(async (y, m, site) => {
@@ -40,8 +34,17 @@ export function useWaterQualityList() {
         headers: adminHeaders(),
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.message);
-      setRows(json.rows || []);
+      if (!json.success) throw new Error(json.error || json.message);
+      const nextRows = json.rows || [];
+      setRows(nextRows);
+      setSites((prev) => {
+        const merged = new Set(prev);
+        nextRows.forEach((row) => {
+          const name = String(row.site_name || '').trim();
+          if (name) merged.add(name);
+        });
+        return Array.from(merged).sort((a, b) => a.localeCompare(b, 'ko'));
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -69,18 +72,19 @@ export function useWaterQualityList() {
     setLoading(true);
     setDeleteResult(null);
     try {
-      const res = await fetch(`${getApiBase()}/api/certificates/water-quality-rows`, {
-        method: 'DELETE',
+      const res = await fetch(`${getApiBase()}/api/certificates/bulk-delete-by-ids`, {
+        method: 'POST',
         headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ fileIds: ids }),
       });
       const json = await res.json();
-      if (json.streamingBuffer) {
-        setDeleteResult({ type: 'buffer', message: json.message });
-        return;
-      }
       if (!json.success) throw new Error(json.message);
-      setDeleteResult({ type: 'success', message: `${json.deleted}건 삭제되었습니다.` });
+      const deletedCount = Number(json.deleted?.driveFiles || 0);
+      const failedCount = Array.isArray(json.failed) ? json.failed.length : 0;
+      setDeleteResult({
+        type: failedCount > 0 ? 'buffer' : 'success',
+        message: `${deletedCount}건 삭제되었습니다.${failedCount > 0 ? ` (${failedCount}건 실패)` : ''}`,
+      });
       await fetchList();
     } catch (err) {
       setDeleteResult({ type: 'error', message: err.message });
@@ -91,16 +95,19 @@ export function useWaterQualityList() {
 
   const downloadSelectedAsPdf = useCallback(async () => {
     const selected = rows.filter(r => selectedIds.has(r.id));
+    const driveFileIds = selected.map(r => r.drive_file_id).filter(Boolean);
     const driveFileNames = selected.map(r => r.drive_file_name).filter(Boolean);
-    if (driveFileNames.length === 0) return;
+    if (driveFileIds.length === 0 && driveFileNames.length === 0) return;
 
-    // 파일명 생성: {category}_{채수날짜}_{현장명_외N개}.pdf
-    const categories = [...new Set(selected.map(r => r.category).filter(Boolean))];
-    const categoryPart = categories.join('·') || '성적서';
+    const categories = [...new Set(selected.map((r) => {
+      const raw = String(r.category || '').toLowerCase();
+      return raw.includes('mlss') ? 'mlss' : '성적서';
+    }).filter(Boolean))];
+    const categoryPart = categories.join('+') || '성적서';
     const siteNames = selected.map(r => r.site_name).filter(Boolean);
     const sitesPart = siteNames.length === 1
       ? siteNames[0]
-      : `${siteNames[0]}_외${siteNames.length - 1}개`;
+      : `${siteNames[0]}_외${siteNames.length - 1}건`;
     const dates = selected
       .map(r => typeof r.report_date === 'object' && r.report_date?.value ? r.report_date.value : String(r.report_date || ''))
       .map(s => s.slice(0, 10).replace(/-/g, ''))
@@ -108,14 +115,20 @@ export function useWaterQualityList() {
       .sort();
     const datePart = dates.length === 0 ? '' :
       dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]}-${dates[dates.length - 1]}`;
-    const pdfFileName = `${categoryPart}_${datePart}_${sitesPart}.pdf`;
+    const pdfFileName = selected.length === 1 && selected[0].drive_file_name
+      ? selected[0].drive_file_name.replace(/\.[^.]+$/, '.pdf')
+      : `${categoryPart}_${datePart}_${sitesPart}.pdf`;
 
     setDownloading(true);
     try {
       const res = await fetch(`${getApiBase()}/api/certificates/water-quality-download-pdf`, {
         method: 'POST',
         headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ drive_file_names: driveFileNames, pdf_file_name: pdfFileName }),
+        body: JSON.stringify({
+          drive_file_ids: driveFileIds,
+          drive_file_names: driveFileNames,
+          pdf_file_name: pdfFileName,
+        }),
       });
 
       if (!res.ok) {
@@ -151,39 +164,40 @@ export function useWaterQualityList() {
 
     try {
       for (const row of selected) {
-        if (!row.drive_file_name) {
+        if (!row.drive_file_id && !row.drive_file_name) {
           failedCount++;
           continue;
         }
 
         try {
-          // 서버를 통해 이미지 다운로드 URL 가져오기
           const res = await fetch(`${getApiBase()}/api/certificates/water-quality-download-image`, {
             method: 'POST',
             headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ drive_file_name: row.drive_file_name }),
+            body: JSON.stringify({ 
+              drive_file_id: row.drive_file_id, 
+              drive_file_name: row.drive_file_name || row.source_pdf_name 
+            }),
           });
 
           if (!res.ok) {
-            console.warn(`[downloadImages] 실패: ${row.drive_file_name}`);
+            console.warn(`[downloadImages] 실패 ID: ${row.drive_file_id}`);
             failedCount++;
             continue;
           }
 
-          // Electron 환경에서 기본 다운로드 폴더에 자동 저장
           const blob = await res.blob();
           const arrayBuffer = await blob.arrayBuffer();
           const buffer = new Uint8Array(arrayBuffer);
+          const saveName = row.drive_file_name || row.source_pdf_name || `download_${row.drive_file_id}.jpg`;
           
-          // Electron IPC로 파일 저장 (대화상자 없음)
           if (window.electronAPI?.saveFileToDownloads) {
-            await window.electronAPI.saveFileToDownloads(row.drive_file_name, buffer);
+            await window.electronAPI.saveFileToDownloads(saveName, buffer);
           } else {
             // Fallback: 브라우저 다운로드
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = row.drive_file_name;
+            a.download = saveName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -195,7 +209,7 @@ export function useWaterQualityList() {
           // 다운로드 간 약간의 지연
           await new Promise(resolve => setTimeout(resolve, 500));
         } catch (err) {
-          console.error(`[downloadImages] 오류: ${row.drive_file_name}`, err);
+          console.error(`[downloadImages] 오류 ID: ${row.drive_file_id}`, err);
           failedCount++;
         }
       }

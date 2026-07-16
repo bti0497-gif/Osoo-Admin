@@ -20,20 +20,30 @@ export function useAttendanceCalendar({ selectedDate, selectedSite, period }) {
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
-    if (!selectedSite || selectedSite === 'all') return;
+    console.log('[useAttendanceCalendar] fetchData 호출:', { selectedDate, selectedSite, period });
+    if (!selectedSite || selectedSite === 'all') {
+      console.log('[useAttendanceCalendar] selectedSite가 all이거나 없어서 조회 스킵');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ date: selectedDate, period, siteId: selectedSite });
+      console.log('[useAttendanceCalendar] API 요청:', params.toString());
       const res = await fetch(`${getApiBase()}/api/attendance?${params}`, { headers: adminHeaders() });
+      console.log('[useAttendanceCalendar] API 응답 상태:', res.status);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || '조회 실패');
       }
       const result = await res.json();
+      console.log('[useAttendanceCalendar] API 응답 데이터:', result);
       if (!result.success) throw new Error(result.error || '조회 실패');
-      setRows(result.data.map(normalizeRow));
+      const normalized = result.data.map(normalizeRow);
+      console.log('[useAttendanceCalendar] 정규화된 데이터:', normalized);
+      setRows(normalized);
     } catch (e) {
+      console.error('[useAttendanceCalendar] 조회 오류:', e);
       setError(e.message);
       setRows([]);
     } finally {

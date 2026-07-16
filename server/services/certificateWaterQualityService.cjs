@@ -5,6 +5,8 @@
  */
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 // BigQuery 클라이언트 설정
 const getBigQueryClient = () => {
@@ -76,6 +78,8 @@ async function queryWaterQualityData(year, month, siteName = null) {
       id,
       uploaded_at,
       report_date,
+      sample_date,
+      source_row_order,
       category,
       site_name,
       site_name_raw,
@@ -90,7 +94,13 @@ async function queryWaterQualityData(year, month, siteName = null) {
     FROM (
       SELECT *,
         ROW_NUMBER() OVER (
-          PARTITION BY report_date, site_name
+          PARTITION BY report_date, sample_date, site_name,
+            COALESCE(CAST(mlss AS STRING), '-1'),
+            COALESCE(CAST(ss AS STRING), '-1'),
+            COALESCE(CAST(bod AS STRING), '-1'),
+            COALESCE(CAST(tn AS STRING), '-1'),
+            COALESCE(CAST(tp AS STRING), '-1'),
+            COALESCE(CAST(total_coliform AS STRING), '-1')
           ORDER BY uploaded_at DESC
         ) AS rn
       FROM \`${DATASET}.${TABLE}\`
@@ -165,6 +175,8 @@ async function insertRows(rows) {
     id: randomUUID(),
     uploaded_at: nowIso,
     report_date: row.report_date || null,
+    sample_date: row.sample_date || null,
+    source_row_order: Number.isFinite(Number(row.source_row_order)) ? Number(row.source_row_order) : null,
     category: row.source_type || 'excel',
     site_name: row.site_name || null,
     site_name_raw: row.site_name_raw || row.site_name || null,
@@ -180,7 +192,17 @@ async function insertRows(rows) {
 
   const dataset = bq.dataset(DATASET);
   const table = dataset.table(TABLE);
-  await table.insert(insertData, { location: region });
+  const tempPath = path.join(os.tmpdir(), `water_quality_${Date.now()}_${Math.random().toString(16).slice(2)}.json`);
+  fs.writeFileSync(tempPath, insertData.map((row) => JSON.stringify(row)).join('\n'), 'utf8');
+  try {
+    await table.load(tempPath, {
+      sourceFormat: 'NEWLINE_DELIMITED_JSON',
+      writeDisposition: 'WRITE_APPEND',
+      location: region,
+    });
+  } finally {
+    try { fs.unlinkSync(tempPath); } catch (_) {}
+  }
 
   return { inserted: insertData.length };
 }

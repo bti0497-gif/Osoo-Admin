@@ -32,6 +32,8 @@ export default function WaterQualityListView() {
   useEffect(() => {
     fetchSites();
     fetchList(year, month, 'all');
+    // 초기 진입 시 현재 월 전체만 한 번 불러온다. 이후 조회 버튼이 필터 변경을 적용한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const allSelected = rows.length > 0 && selectedIds.size === rows.length;
@@ -104,8 +106,8 @@ export default function WaterQualityListView() {
 
       {/* 안내 메시지 */}
       <div style={{ fontSize: '12px', color: '#64748b', background: '#fafafa', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 12px' }}>
-        ※ 최근 업로드된 데이터는 BigQuery 스트리밍 버퍼 처리 중에는 삭제되지 않습니다. 잠시 후(약 1시간) 다시 시도하세요.
-        <br />※ 동일 현장·날짜 중복 데이터는 최신 1건만 표시됩니다.
+        ※ 성적서 이미지는 Google Drive 폴더를 직접 조회해서 표시합니다.
+        <br />※ 다운로드와 삭제는 선택한 Drive 파일을 기준으로 처리됩니다.
       </div>
 
       {/* 결과 알림 */}
@@ -156,10 +158,10 @@ export default function WaterQualityListView() {
               <th style={thStyle('48px')}>
                 <input type="checkbox" checked={allSelected} onChange={toggleAll} />
               </th>
-              <th style={thStyle('150px')}>올린날짜</th>
               <th style={thStyle('100px')}>채수날짜</th>
-              <th style={thStyle('90px')}>종류</th>
+              <th style={thStyle('140px')}>종류</th>
               <th style={thStyle()}>현장명</th>
+              <th style={thStyle('150px')}>올린날짜</th>
               <th style={thStyle('200px')}>비고 (파일명)</th>
             </tr>
           </thead>
@@ -171,6 +173,10 @@ export default function WaterQualityListView() {
             ) : (
               rows.map((row, idx) => {
                 const checked = selectedIds.has(row.id);
+                // 카테고리 명칭 mlss vs 성적서(5개 항목) 통일 리맵핑
+                const rawCat = String(row.category || '').toLowerCase();
+                const categoryLabel = rawCat.includes('mlss') ? 'mlss' : '성적서(5개 항목)';
+
                 return (
                   <tr
                     key={row.id || idx}
@@ -193,20 +199,33 @@ export default function WaterQualityListView() {
                         onClick={e => e.stopPropagation()}
                       />
                     </td>
-                    <td style={tdStyle('center')}>{formatDateTime(row.uploaded_at)}</td>
                     <td style={tdStyle('center')}>{formatDate(row.report_date)}</td>
                     <td style={tdStyle('center')}>
                       <span style={{
                         padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                        background: row.category === 'mlss' ? '#f0fdf4' : '#eff6ff',
-                        color: row.category === 'mlss' ? '#15803d' : '#1d4ed8',
+                        background: categoryLabel === 'mlss' ? '#f0fdf4' : '#eff6ff',
+                        color: categoryLabel === 'mlss' ? '#15803d' : '#1d4ed8',
+                        whiteSpace: 'nowrap'
                       }}>
-                        {row.category || '-'}
+                        {categoryLabel}
                       </span>
                     </td>
                     <td style={tdStyle()}>{row.site_name || '-'}</td>
-                    <td style={{ ...tdStyle(), color: '#94a3b8', fontSize: '11px', fontFamily: 'monospace' }}>
-                      {row.drive_file_name || row.source_pdf_name || '-'}
+                    <td style={tdStyle('center')}>{formatDateTime(row.uploaded_at)}</td>
+                    <td 
+                      title={row.drive_file_name || ''}
+                      style={{ 
+                        ...tdStyle(), 
+                        color: '#334155', 
+                        fontSize: '13px', 
+                        fontWeight: 500,
+                        maxWidth: '220px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {row.drive_file_name || '-'}
                     </td>
                   </tr>
                 );

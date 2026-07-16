@@ -13,7 +13,7 @@ import { useDialog } from '../../../components/common/DialogContext.jsx';
  * - ViewModel: useMemberViewModel (비즈니스 로직)
  * - Panels: MemberListPanel, SiteListPanel (UI)
  */
-function MemberManagementView({ currentUser, passwordOnly = false }) {
+function MemberManagementView() {
   const { showAlert, showConfirm } = useDialog();
   const {
     // Members
@@ -29,7 +29,6 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     startEditSelectedMemberRow,
     saveNewMemberRow,
     deleteSelectedMember,
-    deleteMultipleMembers,
     isSavingMember,
     isDeletingMember,
     
@@ -47,27 +46,15 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
     saveNewSiteRow,
     startEditSelectedSiteRow,
     deleteSelectedSite,
-    deleteMultipleSites,
     isSavingSite,
     isDeletingSite,
     
-    // Bootstrap (회원/현장 등록)
-    bootstrapMember,
-    setBootstrapMember,
-    bootstrapLink,
-    setBootstrapLink,
-    isBootstrappingSiteMember,
-    handleBootstrapSiteMember,
-    registerBootstrapLocation,
-    
     // View mode
     viewMode,
-    setViewMode,
   } = useMemberViewModel({ showAlert, showConfirm });
 
   const [manageTab, setManageTab] = useState('site');
   const isSiteTab = manageTab === 'site';
-  const isMemberTab = manageTab === 'member';
   
   // 현재 탭 상태
   const isEditMode = isSiteTab ? siteEditMode : memberEditMode;
@@ -189,7 +176,7 @@ function MemberManagementView({ currentUser, passwordOnly = false }) {
                   disabled={isSaving}
                   style={{ ...btnStyle('primary'), opacity: isSaving ? 0.7 : 1 }}
                 >
-                  {isSaving ? '저장 중...' : (newRow?.id ? '수정 저장' : (isSiteTab ? '현장 저장' : '회원 저장'))}
+                  {isSaving ? '저장 중...' : ((newRow?.id || newRow?.siteId) ? '수정 저장' : (isSiteTab ? '현장 저장' : '회원 저장'))}
                 </button>
               </>
             ) : (

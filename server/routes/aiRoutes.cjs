@@ -55,7 +55,7 @@ router.post('/api/generate-content', upload.single('image'), async (req, res) =>
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,  // 페이지 수가 많아도 JSON 응답이 잘리지 않도록 여유 있게 설정
       },
     };
 

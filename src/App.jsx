@@ -4,6 +4,7 @@ import { WORKSPACE_REGISTRY, getWorkspace, getWorkspaceMenuMeta, validateWorkspa
 import { useAuthViewModel, LoginView } from './features/auth';
 import AppShell from './components/AppShell';
 import WorkspaceAdapter from './components/WorkspaceAdapter';
+import { useSiteMaster } from './features/certificate/hooks/useSiteMaster';
 
 const renderWorkspace = (workspaceId, workspace, context) => {
     const menuMeta = getWorkspaceMenuMeta(workspaceId);
@@ -30,6 +31,9 @@ if (allErrors.length > 0) {
 function App() {
     const { user, loginHintName, isAuthenticated, isLoading, login, logout, switchActiveSite } = useAuthViewModel();
     const [activeTab, setActiveTab] = useState(DEFAULT_TAB);
+    
+    // 앱 시작 시 구글 시트 현장 캐싱
+    useSiteMaster();
 
     if (isLoading) {
         return (

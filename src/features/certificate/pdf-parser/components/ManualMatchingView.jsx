@@ -99,36 +99,49 @@ export function ManualMatchingView() {
     initSiteMaster();
   }, [siteMaster, initSiteMaster]);
 
-  // 현재 페이지 변경 또는 페이지 데이터 로드 완료 시 ROI 이미지 자동 생성
+  // =========================================================================
+  // CRITICAL WARNING: ROI 영역 크롭 이미지 자동 생성 (수정 금지)
+  // =========================================================================
+  // 1. generateRoiImage 내에서 이미 setPages를 호출하여 상태를 자동 갱신합니다.
+  // 2. 이 이펙트 내부에서 이중으로 setPages를 호출하는 구조로 절대 수정하지 마십시오.
+  //    (비동기 레이스 컨디션 및 cleanup 타이밍 경합으로 크롭 이미지 생성이 무력화됩니다.)
+  // 3. pages 의존성으로 인해 이펙트가 재실행될 때 cleanup 함수가 진행 중인 크롭
+  //    처리를 차단하지 않도록 이중 업데이트는 엄격히 금지됩니다.
+  // =========================================================================
   useEffect(() => {
     let active = true;
     
     const loadRoiForCurrentPage = async () => {
       const index = matching.currentPageIndex;
-      if (pages.length === 0 || !pages[index]) return;
-      if (pages[index].roiImage) return;
+      console.log('[ManualMatchingView] loadRoiForCurrentPage 실행 - index:', index, 'pages length:', pages.length);
+      if (pages.length === 0 || !pages[index]) {
+        console.log('[ManualMatchingView] pages가 비어있거나 해당 index의 page가 없습니다.');
+        return;
+      }
+      if (pages[index].roiImage) {
+        console.log('[ManualMatchingView] 이미 ROI 이미지가 존재합니다.');
+        return;
+      }
 
       // globalBoxes에서 location(현장명) 박스 정보를 가져오며 없으면 기본 템플릿을 사용합니다.
       const locationBox = globalBoxes?.location || { x: 229.63, y: 175.04, width: 250, height: 25 };
-      const roiImage = await generateRoiImage(index, locationBox, pages);
+      console.log('[ManualMatchingView] ROI 크롭을 시작합니다. locationBox:', locationBox);
       
-      if (roiImage && active) {
-        setPages(prev => {
-          const next = [...prev];
-          if (next[index]) {
-            next[index] = { ...next[index], roiImage };
-          }
-          return next;
-        });
+      try {
+        const roiImage = await generateRoiImage(index, locationBox, pages);
+        console.log('[ManualMatchingView] ROI 크롭 완료. roiImage 생성 여부:', !!roiImage, 'active:', active);
+      } catch (err) {
+        console.error('[ManualMatchingView] ROI 이미지 생성 중 예외 발생:', err);
       }
     };
     
     loadRoiForCurrentPage();
     
     return () => {
+      console.log('[ManualMatchingView] loadRoiForCurrentPage cleanup 실행 (active = false)');
       active = false;
     };
-  }, [matching.currentPageIndex, pages, globalBoxes, generateRoiImage, setPages]);
+  }, [matching.currentPageIndex, pages, globalBoxes, generateRoiImage]);
 
   // PDF 업로드 핸들러
   const handlePdfDrop = async (file) => {
@@ -273,8 +286,7 @@ export function ManualMatchingView() {
     await matching.startUpload(pages, pdfDocument, pdfFile, setPages, globalBoxes);
   };
 
-  // 빠진/매칭안됨 페이지
-  const unmatchedPages = pages.filter(p => p.status === 'pending');
+
 
   return (
     <div style={{ padding: 24, height: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', gap: 16, overflow: 'hidden' }}>
@@ -289,8 +301,13 @@ export function ManualMatchingView() {
             setIsDragging={setIsDragging}
           />
           
+          {/* =========================================================================
+              CRITICAL WARNING: PDF 파일 드롭 즉시 로딩 오버레이 노출 조건 (수정 금지)
+              - total > 0 만 체크할 경우, 드롭 극초반 버퍼 로드 기간 동안 화면이 반응하지 않아 중복 드롭을 유발합니다.
+              - pdfProgress.message가 활성화되는 즉시 화면을 덮어야 하므로 아래 조건을 절대 훼손하지 마십시오.
+              ========================================================================= */}
           {/* 진행 상태 오버레이 (드롭존 한가운데 배치) */}
-          {pdfProgress.total > 0 && (
+          {(pdfProgress.total > 0 || pdfProgress.message !== '') && (
             <div style={{
               position: 'absolute',
               top: 0,
@@ -668,27 +685,47 @@ export function ManualMatchingView() {
 
       {/* 완료 단계 */}
       {matching.step === 'complete' && (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <CompletionSummary
-            pages={pages}
-            unmatchedPages={unmatchedPages}
-            uploadProgress={matching.uploadProgress}
-            onStartUpload={handleStartUpload}
-            onReset={handleReset}
-          />
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f3f4f6',
+          borderRadius: 16,
+          padding: 24,
+          overflowY: 'auto'
+        }}>
+          <div style={{ width: '100%', maxWidth: '480px' }}>
+            <CompletionSummary
+              pages={pages}
+              uploadProgress={matching.uploadProgress}
+              onStartUpload={handleStartUpload}
+              onReset={handleReset}
+            />
+          </div>
         </div>
       )}
 
       {/* 업로드 중 */}
       {matching.step === 'uploading' && (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <CompletionSummary
-            pages={pages}
-            unmatchedPages={unmatchedPages}
-            uploadProgress={matching.uploadProgress}
-            onStartUpload={handleStartUpload}
-            onReset={handleReset}
-          />
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f3f4f6',
+          borderRadius: 16,
+          padding: 24,
+          overflowY: 'auto'
+        }}>
+          <div style={{ width: '100%', maxWidth: '480px' }}>
+            <CompletionSummary
+              pages={pages}
+              uploadProgress={matching.uploadProgress}
+              onStartUpload={handleStartUpload}
+              onReset={handleReset}
+            />
+          </div>
         </div>
       )}
     </div>

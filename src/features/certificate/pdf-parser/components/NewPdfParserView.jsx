@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { FileText, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { pdfjs } from 'react-pdf';
 import { PDFDocument } from 'pdf-lib';
@@ -8,6 +8,7 @@ import { usePdfTemplate } from '../viewmodels/usePdfTemplate';
 import { usePdfBatch } from '../viewmodels/usePdfBatch';
 import { usePdfUpload } from '../viewmodels/usePdfUpload';
 import { usePdfGemini } from '../viewmodels/usePdfGemini';
+import { useSiteMaster } from '../../hooks/useSiteMaster';
 
 // Utils
 import { getFullPageImageBlob, getPdfPageImageBlob } from '../utils/imageGenerator';
@@ -19,6 +20,37 @@ import PdfUploadProgressWidget from './PdfUploadProgressWidget';
 
 // Styles
 import { getStyles } from './styles';
+
+// ROI 크롭 이미지 Blob들을 세로로 합쳐 단일 이미지를 생성하는 헬퍼 함수
+async function mergeRoiBlobs(blobs) {
+  const images = await Promise.all(blobs.map(blob => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = URL.createObjectURL(blob);
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+  })));
+
+  if (images.length === 0) return null;
+
+  const width = Math.max(...images.map(img => img.width));
+  const height = images.reduce((sum, img) => sum + img.height, 0);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  let currentY = 0;
+  images.forEach(img => {
+    ctx.drawImage(img, 0, currentY);
+    currentY += img.height;
+    URL.revokeObjectURL(img.src);
+  });
+
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, 'image/jpeg', 0.9);
+  });
+}
 
 // file:// 프로토콜에서도 동작하도록 현재 페이지 기준으로 worker 경로 설정
 if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
@@ -32,24 +64,15 @@ if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
 }
 
 const fieldLabels = {
-  date: '측정일',
-  items: '측정항목',
-  results: '측정결과',
-  location: '측정현장',
+  info: '기본 정보 (날짜, 현장명)',
 };
 
 const fieldBorderColors = {
-  date: '#2563eb',
-  items: '#16a34a',
-  results: '#7c3aed',
-  location: '#dc2626',
+  info: '#2563eb',
 };
 
 const fieldBgColors = {
-  date: 'rgba(37, 99, 235, 0.12)',
-  items: 'rgba(22, 163, 74, 0.12)',
-  results: 'rgba(124, 58, 237, 0.12)',
-  location: 'rgba(220, 38, 38, 0.12)',
+  info: 'rgba(37, 99, 235, 0.12)',
 };
 
 const modalStyles = {
@@ -112,12 +135,16 @@ export function NewPdfParserView() {
   
   const {
     batchProgress, startBatch, updatePageStatus, setStage,
-    completeBatch, resetBatch, progressPercent,
+    resetBatch,
   } = usePdfBatch();
   
-  const { uploadStatus, uploading, uploadProgress, processUploads, resetStatus, setUploadStatus } = usePdfUpload();
+  const { uploadStatus, uploadProgress, processUploads, resetStatus, setUploadStatus } = usePdfUpload();
 
-  const { callGemini, postProcessResults } = usePdfGemini();
+  const { callGeminiBatch, postProcessResults, checkPdfDuplicate } = usePdfGemini();
+  const { siteMaster } = useSiteMaster();
+  
+  // Custom Confirm Modal State
+  const [confirmModal, setConfirmModal] = useState({ active: false, message: '', onConfirm: null });
   
   // Toast
   const [toast, setToast] = useState(null);
@@ -226,45 +253,135 @@ export function NewPdfParserView() {
   // ============================
   // 전체 파싱 및 업로드 (핵심)
   // ============================
-  const handleProcessAll = async () => {
-    if (!pdfDoc || !file || !numPages) return;
+  // 실제 PDF 파싱 및 전송 실행부
+  const executeProcessAll = async () => {
+    const processingPages = Array.from({ length: Math.max(numPages - 1, 0) }, (_, idx) => idx + 2);
+    if (processingPages.length === 0) {
+      showToast('성적서 페이지가 없습니다. 첫 페이지 대시보드만 있는 PDF입니다.', 'error');
+      return;
+    }
+
+    startBatch(processingPages.length);
     
-    startBatch(numPages);
-    const allResults = [];
+    const roiBlobs = [];
+    const fullImgBlobs = [];
 
+    // 단계 A: 각 페이지의 이미지 크롭/변환 (로컬 Canvas 연산이므로 초고속!)
     try {
-      for (let i = 1; i <= numPages; i++) {
-        updatePageStatus(i, 'extracting', { detail: 'Gemini 분석 중...' });
-
-        try {
-          // Gemini용 ROI 크롭 이미지
-          const imgBlob = await getPdfPageImageBlob(pdfDoc, i, globalBoxes);
-          // Drive 저장용 전체 페이지 이미지
-          const fullImgBlob = await getFullPageImageBlob(pdfDoc, i);
-
-          if (!imgBlob) throw new Error('페이지 이미지 변환 실패');
-
-          // Gemini API 호출 (재시도 포함)
-          const extracted = await callGemini(imgBlob, (retryNum) => {
-            updatePageStatus(i, 'extracting', { detail: `재시도 중... (${retryNum})` });
-          });
-
-          allResults.push({ extracted, imgBlob: fullImgBlob || imgBlob });
-          updatePageStatus(i, 'done');
-        } catch (err) {
-          console.error(`[Page ${i}] 처리 실패:`, err);
-          updatePageStatus(i, 'error', { detail: err.message || '오류 발생' });
+      for (const pageNum of processingPages) {
+        // HMR(핫 리로드)이나 컴포넌트 소멸로 pdfDoc가 유실된 경우 안전 탈출
+        if (!pdfDoc) {
+          console.warn('[handleProcessAll] pdfDoc 객체가 유실되어 프로세스를 중단합니다.');
+          return;
         }
-
-        // API 속도 제한 방지
-        if (i < numPages) await new Promise(r => setTimeout(r, 500));
+        const displayIndex = processingPages.indexOf(pageNum) + 1;
+        updatePageStatus(displayIndex, 'extracting', { detail: `PDF ${pageNum}페이지 크롭 중...` });
+        // Try ROI image generation with retries; do not fallback to full page image
+        const maxRetries = 3;
+        let attempt = 0;
+        let imgBlob = null;
+        while (attempt < maxRetries && !imgBlob) {
+          try {
+            imgBlob = await getPdfPageImageBlob(pdfDoc, pageNum, globalBoxes);
+          } catch (e) {
+            console.error(`[handleProcessAll] ROI 이미지 변환 오류 (페이지 ${pageNum}) 시도 ${attempt + 1}:`, e);
+          }
+          attempt++;
+        }
+        if (!imgBlob) {
+          console.error(`[handleProcessAll] ROI 이미지 변환 최종 실패 (페이지 ${pageNum})`);
+          throw new Error('ROI 이미지 변환 실패');
+        }
+        const fullImgBlob = await getFullPageImageBlob(pdfDoc, pageNum);
+        // fullImgBlob is still needed for later upload stages
+        roiBlobs.push(imgBlob);
+        fullImgBlobs.push(fullImgBlob || imgBlob);
+        updatePageStatus(displayIndex, 'extracting', { detail: `PDF ${pageNum}페이지 크롭 완료` });
       }
-    } catch (e) {
-      console.error('[handleProcessAll] 전체 오류:', e);
+    } catch (err) {
+      console.error('[handleProcessAll] 이미지 변환 중 오류:', err);
+      showToast('이미지 변환에 실패했습니다.', 'error');
+      return;
+    }
+
+    // 단계 B & C: ROI 조각 세로 병합 및 Gemini 일괄 분석 (10페이지 단위 청크 분할 처리)
+    let batchResults = [];
+    try {
+      setStage('extracting');
+      
+      const chunkSize = 10;
+      const totalChunks = Math.ceil(processingPages.length / chunkSize);
+      
+      for (let c = 0; c < totalChunks; c++) {
+        const startIdx = c * chunkSize;
+        const endIdx = Math.min(startIdx + chunkSize, processingPages.length);
+        const chunkBlobs = roiBlobs.slice(startIdx, endIdx);
+        const chunkPageNumbers = Array.from({ length: endIdx - startIdx }, (_, idx) => startIdx + idx + 1);
+        
+        showToast(`현장명 조각 이미지 병합 중... (${c + 1}/${totalChunks})`, 'info');
+        const chunkMergedBlob = await mergeRoiBlobs(chunkBlobs);
+        if (!chunkMergedBlob) throw new Error(`병합 이미지 생성 실패 (그룹 ${c + 1})`);
+        
+        // 해당 청크 페이지들의 상태 업데이트
+        for (const pNum of chunkPageNumbers) {
+          updatePageStatus(pNum, 'extracting', { detail: `AI 일괄 분석 중... (${c + 1}/${totalChunks})` });
+        }
+        
+        const chunkResults = await callGeminiBatch(chunkMergedBlob, chunkPageNumbers, (retryNum) => {
+          for (const pNum of chunkPageNumbers) {
+            updatePageStatus(pNum, 'extracting', { detail: `AI 재시도 중... (${retryNum})` });
+          }
+        }, siteMaster);
+        
+        if (Array.isArray(chunkResults)) {
+          batchResults = [...batchResults, ...chunkResults];
+        } else {
+          console.warn(`[handleProcessAll] 그룹 ${c + 1} 결과가 배열이 아님:`, chunkResults);
+        }
+        
+        // 해당 청크 페이지 분석 성공 처리
+        for (const pNum of chunkPageNumbers) {
+          updatePageStatus(pNum, 'done');
+        }
+      }
+      
+      showToast('현장명 일괄 분석 완료!', 'success');
+    } catch (err) {
+      console.error('[handleProcessAll] Gemini 분석 오류:', err);
+      for (let i = 1; i <= processingPages.length; i++) {
+        updatePageStatus(i, 'error', { detail: 'AI 분석 실패' });
+      }
+      showToast(`AI 분석 실패: ${err.message}`, 'error');
+      return;
+    }
+
+    // 단계 D: Gemini 결과와 개별 전체 페이지 Blob 매핑 및 후처리
+    const allResults = [];
+    for (let i = 1; i <= processingPages.length; i++) {
+      const pageResult = batchResults.find(r => Number(r.page) === i) || {
+        include: false,
+        record: { report_date: null, site_name: '미확인현장' },
+        errors: ['missing_response']
+      };
+      pageResult.source_pdf_page = processingPages[i - 1];
+      allResults.push({
+        extracted: pageResult,
+        imgBlob: fullImgBlobs[i - 1]
+      });
     }
 
     // 후처리: 날짜/현장명 보정 + basename 생성
-    const { finalResults } = postProcessResults(allResults);
+    const { finalResults } = postProcessResults(allResults, file.name, siteMaster);
+
+    // 제외된 페이지 디버깅용 로그 추가
+    const excludedPages = allResults.filter(r => !finalResults.some(f => f.extracted?.page === r.extracted?.page));
+    if (excludedPages.length > 0) {
+      console.warn('[Upload 디버그] 업로드에서 제외된 페이지 정보:', excludedPages.map(p => ({
+        page: p.extracted?.page,
+        errors: p.extracted?.errors,
+        record: p.extracted?.record
+      })));
+    }
 
     // 업로드 단계
     setStage('uploading');
@@ -277,27 +394,177 @@ export function NewPdfParserView() {
     setStage('done');
   };
 
+  // 파일명 중복을 감지하고 파싱 시작 단계를 제어하는 메인 버튼 핸들러
+  const handleProcessAll = async () => {
+    if (!pdfDoc || !file || !numPages) return;
+
+    try {
+      const checkResult = await checkPdfDuplicate(file.name);
+      if (checkResult?.success && checkResult.exists) {
+        setConfirmModal({
+          active: true,
+          message: `'${file.name}' 파일은 이미 업로드된 이력이 존재합니다. 그래도 강제로 다시 분석(Gemini 실행)하여 덮어쓰시겠습니까?`,
+          onConfirm: () => {
+            setConfirmModal({ active: false, message: '', onConfirm: null });
+            executeProcessAll();
+          }
+        });
+      } else {
+        executeProcessAll();
+      }
+    } catch (err) {
+      console.warn('PDF 중복 확인 예외 (진행 허용):', err);
+      executeProcessAll();
+    }
+  };
+
+  // ============================
+  // 커스텀 Confirm 모달
+  // ============================
+  const renderConfirmModal = () => {
+    if (!confirmModal.active) return null;
+
+    return (
+      <div style={modalStyles.overlay}>
+        <div style={{
+          ...modalStyles.box,
+          maxWidth: '400px',
+          padding: '24px',
+          textAlign: 'center',
+          gap: '16px'
+        }}>
+          <div style={{
+            fontSize: '36px',
+            lineHeight: 1
+          }}>
+            ⚠️
+          </div>
+          <div style={{
+            fontSize: '15px',
+            fontWeight: '600',
+            color: '#1e293b',
+            lineHeight: 1.5,
+            whiteSpace: 'pre-line'
+          }}>
+            {confirmModal.message}
+          </div>
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginTop: '8px'
+          }}>
+            <button
+              onClick={() => {
+                showToast('중복 감지로 작업이 취소되었습니다.', 'warn');
+                setConfirmModal({ active: false, message: '', onConfirm: null });
+              }}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: '#f1f5f9',
+                color: '#475569',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              취소
+            </button>
+            <button
+              onClick={confirmModal.onConfirm}
+              style={{
+                flex: 1,
+                padding: '10px',
+                background: '#2563eb',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              강제 진행
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ============================
   // BatchProgress 모달
   // ============================
   const renderBatchModal = () => {
     if (!batchProgress.active) return null;
 
-    const done = batchProgress.pages.filter(p => p.status === 'done' || p.status === 'error').length;
-    const pct = batchProgress.total > 0 ? Math.round((done / batchProgress.total) * 100) : 0;
+    const isExtracting = batchProgress.stage === 'preparing' || batchProgress.stage === 'extracting';
+    const isUploadingStage = batchProgress.stage === 'uploading';
     const isDone = batchProgress.stage === 'done';
+
+    // 진행률 계산
+    let pct = 0;
+    let doneLabel = '';
+    let titleText = '';
+
+    if (isExtracting) {
+      titleText = '현장명 일괄 분석 중...';
+      const donePages = batchProgress.pages.filter(p => p.status === 'done' || p.status === 'error').length;
+      pct = batchProgress.total > 0 ? Math.round((donePages / batchProgress.total) * 100) : 0;
+      doneLabel = `${donePages} / ${batchProgress.total} 분석 완료`;
+    } else if (isUploadingStage) {
+      titleText = 'Google Drive 이미지 전송 중...';
+      const driveDone = uploadProgress?.driveDone || 0;
+      const driveTotal = uploadProgress?.driveTotal || 0;
+      pct = driveTotal > 0 ? Math.round((driveDone / driveTotal) * 100) : 0;
+      doneLabel = `${driveDone} / ${driveTotal} 전송 완료`;
+    } else if (isDone) {
+      titleText = '성적서 업로드 완료';
+      pct = 100;
+      doneLabel = '완료';
+    }
+
+    const handleCloseModal = () => {
+      resetBatch();
+      resetStatus();
+    };
 
     return (
       <div style={modalStyles.overlay}>
-        <div style={modalStyles.box}>
+        <div style={{
+          ...modalStyles.box,
+          maxHeight: '90vh', // 최대 높이를 90vh로 조금 더 확장
+          height: 'auto',
+        }}>
+          {/* Header (고정) */}
           <div style={modalStyles.header}>
             <div style={modalStyles.title}>
               {!isDone && <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
-              {isDone ? '처리 완료' : '일괄 추출 진행 중...'}
+              <span>{titleText}</span>
             </div>
+
+            {/* 업로드 단계인 경우 현재 전송 중인 파일명 실시간 노출 */}
+            {isUploadingStage && uploadProgress?.currentFileName && (
+              <div style={{ 
+                fontSize: '13px', 
+                color: '#2563eb', 
+                fontWeight: 600,
+                marginTop: '10px',
+                background: '#eff6ff',
+                padding: '8px 14px',
+                borderRadius: '6px',
+                border: '1px solid #bfdbfe',
+                display: 'inline-block',
+                width: '100%',
+                boxSizing: 'border-box'
+              }}>
+                📤 전송 중: {uploadProgress.currentFileName}
+              </div>
+            )}
+
             <div style={modalStyles.progressWrap}>
               <div style={modalStyles.progressLabel}>
-                <span>{done} / {batchProgress.total} 완료</span>
+                <span>{doneLabel}</span>
                 <span>{pct}%</span>
               </div>
               <div style={modalStyles.progressTrack}>
@@ -306,50 +573,126 @@ export function NewPdfParserView() {
             </div>
           </div>
 
-          <div style={modalStyles.pageList}>
-            {batchProgress.pages.map((p) => (
-              <div
-                key={p.pageNum}
-                ref={(el) => { if (el && p.status === 'extracting') el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
-                style={modalStyles.pageItem(p.status)}
-              >
-                <div style={modalStyles.pageRow}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={modalStyles.pageLabel(p.status)}>Page {p.pageNum}</span>
-                    {p.status === 'extracting' && <span style={modalStyles.pill('#1d4ed8', '#dbeafe')}>{p.data?.detail || '분석 중...'}</span>}
-                    {p.status === 'done' && <span style={modalStyles.pill('#15803d', '#dcfce7')}>성공</span>}
-                    {p.status === 'error' && <span style={modalStyles.pill('#dc2626', '#fee2e2')}>실패</span>}
+          {/* Scrollable Content Area (이 영역만 스크롤되도록 설정하여 하단 풋터가 잘리지 않게 함) */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            background: '#f8fafc',
+            maxHeight: '50vh'
+          }}>
+            {/* AI 추출 단계일 때만 개별 페이지 목록을 보여줌 */}
+            {isExtracting && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {batchProgress.pages.map((p) => (
+                  <div
+                    key={p.pageNum}
+                    ref={(el) => { if (el && p.status === 'extracting') el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+                    style={modalStyles.pageItem(p.status)}
+                  >
+                    <div style={modalStyles.pageRow}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={modalStyles.pageLabel(p.status)}>Page {p.pageNum}</span>
+                        {p.status === 'extracting' && <span style={modalStyles.pill('#1d4ed8', '#dbeafe')}>{p.data?.detail || '분석 중...'}</span>}
+                        {p.status === 'done' && <span style={modalStyles.pill('#15803d', '#dcfce7')}>성공</span>}
+                        {p.status === 'error' && <span style={modalStyles.pill('#dc2626', '#fee2e2')}>실패</span>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px' }}>
+                        {p.status === 'pending' && <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: '2px solid #e2e8f0' }} />}
+                        {p.status === 'extracting' && <Loader2 size={18} color="#2563eb" style={{ animation: 'spin 1s linear infinite' }} />}
+                        {p.status === 'done' && <CheckCircle2 size={20} color="#22c55e" />}
+                        {p.status === 'error' && <XCircle size={20} color="#ef4444" />}
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px' }}>
-                    {p.status === 'pending' && <div style={{ width: '20px', height: '20px', borderRadius: '50%', border: '2px solid #e2e8f0' }} />}
-                    {p.status === 'extracting' && <Loader2 size={18} color="#2563eb" style={{ animation: 'spin 1s linear infinite' }} />}
-                    {p.status === 'done' && <CheckCircle2 size={20} color="#22c55e" />}
-                    {p.status === 'error' && <XCircle size={20} color="#ef4444" />}
-                  </div>
-                </div>
-                {p.status === 'error' && p.data?.detail && (
-                  <div style={{ fontSize: '11px', color: '#dc2626', background: '#fef2f2', padding: '8px', borderRadius: '4px', border: '1px solid #fecaca', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '4px' }}>
-                    {p.data.detail}
+                ))}
+              </div>
+            )}
+
+            {/* 업로드 단계 또는 완료 단계일 때 전송 상세 내역을 보여줌 */}
+            {(isUploadingStage || isDone) && (
+              <div style={{ 
+                padding: '16px', 
+                background: '#fff', 
+                borderRadius: '8px', 
+                fontSize: '13px', 
+                border: '1px solid #e2e8f0',
+                color: '#475569',
+                lineHeight: 1.6,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: '12px', color: '#1e293b', fontSize: '14px', borderBottom: '1px solid #f1f5f9', paddingBottom: '6px' }}>성적서 업로드 요약</div>
+                {uploadProgress && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>성공적으로 전송됨:</span>
+                      <span style={{ color: '#10b981', fontWeight: 700 }}>{uploadProgress.imageOk || 0}건</span>
+                    </div>
+                    {Number(uploadProgress.imageExists || 0) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>중복 파일 스킵됨:</span>
+                        <span style={{ color: '#f59e0b', fontWeight: 700 }}>{uploadProgress.imageExists}건</span>
+                      </div>
+                    )}
+                    {Number(uploadProgress.imageFail || 0) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>전송 실패:</span>
+                        <span style={{ color: '#ef4444', fontWeight: 700 }}>{uploadProgress.imageFail}건</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            ))}
+            )}
+
+            {/* 완료 단계 추가 가이드 메시지 */}
+            {isDone && (
+              <div style={{
+                textAlign: 'center',
+                padding: '10px',
+                color: '#1e293b',
+                fontSize: '13px',
+                fontWeight: 600,
+                backgroundColor: '#f0fdf4',
+                border: '1px dashed #bbf7d0',
+                borderRadius: '6px'
+              }}>
+                🎉 모든 성적서 파일의 드라이브 전송 및 메타데이터 갱신이 안전하게 완료되었습니다!
+              </div>
+            )}
           </div>
 
+          {/* Footer (고정) */}
           {isDone && (
-            <div style={modalStyles.footer}>
-              <div style={modalStyles.resultBox}>
-                <div style={modalStyles.resultTitle}>전송 결과</div>
-                {uploadStatus ? (
-                  <>
-                    <div>이미지 → Drive: <span style={{ color: '#16a34a', fontWeight: 600 }}>{uploadStatus.imageOk}건 성공</span>{uploadStatus.imageFail > 0 && <span style={{ color: '#dc2626' }}> / {uploadStatus.imageFail}건 실패</span>}</div>
-                    <div>JSON → BigQuery: <span style={{ color: '#16a34a', fontWeight: 600 }}>{uploadStatus.jsonOk}건 성공</span>{uploadStatus.jsonFail > 0 && <span style={{ color: '#dc2626' }}> / {uploadStatus.jsonFail}건 실패</span>}</div>
-                  </>
-                ) : (
-                  <div style={{ color: '#64748b' }}>전송 데이터 없음</div>
-                )}
-              </div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'right' }}>3초 후 자동으로 초기화됩니다...</div>
+            <div style={{
+              ...modalStyles.footer,
+              borderTop: '1px solid #f1f5f9',
+              padding: '16px',
+              background: '#fff'
+            }}>
+              <button 
+                onClick={handleCloseModal}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  backgroundColor: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  boxShadow: '0 2px 8px rgba(37,99,235,0.25)',
+                  transition: 'background-color 0.2s',
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+              >
+                닫기 및 완료
+              </button>
             </div>
           )}
         </div>
@@ -434,27 +777,24 @@ export function NewPdfParserView() {
       {/* BatchProgress Modal */}
       {renderBatchModal()}
 
+      {/* Custom Confirm Modal */}
+      {renderConfirmModal()}
+
       {/* Toast */}
       {toast && (
         <div style={{
-          position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
-          zIndex: 100, padding: '10px 24px', borderRadius: '8px',
-          fontSize: '14px', fontWeight: 600, color: '#fff',
-          background: toast.type === 'warn' ? '#f59e0b' : '#22c55e',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-          animation: 'fadeIn 0.2s ease',
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          zIndex: 100, padding: '16px 32px', borderRadius: '10px',
+          fontSize: '15px', fontWeight: 700, color: '#fff',
+          background: toast.type === 'warn' ? '#eab308' : '#10b981',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+          border: '1px solid rgba(255,255,255,0.2)',
+          animation: 'fadeInCenter 0.2s ease-out',
         }}>
           {toast.msg}
         </div>
       )}
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }`}</style>
-
-      {/* PDF 업로드 진행 상황 위젯 */}
-      <PdfUploadProgressWidget 
-        uploadStatus={uploadProgress} 
-        uploading={uploading}
-        onClose={resetStatus}
-      />
+      <style>{`@keyframes fadeInCenter { from { opacity: 0; transform: translate(-50%, -40%); } to { opacity: 1; transform: translate(-50%, -50%); } }`}</style>
     </div>
   );
 }

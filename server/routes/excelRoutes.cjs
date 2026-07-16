@@ -2,6 +2,8 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
 const {
   buildBatchExportExcel,
   buildBatchPreviewPdf,
@@ -16,6 +18,7 @@ const {
 const { resolveReportTemplatePath } = require('../services/reportTemplateService.cjs');
 const { getHtmlTemplatePath } = require('../services/excelTemplateHtmlService.cjs');
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 function buildMissingTemplateResponse(templateName) {
   const requestedTemplateName = String(templateName || '수질분석일지').trim() || '수질분석일지';
@@ -361,6 +364,229 @@ module.exports = function(db, baseDir, appDataPath) {
       res.end();
     } catch (err) {
       res.status(500).json({ error: 'Excel generation failed: ' + err.message });
+    }
+  });
+
+  router.post('/api/logs/import-water-quality-excel', upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ success: false, message: '업로드된 파일이 없습니다.' });
+      }
+
+      const bq = getBigQueryClient();
+      if (!bq) {
+        return res.status(500).json({ success: false, message: 'BigQuery 연결에 실패했습니다.' });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
+        return res.status(400).json({ success: false, message: '엑셀 파일에 시트가 존재하지 않습니다.' });
+      }
+
+      let headerRow = null;
+      worksheet.eachRow((row, rowNumber) => {
+        if (!headerRow && row.values.some(v => v !== null && v !== undefined && v !== '')) {
+          headerRow = row;
+        }
+      });
+
+      if (!headerRow) {
+        return res.status(400).json({ success: false, message: '엑셀 파일에서 헤더 정보를 찾을 수 없습니다.' });
+      }
+
+      const headers = [];
+      headerRow.eachCell((cell, colNumber) => {
+        headers[colNumber] = String(cell.value || '').trim().toLowerCase();
+      });
+
+      const colIndex = {
+        date: headers.findIndex(h => h && (h.includes('날짜') || h.includes('일자') || h.includes('date') || h.includes('채수') || h.includes('기간'))),
+        site: headers.findIndex(h => h && (h.includes('현장') || h.includes('시료') || h.includes('site') || h.includes('지점') || h.includes('명'))),
+        bod: headers.findIndex(h => h && (h === 'bod' || h.includes('생물화학'))),
+        ss: headers.findIndex(h => h && (h === 'ss' || h.includes('부유물질'))),
+        tn: headers.findIndex(h => h && (h === 'tn' || h === 't-n' || h.includes('총질소'))),
+        tp: headers.findIndex(h => h && (h === 'tp' || h === 't-p' || h.includes('총인'))),
+        total_coliform: headers.findIndex(h => h && (h.includes('대장균') || h === 'coliform')),
+        mlss: headers.findIndex(h => h && (h === 'mlss')),
+        do: headers.findIndex(h => h && (h === 'do' || h.includes('용존산소'))),
+        ph: headers.findIndex(h => h && (h === 'ph' || h.includes('수소이온'))),
+      };
+
+      if (colIndex.date === -1 || colIndex.site === -1) {
+        return res.status(400).json({
+          success: false,
+          message: '날짜 및 현장명(시료명) 컬럼이 필요합니다. 헤더 컬럼명을 확인해 주세요.'
+        });
+      }
+
+      const parsedRows = [];
+      const errors = [];
+
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === headerRow.number) return;
+
+        const getVal = (idx) => {
+          if (idx === -1 || idx === undefined || idx === null) return null;
+          const cell = row.getCell(idx);
+          if (!cell) return null;
+          let val = cell.value;
+          if (val && typeof val === 'object' && val.result !== undefined) {
+            val = val.result;
+          }
+          return val;
+        };
+
+        const rawDate = getVal(colIndex.date);
+        const rawSite = getVal(colIndex.site);
+
+        if (!rawDate || !rawSite) return;
+
+        let dateStr = String(rawDate).trim();
+        if (rawDate instanceof Date) {
+          dateStr = rawDate.toISOString().split('T')[0];
+        } else {
+          const m = dateStr.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+          if (m) {
+            dateStr = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+          } else {
+            errors.push(`Row ${rowNumber}: 날짜 포맷이 올바르지 않습니다. (${rawDate})`);
+            return;
+          }
+        }
+
+        const cleanSite = String(rawSite).trim().replace(/\s*(포기조|폭기조)\s*$/, '');
+
+        const toNum = (val) => {
+          if (val === null || val === undefined || val === '') return null;
+          const parsed = Number(String(val).replace(/,/g, '').trim());
+          return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        const record = {
+          report_date: dateStr,
+          site_name: cleanSite,
+          ss: toNum(getVal(colIndex.ss)),
+          bod: toNum(getVal(colIndex.bod)),
+          tn: toNum(getVal(colIndex.tn)),
+          tp: toNum(getVal(colIndex.tp)),
+          total_coliform: toNum(getVal(colIndex.total_coliform)),
+          mlss: toNum(getVal(colIndex.mlss)),
+          do: toNum(getVal(colIndex.do)),
+          ph: toNum(getVal(colIndex.ph)),
+        };
+
+        parsedRows.push(record);
+      });
+
+      if (parsedRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: '파싱 성공한 행이 없습니다. 엑셀 데이터를 확인해 주세요.',
+          errors
+        });
+      }
+
+      const dataset = bq.dataset(DATASET_ID);
+      const table = dataset.table('water_quality');
+      const [tableMetadata] = await table.getMetadata();
+      const fields = new Set((tableMetadata.schema?.fields || []).map((field) => String(field.name || '')));
+
+      let successCount = 0;
+      const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
+
+      for (const row of parsedRows) {
+        try {
+          const rowId = require('crypto').randomUUID();
+          const category = row.mlss != null && row.bod === null ? 'mlss' : '성적서';
+
+          await bq.query({
+            query: `
+              MERGE \`${DATASET_ID}.water_quality\` T
+              USING (
+                SELECT
+                  @id AS id,
+                  @uploadedAt AS uploaded_at,
+                  @reportDate AS report_date,
+                  @category AS category,
+                  @siteName AS site_name,
+                  @ss AS ss,
+                  @bod AS bod,
+                  @tn AS tn,
+                  @tp AS tp,
+                  @totalColiform AS total_coliform,
+                  @mlss AS mlss,
+                  @do AS do_val,
+                  @ph AS ph
+              ) S
+              ON T.report_date = S.report_date AND T.site_name = S.site_name
+              WHEN MATCHED THEN
+                UPDATE SET
+                  uploaded_at = S.uploaded_at,
+                  category = S.category,
+                  ss = COALESCE(S.ss, T.ss),
+                  bod = COALESCE(S.bod, T.bod),
+                  tn = COALESCE(S.tn, T.tn),
+                  tp = COALESCE(S.tp, T.tp),
+                  total_coliform = COALESCE(S.total_coliform, T.total_coliform),
+                  mlss = COALESCE(S.mlss, T.mlss),
+                  ${fields.has('do') ? '`do` = COALESCE(S.do_val, T.`do`),' : ''}
+                  ph = COALESCE(S.ph, T.ph)
+              WHEN NOT MATCHED THEN
+                INSERT (id, uploaded_at, report_date, category, site_name, ss, bod, tn, tp, total_coliform, mlss, ${fields.has('do') ? '`do`,' : ''} ph)
+                VALUES (S.id, S.uploaded_at, S.report_date, S.category, S.site_name, S.ss, S.bod, S.tn, S.tp, S.total_coliform, S.mlss, ${fields.has('do') ? 'S.do_val,' : ''} S.ph)
+            `,
+            params: {
+              id: rowId,
+              uploadedAt: nowIso,
+              reportDate: row.report_date,
+              category,
+              siteName: row.site_name,
+              ss: row.ss,
+              bod: row.bod,
+              tn: row.tn,
+              tp: row.tp,
+              totalColiform: row.total_coliform,
+              mlss: row.mlss,
+              do_val: row.do,
+              ph: row.ph,
+            },
+            types: {
+              id: 'STRING',
+              uploadedAt: 'TIMESTAMP',
+              reportDate: 'DATE',
+              category: 'STRING',
+              siteName: 'STRING',
+              ss: 'FLOAT64',
+              bod: 'FLOAT64',
+              tn: 'FLOAT64',
+              tp: 'FLOAT64',
+              totalColiform: 'INT64',
+              mlss: 'FLOAT64',
+              do_val: 'FLOAT64',
+              ph: 'FLOAT64',
+            }
+          });
+
+          successCount++;
+        } catch (rowErr) {
+          console.error(`[BigQuery Merge Error] Date: ${row.report_date}, Site: ${row.site_name}`, rowErr.message);
+          errors.push(`Date: ${row.report_date}, Site: ${row.site_name} 저장 실패: ${rowErr.message}`);
+        }
+      }
+
+      return res.json({
+        success: true,
+        totalRows: parsedRows.length,
+        successCount,
+        failedCount: parsedRows.length - successCount,
+        errors
+      });
+    } catch (err) {
+      console.error('[Excel Upload API Error]', err);
+      return res.status(500).json({ success: false, message: err.message });
     }
   });
 

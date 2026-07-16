@@ -93,42 +93,16 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
     },
   };
 
-  const totalItems = uploadStatus?.totalItems || 0;
-  const bqDone = uploadStatus?.bqDone || 0;
-  const bqTotal = uploadStatus?.bqTotal || 0;
   const driveDone = uploadStatus?.driveDone || 0;
   const driveTotal = uploadStatus?.driveTotal || 0;
-
-  const bqPercent = bqTotal > 0 ? Math.round((bqDone / bqTotal) * 100) : 0;
   const drivePercent = driveTotal > 0 ? Math.round((driveDone / driveTotal) * 100) : 0;
-  const totalPercent = totalItems > 0
-    ? Math.round(((bqDone + driveDone) / (bqTotal + driveTotal)) * 100)
-    : 0;
-
-  const isBqComplete = bqDone >= bqTotal && bqTotal > 0;
   const isDriveComplete = driveDone >= driveTotal && driveTotal > 0;
 
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
         <div style={styles.title}>
-          {isAllComplete ? '업로드 완료' : '업로드 진행 중'}
-        </div>
-
-        <div style={styles.stage}>
-          <div style={styles.stageLabel}>
-            <span>BigQuery 데이터 저장</span>
-            <span>{isBqComplete ? '완료' : `${bqDone}/${bqTotal}`}</span>
-          </div>
-          <div style={styles.progressBar}>
-            <div
-              style={{
-                ...styles.progressFill,
-                width: `${bqPercent}%`,
-                ...(isBqComplete ? styles.complete : {}),
-              }}
-            />
-          </div>
+          {isAllComplete ? '업로드 완료' : 'Drive 이미지 업로드 중'}
         </div>
 
         <div style={styles.stage}>
@@ -150,9 +124,31 @@ export default function PdfUploadProgressWidget({ uploadStatus, uploading, onClo
         <div style={styles.totalProgress}>
           <div style={styles.totalLabel}>
             <span>전체 진행률</span>
-            <span style={styles.percent}>{totalPercent}%</span>
+            <span style={styles.percent}>{drivePercent}%</span>
           </div>
         </div>
+
+        {isAllComplete && uploadStatus && (
+          <div style={{
+            marginTop: '16px',
+            padding: '12px',
+            background: '#f8fafc',
+            borderRadius: '6px',
+            fontSize: '13px',
+            border: '1px solid #e2e8f0',
+            color: '#475569',
+            lineHeight: 1.6
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: '6px', color: '#334155' }}>전송 결과</div>
+            <div>성공: <span style={{ color: '#10b981', fontWeight: 600 }}>{uploadStatus.imageOk || 0}건</span></div>
+            {Number(uploadStatus.imageExists || 0) > 0 && (
+              <div>건너뜀 (이미 전송됨): <span style={{ color: '#f59e0b', fontWeight: 600 }}>{uploadStatus.imageExists}건</span></div>
+            )}
+            {Number(uploadStatus.imageFail || 0) > 0 && (
+              <div>실패: <span style={{ color: '#ef4444', fontWeight: 600 }}>{uploadStatus.imageFail}건</span></div>
+            )}
+          </div>
+        )}
 
         {isAllComplete && onClose && (
           <button style={styles.closeButton} onClick={onClose}>

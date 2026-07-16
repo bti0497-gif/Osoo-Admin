@@ -6,12 +6,12 @@ const isAdminUser = (member) => ADMIN_ROLES.includes(String(member?.role || ''))
 
 // TODO: 중앙관리자 앱은 특정 로그인이 필요 없으므로 바이패스 활성화
 // 로그인 기능을 다시 활성화하려면 false로 변경
-const BYPASS_LOGIN = false;
+const BYPASS_LOGIN = true;
 
 const DEFAULT_ADMIN_USER = {
-    id: 'central_admin',
-    name: '중앙관리자',
-    role: 'central_admin',
+    id: 'super_admin',
+    name: '최고관리자',
+    role: 'super_admin',
     site_name1: '',
     managed_sites: [],
 };

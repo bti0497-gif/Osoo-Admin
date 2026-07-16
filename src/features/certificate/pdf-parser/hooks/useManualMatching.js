@@ -239,7 +239,7 @@ export function useManualMatching(siteMaster) {
   /**
    * 이미지 변환 → Drive 전송 시작 (재시도 및 오프라인 백업 포함)
    */
-  const startUpload = useCallback(async (pages, pdfDocument, pdfFile, setPages, globalBoxes) => {
+  const startUpload = useCallback(async (pages, pdfDocument, pdfFile) => {
     if (!pdfDocument || pages.length === 0) return;
     
     setStep('uploading');
@@ -318,39 +318,8 @@ export function useManualMatching(siteMaster) {
         canvas.height = viewport.height;
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // 글로벌 ROI 상자 데이터가 있다면 병합 크롭을 하고, 없으면 전체 이미지화
-        let finalBlob;
-        const roiKeys = globalBoxes ? Object.keys(globalBoxes) : [];
-        if (roiKeys.length > 0) {
-          const PADDING = 8;
-          const ROI_W = 600;
-          const crops = roiKeys.map(field => {
-            const box = globalBoxes[field];
-            const sx = Math.max(0, box.x * scale - PADDING);
-            const sy = Math.max(0, box.y * scale - PADDING);
-            const sw = Math.min(canvas.width - sx, box.width * scale + PADDING * 2);
-            const sh = Math.min(canvas.height - sy, box.height * scale + PADDING * 2);
-            const scaleFactor = ROI_W / sw;
-            return { sx, sy, sw, sh, dh: Math.round(sh * scaleFactor) };
-          });
-          const GAP = 6;
-          const totalH = crops.reduce((sum, c) => sum + c.dh + GAP, 0);
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = ROI_W;
-          outCanvas.height = totalH;
-          const outCtx = outCanvas.getContext('2d');
-          outCtx.fillStyle = '#fff';
-          outCtx.fillRect(0, 0, ROI_W, totalH);
-          let offsetY = 0;
-          for (const c of crops) {
-            outCtx.drawImage(canvas, c.sx, c.sy, c.sw, c.sh, 0, offsetY, ROI_W, c.dh);
-            offsetY += c.dh + GAP;
-          }
-          finalBlob = await new Promise(res => outCanvas.toBlob(b => res(b), 'image/jpeg', 0.88));
-          outCanvas.width = 0; outCanvas.height = 0;
-        } else {
-          finalBlob = await new Promise(res => canvas.toBlob(b => res(b), 'image/jpeg', 0.82));
-        }
+        // 드라이브에는 항상 전체 페이지 이미지를 업로드하므로 크롭하지 않고 전체 이미지를 생성합니다.
+        const finalBlob = await new Promise(res => canvas.toBlob(b => res(b), 'image/jpeg', 0.88));
 
         page.cleanup();
         canvas.width = 0; canvas.height = 0;

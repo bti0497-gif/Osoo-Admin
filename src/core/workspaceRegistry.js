@@ -8,6 +8,8 @@ const MemberManagementView = lazy(() => import('../features/members/index.jsx').
 const BoardView = lazy(() => import('../features/board').then((m) => ({ default: m.BoardView })));
 const CertificateView = lazy(() => import('../features/certificate').then((m) => ({ default: m.CertificateView })));
 const CertificateUploadView = lazy(() => import('../features/certificate/upload/components/CertificateUploadView').then((m) => ({ default: m.CertificateUploadView })));
+const NewPdfParserView = lazy(() => import('../features/certificate/pdf-parser/components/NewPdfParserView').then((m) => ({ default: m.NewPdfParserView })));
+const ManualMatchingView = lazy(() => import('../features/certificate/pdf-parser/components/ManualMatchingView').then((m) => ({ default: m.ManualMatchingView })));
 const WaterQualityQueryView = lazy(() => import('../features/certificate/water-quality-query/components/WaterQualityQueryView'));
 const WaterQualityListView = lazy(() => import('../features/certificate/water-quality-list/components/WaterQualityListView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
@@ -24,7 +26,7 @@ export const WORKSPACE_REGISTRY = {
     helpText: '회원 및 현장 정보를 조회, 등록, 수정, 삭제합니다.'
   },
   data_admin: {
-    render: ({ currentUser }) => React.createElement('div', null, '데이터관리 워크스페이스'),
+    render: () => React.createElement('div', null, '데이터관리 워크스페이스'),
     helpText: 'BigQuery 운영 테이블을 조회, 필터링, 수정, 삭제합니다.'
   },
   board: {
@@ -35,9 +37,13 @@ export const WORKSPACE_REGISTRY = {
     render: ({ currentUser, onTabChange }) => React.createElement(CertificateView, { currentUser, onTabChange }),
     helpText: '성적서를 조회, 업로드, 다운로드합니다.'
   },
-  pdf_parser: {
+  excel_upload: {
     render: () => React.createElement(CertificateUploadView),
-    helpText: '엑셀(수치→BigQuery)과 PDF(이미지→Drive)를 업로드합니다.'
+    helpText: '엑셀(수치→BigQuery) 파일을 업로드합니다.'
+  },
+  pdf_parser: {
+    render: () => React.createElement(ManualMatchingView),
+    helpText: 'PDF 성적서를 현장별로 수동 매칭하여 Drive에 업로드합니다.'
   },
   water_quality_list: {
     render: () => React.createElement(WaterQualityListView),

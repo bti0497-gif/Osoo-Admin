@@ -141,19 +141,17 @@ async function findFileInFolder(parentFolderId, fileName) {
   if (!normalizedParentId || !normalizedName) return null;
 
   const response = await drive.files.list({
-    q: [
-      `name='${escapeDriveQueryValue(normalizedName)}'`,
-      `'${normalizedParentId}' in parents`,
-      'trashed=false'
-    ].join(' and '),
+    q: `'${normalizedParentId}' in parents and trashed=false`,
     fields: 'files(id, name, webViewLink, webContentLink)',
     spaces: 'drive',
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
-    pageSize: 10
+    pageSize: 1000
   });
 
-  return (response.data.files || [])[0] || null;
+  const files = response.data.files || [];
+  const targetClean = normalizedName.replace(/\s+/g, '');
+  return files.find(f => f.name.replace(/\s+/g, '') === targetClean) || null;
 }
 
 async function getOrCreateFolderPath(rootFolderId, segments = []) {

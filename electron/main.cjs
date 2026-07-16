@@ -71,6 +71,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webviewTag: true,
+      backgroundThrottling: false, // 창이 가려지거나 백그라운드로 가도 렌더링/전송 작업이 멈추지 않도록 설정
     },
     show: false,
     autoHideMenuBar: true,
@@ -89,7 +90,18 @@ function createWindow() {
   } else {
     mainWindow.loadFile(distIndex);
   }
-  if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // F12 개발자 도구 토글 단축키 추가
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+      event.preventDefault();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;

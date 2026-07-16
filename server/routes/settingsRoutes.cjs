@@ -10,6 +10,7 @@ const { normalizeBaseUrl, invalidateQntechSessionCache } = require('../services/
 const { isDriveConfigured, getDriveRootFolderId, getOrCreateFolder } = require('../services/driveService.cjs');
 const { isSheetsConfigured: isSitesSheetsConfigured, getSites: getSitesFromSheets, upsertSite: upsertSiteToSheets, deleteSite: deleteSiteFromSheets } = require('../services/sitesSheetsService.cjs');
 const { isSheetsConfigured: isMembersSheetsConfigured, upsertMember: upsertMemberToSheets } = require('../services/membersSheetsService.cjs');
+const { refreshSiteMasterCache, invalidateMemCache } = require('../services/siteMasterCacheService.cjs');
 const {
   ALLOWED_REPORT_TEMPLATE_NAMES,
   getCustomReportTemplatesDir,
@@ -310,6 +311,14 @@ module.exports = function (db, baseDir, appDataPath) {
       };
       await upsertSiteToSheets(site);
 
+      // 현장 마스터 캐시 무효화 및 강제 갱신
+      try {
+        invalidateMemCache();
+        await refreshSiteMasterCache(getSitesFromSheets);
+      } catch (cacheErr) {
+        console.warn('[settingsRoutes] 현장 추가/수정 후 마스터 캐시 갱신 실패:', cacheErr.message);
+      }
+
       res.json({ success: true, site });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
@@ -334,6 +343,14 @@ module.exports = function (db, baseDir, appDataPath) {
       }
 
       await deleteSiteFromSheets(siteId);
+
+      // 현장 마스터 캐시 무효화 및 강제 갱신
+      try {
+        invalidateMemCache();
+        await refreshSiteMasterCache(getSitesFromSheets);
+      } catch (cacheErr) {
+        console.warn('[settingsRoutes] 현장 삭제 후 마스터 캐시 갱신 실패:', cacheErr.message);
+      }
 
       db.transaction(() => {
         db.prepare(`

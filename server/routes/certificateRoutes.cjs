@@ -16,7 +16,7 @@ const CERTIFICATE_ROOT_FOLDER_ID =
 console.log('[Certificates] Drive Folder ID:', CERTIFICATE_ROOT_FOLDER_ID.substring(0, 10) + '...');
 console.log('[Certificates] Drive service:', drive ? 'available' : 'null');
 const CERTIFICATE_PREFIX_RE = /^(성적서|mlss)-(\d{8})(\.[^.]+)?$/i;
-const MANUAL_CERT_FILE_RE = /^(성적서|기타_성적서|mlss|ss)[_-](\d{8})[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i;
+const MANUAL_CERT_FILE_RE = /^(성적서|기타_성적서|mlss|ss)[_-](\d{8})(?:[_-](\d{8}))?[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i;
 const zipUploadProgressMap = new Map();
 
 async function hasBigQueryColumn(bq, tableName, columnName) {
@@ -74,7 +74,7 @@ async function listFiles(parentId) {
       `'${String(parentId)}' in parents`,
       'trashed=false',
     ].join(' and '),
-    fields: 'files(id, name, mimeType, modifiedTime, size)',
+    fields: 'files(id, name, mimeType, modifiedTime, size, webViewLink, webContentLink)',
     spaces: 'drive',
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
@@ -89,8 +89,10 @@ function normalizeYear(value) {
 }
 
 function normalizeMonth(value) {
-  const m = String(value || '').trim();
-  return /^(0[1-9]|1[0-2])$/.test(m) ? m : '';
+  const raw = String(value || '').trim();
+  if (/^(0[1-9]|1[0-2])$/.test(raw)) return raw;
+  if (/^[1-9]$/.test(raw)) return raw.padStart(2, '0');
+  return '';
 }
 
 async function resolveMonthFolders({ year, month }) {
@@ -225,6 +227,24 @@ function pickReportDateForImageLink({ fileReportDate, parsedSiteName, normalized
 function getCompactDate(yyyyMmDd) {
   const normalized = normalizeDateLike(yyyyMmDd);
   return normalized ? normalized.replace(/-/g, '') : '';
+}
+
+function getCertificateYearMonthFromFileName(fileName) {
+  const match = String(fileName || '').match(/(?:^|_)(\d{8})(?:_|\.|$)/);
+  if (!match) return null;
+  return {
+    year: match[1].slice(0, 4),
+    month: match[1].slice(4, 6),
+  };
+}
+
+async function findCertificateDriveFileByName(fileName) {
+  const normalizedName = String(fileName || '').trim();
+  const ym = getCertificateYearMonthFromFileName(normalizedName);
+  if (!drive || !normalizedName || !ym) return null;
+
+  const folder = await getOrCreateFolderPath(CERTIFICATE_ROOT_FOLDER_ID, ['성적서', ym.year, ym.month]);
+  return findFileInFolder(folder.id, normalizedName);
 }
 
 function normalizeForFileSegment(value) {
@@ -482,9 +502,53 @@ function parseManualCertificateFileName(fileName) {
   return {
     prefix: String(match[1] || '').toLowerCase(),
     yyyymmdd: String(match[2] || ''),
-    site_name_raw: String(match[3] || '').trim(),
-    ext: String(match[4] || '').toLowerCase(),
+    sample_yyyymmdd: String(match[3] || ''),
+    site_name_raw: String(match[4] || '').trim(),
+    ext: String(match[5] || '').toLowerCase(),
   };
+}
+
+function decodeUploadNameCandidates(value) {
+  const raw = String(value || '').trim();
+  const candidates = [raw];
+  try {
+    const latin1Decoded = Buffer.from(raw, 'latin1').toString('utf8').trim();
+    if (latin1Decoded && !candidates.includes(latin1Decoded)) candidates.push(latin1Decoded);
+  } catch (_) {
+    // keep raw only
+  }
+  return candidates;
+}
+
+function parseUploadedCertificateName(fileName) {
+  for (const candidate of decodeUploadNameCandidates(fileName)) {
+    const parsed = parseManualCertificateFileName(candidate);
+    if (parsed) return { decodedName: candidate, parsed };
+  }
+  return { decodedName: String(fileName || '').trim(), parsed: null };
+}
+
+function decodeBase64Utf8(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return Buffer.from(raw, 'base64').toString('utf8').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function resolveUploadCategory(value) {
+  const raw = String(value || '').trim();
+  return /mlss/i.test(raw) ? 'mlss' : '성적서';
+}
+
+function getUploadExtensionFromMime(mimeType, fallback = 'jpg') {
+  const raw = String(mimeType || '').toLowerCase();
+  if (raw.includes('png')) return 'png';
+  if (raw.includes('webp')) return 'webp';
+  if (raw.includes('pdf')) return 'pdf';
+  return fallback;
 }
 
 function parseJsonObject(text) {
@@ -566,12 +630,7 @@ async function upsertCertificateFileMeta({
 
   const [candidates] = await bq.query({
     query: `
-      SELECT
-        id,
-        ${fields.has('site_id') ? 'site_id,' : 'CAST(NULL AS STRING) AS site_id,'}
-        site_name,
-        site_name_raw,
-        ${fields.has('source_payload_json') ? 'source_payload_json' : 'CAST(NULL AS STRING) AS source_payload_json'}
+      SELECT *
       FROM \`${DATASET_ID}.water_quality\`
       WHERE report_date = @reportDate
       ORDER BY uploaded_at DESC
@@ -613,64 +672,213 @@ async function upsertCertificateFileMeta({
 
   if (!targets.length) return 0;
 
-  const optionalUpdates = [];
-  const targetIds = targets.map((target) => String(target.id || '')).filter(Boolean);
-  const params = { reportDate, targetIds };
-  const types = { reportDate: 'DATE', targetIds: ['STRING'] };
+  // 스트리밍 버퍼 우회 삽입 기법 적용
+  const { randomUUID } = require('crypto');
+  const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
+  
+  const insertRows = [];
+  for (const target of targets) {
+    const rawNewRow = {
+      ...target,
+      id: randomUUID(),
+      uploaded_at: nowIso,
+      updated_at: nowIso,
+      category: category || target.category || '성적서',
+      certificate_category: category || target.certificate_category || '성적서',
+      drive_file_name: uploadedFileName || null,
+      certificate_file_name: uploadedFileName || null,
+      source_pdf_name: originalFileName || null,
+      certificate_original_file_name: originalFileName || null,
+      drive_file_id: driveFileId || null,
+      drive_web_view_link: driveWebViewLink || null,
+    };
 
-  if (fields.has('certificate_category')) {
-    optionalUpdates.push('certificate_category = @category');
-    params.category = category || null;
-    types.category = 'STRING';
-  }
-  if (fields.has('certificate_file_name')) {
-    optionalUpdates.push('certificate_file_name = @uploadedFileName');
-    params.uploadedFileName = uploadedFileName || null;
-    types.uploadedFileName = 'STRING';
-  }
-  if (fields.has('certificate_original_file_name')) {
-    optionalUpdates.push('certificate_original_file_name = @originalFileName');
-    params.originalFileName = originalFileName || null;
-    types.originalFileName = 'STRING';
-  }
-  if (fields.has('drive_file_id')) {
-    optionalUpdates.push('drive_file_id = @driveFileId');
-    params.driveFileId = driveFileId || null;
-    types.driveFileId = 'STRING';
-  }
-  if (fields.has('drive_web_view_link')) {
-    optionalUpdates.push('drive_web_view_link = @driveWebViewLink');
-    params.driveWebViewLink = driveWebViewLink || null;
-    types.driveWebViewLink = 'STRING';
-  }
-  if (fields.has('updated_at')) {
-    optionalUpdates.push('updated_at = @updatedAt');
-    params.updatedAt = new Date().toISOString();
-    types.updatedAt = 'TIMESTAMP';
-  }
-
-  if (optionalUpdates.length > 0 && targetIds.length > 0) {
-    try {
-      await bq.query({
-        query: `
-          UPDATE \`${DATASET_ID}.water_quality\`
-          SET ${optionalUpdates.join(', ')}
-          WHERE report_date = @reportDate
-            AND id IN UNNEST(@targetIds)
-        `,
-        params,
-        types,
-      });
-    } catch (err) {
-      if (String(err.message || '').includes('streaming buffer')) {
-        console.warn('[upsertCertificateFileMeta] metadata update skipped because rows are still in streaming buffer:', err.message);
-      } else {
-        throw err;
+    // 스키마에 실제로 있는 필드만 걸러서 주입
+    const filteredRow = {};
+    for (const key of Object.keys(rawNewRow)) {
+      if (fields.has(key)) {
+        filteredRow[key] = rawNewRow[key];
       }
+    }
+    // 날짜 포맷 정리 (BigQuery DATE 호환)
+    if (filteredRow.report_date) {
+      if (filteredRow.report_date instanceof Date) {
+        filteredRow.report_date = filteredRow.report_date.toISOString().split('T')[0];
+      } else if (typeof filteredRow.report_date === 'object' && filteredRow.report_date.value) {
+        filteredRow.report_date = filteredRow.report_date.value;
+      }
+    }
+    insertRows.push(filteredRow);
+  }
+
+  if (insertRows.length > 0) {
+    try {
+      const table = bq.dataset(DATASET_ID).table('water_quality');
+      await table.insert(insertRows);
+      console.log(`[upsertCertificateFileMeta] 버퍼 우회 인서트 성공: ${insertRows.length}건`);
+    } catch (err) {
+      console.error('[upsertCertificateFileMeta] 버퍼 우회 인서트 실패:', err.message);
+      throw err;
     }
   }
 
   return targets.length;
+}
+
+async function linkCertificateFileToWaterQuality({
+  reportDate,
+  sampleDate,
+  siteName,
+  category,
+  uploadedFileName,
+  sourcePdfName,
+  pageOrder,
+}) {
+  const bq = getBigQueryClient();
+  if (!bq || !reportDate || !uploadedFileName) return 0;
+
+  const normalizedCategory = String(category || '').toLowerCase();
+  const targetCategory = normalizedCategory === 'mlss' ? 'excel_mlss' : 'excel_5items';
+  const parsedFileName = parseManualCertificateFileName(uploadedFileName);
+  const siteNeedles = [
+    siteName,
+    parsedFileName?.site_name_raw,
+  ]
+    .map((value) => normalizeSiteNameKey(value || ''))
+    .filter(Boolean);
+
+  const findUnlinkedCandidate = async () => {
+    const [candidates] = await bq.query({
+      query: `
+        SELECT id, site_name, drive_file_name, source_row_order
+        FROM \`${DATASET_ID}.water_quality\`
+        WHERE report_date = DATE(@reportDate)
+          AND category = @targetCategory
+          AND drive_file_name IS NULL
+        ORDER BY source_row_order ASC, uploaded_at ASC
+      `,
+      params: {
+        reportDate,
+        targetCategory,
+      },
+      types: {
+        reportDate: 'STRING',
+        targetCategory: 'STRING',
+      },
+    });
+
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    const matchedByName = siteNeedles.length > 0
+      ? candidates.find((row) => {
+          const rowKey = normalizeSiteNameKey(row?.site_name || '');
+          return siteNeedles.some((needle) => (
+            rowKey === needle || rowKey.includes(needle) || needle.includes(rowKey)
+          ));
+        })
+      : null;
+
+    if (matchedByName?.id) return matchedByName;
+
+    // PDF pages are uploaded sequentially. If name matching fails, attach to the
+    // first still-unlinked row for the same report/category so the batch advances.
+    return candidates[0];
+  };
+
+  const findTarget = async ({ useSampleDate }) => {
+    if (!siteName) return null;
+    const params = {
+      reportDate,
+      siteName,
+      targetCategory,
+    };
+    const types = {
+      reportDate: 'STRING',
+      siteName: 'STRING',
+      targetCategory: 'STRING',
+    };
+    const where = [
+      'report_date = DATE(@reportDate)',
+      'site_name = @siteName',
+      'category = @targetCategory',
+    ];
+
+    if (useSampleDate && targetCategory === 'excel_mlss' && sampleDate) {
+      params.sampleDate = sampleDate;
+      types.sampleDate = 'STRING';
+      where.push('sample_date = DATE(@sampleDate)');
+    }
+
+    const [rows] = await bq.query({
+      query: `
+        SELECT id, drive_file_name, source_row_order
+        FROM \`${DATASET_ID}.water_quality\`
+        WHERE ${where.join(' AND ')}
+        ORDER BY
+          CASE WHEN drive_file_name IS NULL THEN 0 ELSE 1 END,
+          source_row_order ASC,
+          uploaded_at ASC
+        LIMIT 1
+      `,
+      params,
+      types,
+    });
+    return Array.isArray(rows) ? rows[0] : null;
+  };
+
+  let target = await findTarget({ useSampleDate: true });
+  if (!target?.id && targetCategory === 'excel_mlss') {
+    target = await findTarget({ useSampleDate: false });
+  }
+
+  if (!target?.id) {
+    target = await findUnlinkedCandidate();
+  }
+
+  if (!target?.id) {
+    console.warn('[linkCertificateFileToWaterQuality] no target row', {
+      reportDate,
+      sampleDate,
+      siteName,
+      category,
+      targetCategory,
+      uploadedFileName,
+      sourcePdfName,
+      pageOrder,
+    });
+    return 0;
+  }
+
+  await bq.query({
+    query: `
+      UPDATE \`${DATASET_ID}.water_quality\`
+      SET drive_file_name = @uploadedFileName,
+          source_pdf_name = @sourcePdfName
+      WHERE id = @id
+    `,
+    params: {
+      id: target.id,
+      uploadedFileName,
+      sourcePdfName: sourcePdfName || null,
+    },
+    types: {
+      id: 'STRING',
+      uploadedFileName: 'STRING',
+      sourcePdfName: 'STRING',
+    },
+  });
+
+  console.log('[linkCertificateFileToWaterQuality] linked', {
+    reportDate,
+    sampleDate,
+    siteName,
+    category,
+    targetCategory,
+    uploadedFileName,
+    sourcePdfName,
+    targetId: target.id,
+  });
+  return 1;
 }
 
 /**
@@ -1205,78 +1413,6 @@ module.exports = function () {
         siteNameFilters.map((name) => normalizeSiteNameKey(name)).filter(Boolean)
       );
       let items = [];
-      const bq = getBigQueryClient();
-      console.log('[Certificates] BigQuery client:', bq ? 'initialized' : 'null');
-      if (bq) {
-        const where = [
-          "drive_file_name IS NOT NULL",
-        ];
-        const params = {};
-        const hasSingleSiteFilter = siteNameFilters.length === 1;
-        if (hasSingleSiteFilter) {
-          where.push('site_name = @siteName');
-          params.siteName = siteNameFilters[0];
-        }
-        if (year) {
-          where.push('EXTRACT(YEAR FROM report_date) = @yearNum');
-          params.yearNum = Number(year);
-        }
-        if (month) {
-          where.push('EXTRACT(MONTH FROM report_date) = @monthNum');
-          params.monthNum = Number(month);
-        }
-
-        const query = `
-          SELECT
-            id AS local_id,
-            report_date,
-            site_name,
-            drive_file_name AS file_name,
-            category,
-            CAST(NULL AS STRING) AS drive_file_id
-          FROM \`${DATASET_ID}.water_quality\`
-          WHERE ${where.join(' AND ')}
-          ORDER BY report_date DESC
-          LIMIT 1000
-        `;
-        console.log('[Certificates] BigQuery query:', query);
-        console.log('[Certificates] BigQuery params:', params);
-        let rows = [];
-        try {
-          [rows] = await bq.query({ query, params });
-          console.log('[Certificates] BigQuery rows:', rows?.length || 0);
-        // 디버깅: 첫 번째 row 데이터 확인
-        if (rows?.length > 0) {
-          console.log('[Certificates] First row sample:', JSON.stringify(rows[0], null, 2).substring(0, 200));
-        }
-        } catch (bqErr) {
-          console.error('[Certificates] BigQuery query error:', bqErr.message);
-          rows = [];
-        }
-        items = (rows || [])
-          .filter((row) => {
-            if (hasSingleSiteFilter || normalizedSiteFilterKeys.size === 0) return true;
-            const key = normalizeSiteNameKey(row?.site_name || '');
-            return key && normalizedSiteFilterKeys.has(key);
-          })
-          .map((row) => {
-            const reportDate = normalizeBigQueryDateValue(row.report_date);
-            const rawFileId = String(row.drive_file_id || '');
-            const fileId = rawFileId.includes('%') ? decodeURIComponent(rawFileId) : rawFileId;
-            const id = fileId || String(row.local_id || '');
-            return {
-              id,
-              fileName: row.file_name || '',
-              siteName: row.site_name || '',
-              sampledAt: reportDate,
-              issuedAt: reportDate,
-              category: row.category || '',
-              downloadUrl: fileId ? `/api/certificates/files/${encodeURIComponent(fileId)}?name=${encodeURIComponent(row.file_name || 'certificate.jpg')}` : null,
-            };
-          })
-          .filter(Boolean); // null 제거
-        console.log('[Certificates] After map items:', items.length);
-      }
 
       // 사용자 의도: 성적서 JPG 목록은 Drive 기준으로 보여야 한다.
       if (drive && CERTIFICATE_ROOT_FOLDER_ID) {
@@ -1339,14 +1475,8 @@ module.exports = function () {
           }
         }
 
-        console.log(`[Certificates] driveItems: ${driveItems.length}, BigQuery items: ${items.length}`);
-        const byId = new Map();
-        [...driveItems, ...items].forEach((item) => {
-          if (!item || !item.id) return;
-          byId.set(String(item.id), item);
-        });
-        items = Array.from(byId.values())
-          .filter((item) => isAllowedManualMedia(item.fileName || ''));
+        console.log(`[Certificates] driveItems: ${driveItems.length}`);
+        items = driveItems.filter((item) => isAllowedManualMedia(item.fileName || ''));
         console.log(`[Certificates] After final filter: ${items.length}`);
       }
 
@@ -1487,19 +1617,44 @@ module.exports = function () {
       const certFolder = await getOrCreateFolder(CERTIFICATE_ROOT_FOLDER_ID, '성적서');
       const items = [];
       const errors = [];
+      const hasEncodedUploadMeta = Boolean(req.body?.source_pdf_name_b64 && req.body?.site_name_b64);
+      const looksLikePdfParserUpload = Boolean(req.body?.report_date && req.body?.category);
+      if (looksLikePdfParserUpload && !hasEncodedUploadMeta) {
+        return res.status(400).json({
+          success: false,
+          message: 'PDF 파서 업로드 메타데이터가 최신 형식이 아닙니다. 화면을 새로고침한 뒤 다시 전송하세요.',
+        });
+      }
+
+      const sourcePdfName = decodeBase64Utf8(req.body?.source_pdf_name_b64) || null;
+      const bodySiteName = decodeBase64Utf8(req.body?.site_name_b64);
+      const bodyCategory = resolveUploadCategory(
+        decodeBase64Utf8(req.body?.category_b64) || req.body?.category
+      );
+      const bodyReportDate = normalizeDateLike(req.body?.report_date || null);
+      const bodySampleDate = normalizeDateLike(req.body?.sample_date || null);
+      const bodyPageOrder = Number(req.body?.page_order || 0) || null;
 
       for (const file of files) {
         try {
-          const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-          const parsed = parseManualCertificateFileName(decodedName);
-          if (!parsed) {
+          const fallbackParsed = bodySiteName && bodyReportDate
+            ? {
+                prefix: bodyCategory,
+                yyyymmdd: getCompactDate(bodyReportDate),
+                site_name_raw: bodySiteName,
+                ext: getUploadExtensionFromMime(file.mimetype, 'jpg'),
+              }
+            : null;
+          const parsedFromFileName = fallbackParsed ? null : parseUploadedCertificateName(file.originalname).parsed;
+          const uploadMeta = fallbackParsed || parsedFromFileName;
+          if (!uploadMeta) {
             errors.push({
               file: file.originalname,
               message: '파일명 형식이 올바르지 않습니다. (성적서_yyyymmdd_현장명.jpg 또는 mlss_yyyymmdd_현장명.jpg)',
             });
             continue;
           }
-          const reportDate = normalizeDateLike(parsed.yyyymmdd);
+          const reportDate = bodyReportDate || normalizeDateLike(uploadMeta.yyyymmdd);
           if (!reportDate) {
             errors.push({
               file: file.originalname,
@@ -1508,47 +1663,64 @@ module.exports = function () {
             continue;
           }
 
-          const year = parsed.yyyymmdd.slice(0, 4);
-          const month = parsed.yyyymmdd.slice(4, 6);
+          const compactReportDate = getCompactDate(reportDate);
+          const year = compactReportDate.slice(0, 4);
+          const month = compactReportDate.slice(4, 6);
           const yearFolder = await getOrCreateFolder(certFolder.id, year);
           const monthFolder = await getOrCreateFolder(yearFolder.id, month);
 
-          const matched = findBestSiteMatch(parsed.site_name_raw, siteMaster);
-          const safeSiteName = normalizeForFileSegment(matched.site_name || parsed.site_name_raw);
-          const finalFileName = `${parsed.prefix}_${getCompactDate(reportDate)}_${safeSiteName}.${parsed.ext}`;
+          const siteNameRaw = bodySiteName || uploadMeta.site_name_raw;
+          const prefix = resolveUploadCategory(uploadMeta.prefix || bodyCategory);
+          const matched = findBestSiteMatch(siteNameRaw, siteMaster);
+          const safeSiteName = normalizeForFileSegment(matched.site_name || siteNameRaw);
+          const compactSampleDate = prefix === 'mlss' && bodySampleDate ? getCompactDate(bodySampleDate) : '';
+          const dateSegment = compactSampleDate
+            ? `${compactReportDate}_${compactSampleDate}`
+            : compactReportDate;
+          const finalFileName = `${prefix}_${dateSegment}_${safeSiteName}.${uploadMeta.ext}`;
+
+          // 구글 드라이브 내 동일 폴더 중복 파일 조회
+          const existingFile = await findFileInFolder(monthFolder.id, finalFileName);
+          if (existingFile) {
+            items.push({
+              original_file_name: file.originalname,
+              uploaded_file_name: finalFileName,
+              category: prefix,
+              report_date: reportDate,
+              sample_date: bodySampleDate,
+              year,
+              month,
+              site_id: matched.site_id,
+              site_name: matched.site_name || siteNameRaw,
+              site_name_raw: siteNameRaw,
+              drive_file_id: existingFile.id,
+              drive_web_view_link: existingFile.webViewLink || null,
+              already_exists: true,
+            });
+            continue;
+          }
+
           const uploaded = await uploadBufferToFolder({
             folderId: monthFolder.id,
             fileName: finalFileName,
             buffer: file.buffer,
             mimeType: file.mimetype || 'application/octet-stream',
           });
-          const linkedRows = await upsertCertificateFileMeta({
-            reportDate,
-            siteId: matched.site_id,
-            siteName: matched.site_name || parsed.site_name_raw,
-            siteNameRawFromFile: parsed.site_name_raw,
-            category: parsed.prefix,
-            driveFileId: uploaded.id,
-            driveWebViewLink: uploaded.webViewLink || null,
-            uploadedFileName: finalFileName,
-            originalFileName: file.originalname,
-          });
 
           items.push({
             original_file_name: file.originalname,
             uploaded_file_name: finalFileName,
-            category: parsed.prefix,
+            category: prefix,
             report_date: reportDate,
             year,
             month,
             site_id: matched.site_id,
-            site_name: matched.site_name || parsed.site_name_raw,
-            site_name_raw: parsed.site_name_raw,
+            site_name: matched.site_name || siteNameRaw,
+            site_name_raw: siteNameRaw,
             site_match_confidence: matched.site_match_confidence,
             manual_review_required: Boolean(matched.manual_review_required),
             drive_file_id: uploaded.id,
             drive_web_view_link: uploaded.webViewLink || null,
-            linked_row_count: linkedRows,
           });
         } catch (fileErr) {
           errors.push({
@@ -1757,17 +1929,6 @@ module.exports = function () {
             buffer: fileBuffer,
             mimeType: parsed.ext === 'pdf' ? 'application/pdf' : 'image/jpeg',
           });
-          const linkedRows = await upsertCertificateFileMeta({
-            reportDate: effectiveReportDate || reportDate,
-            siteId: matched.site_id,
-            siteName: matched.site_name || parsed.site_name_raw,
-            siteNameRawFromFile: parsed.site_name_raw,
-            category: parsed.prefix,
-            driveFileId: uploaded.id,
-            driveWebViewLink: uploaded.webViewLink || null,
-            uploadedFileName: finalFileName,
-            originalFileName: originalName,
-          });
 
           uploadedItems.push({
             original_file_name: originalName,
@@ -1783,7 +1944,7 @@ module.exports = function () {
             manual_review_required: Boolean(matched.manual_review_required),
             drive_file_id: uploaded.id,
             drive_web_view_link: uploaded.webViewLink || null,
-            linked_row_count: linkedRows,
+            linked_row_count: 0,
           });
         } catch (fileErr) {
           uploadErrors.push({
@@ -2254,62 +2415,76 @@ module.exports = function () {
   // ── 수질 성적서 목록 조회 (체크박스 리스트뷰용) ──────────────────────────────
   router.get('/api/certificates/water-quality-list', async (req, res) => {
     try {
-      const bq = getBigQueryClient();
-      if (!bq) return res.status(500).json({ success: false, message: 'BigQuery 연결 필요' });
-
       const { year, month, siteName } = req.query;
-      const conditions = [];
-      const params = {};
-      const types = {};
-
-      if (year && month) {
-        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        const endMonth = Number(month) === 12 ? `${Number(year) + 1}-01-01` : `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`;
-        conditions.push('report_date >= @startDate AND report_date < @endDate');
-        params.startDate = startDate;
-        params.endDate = endMonth;
-        types.startDate = 'STRING';
-        types.endDate = 'STRING';
-      }
-      if (siteName && siteName !== 'all') {
-        conditions.push('site_name = @siteName');
-        params.siteName = siteName;
-        types.siteName = 'STRING';
-      }
-      const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
-
-      // 스키마 확인하여 선택적 필드 결정
-      let driveFileIdField = "CAST(NULL AS STRING) AS drive_file_id";
-      let driveWebViewLinkField = "CAST(NULL AS STRING) AS drive_web_view_link";
-      try {
-        const [metadata] = await bq.dataset(DATASET_ID).table('water_quality').getMetadata();
-        const fields = new Set((metadata.schema?.fields || []).map((field) => String(field.name || '')));
-        if (fields.has('drive_file_id')) driveFileIdField = 'drive_file_id';
-        if (fields.has('drive_web_view_link')) driveWebViewLinkField = 'drive_web_view_link';
-      } catch (schemaErr) {
-        console.warn('[water-quality-list] 스키마 확인 실패 (무시):', schemaErr.message);
+      if (!drive || !CERTIFICATE_ROOT_FOLDER_ID) {
+        return res.status(400).json({ success: false, message: 'Drive 설정이 필요합니다.' });
       }
 
-      const [rows] = await bq.query({
-        query: `
-          SELECT id, uploaded_at, report_date, category, site_name, drive_file_name, source_pdf_name,
-                 ${driveFileIdField}, ${driveWebViewLinkField}
-          FROM (
-            SELECT *,
-              ROW_NUMBER() OVER (PARTITION BY report_date, site_name ORDER BY uploaded_at DESC) AS rn
-            FROM \`${DATASET_ID}.water_quality\`
-            WHERE ${whereClause}
-          )
-          WHERE rn = 1
-          ORDER BY report_date DESC, site_name
-        `,
-        params,
-        types,
+      const normalizedYear = normalizeYear(year);
+      const normalizedMonth = normalizeMonth(month);
+      const requestedSiteKey = siteName && siteName !== 'all' ? normalizeSiteNameKey(siteName) : '';
+      const folders = await resolveMonthFolders({ year: normalizedYear, month: normalizedMonth });
+      const rows = [];
+
+      for (const folder of folders) {
+        const files = await listFiles(folder.folderId);
+        for (const file of files) {
+          if (!isAllowedManualMedia(file.name)) continue;
+          const parsed = parseManualCertificateFileName(file.name);
+          if (!parsed) continue;
+
+          const fileSiteKey = normalizeSiteNameKey(parsed.site_name_raw || '');
+          if (requestedSiteKey && fileSiteKey !== requestedSiteKey) continue;
+
+          const reportDate = normalizeDateLike(parsed.yyyymmdd);
+          const sampleDate = parsed.sample_yyyymmdd ? normalizeDateLike(parsed.sample_yyyymmdd) : reportDate;
+          rows.push({
+            id: file.id,
+            uploaded_at: file.modifiedTime || null,
+            report_date: reportDate,
+            sample_date: sampleDate,
+            category: parsed.prefix === 'mlss' ? 'mlss' : '성적서',
+            site_name: parsed.site_name_raw || '',
+            drive_file_name: file.name,
+            source_pdf_name: null,
+            source_row_order: null,
+            drive_file_id: file.id,
+            drive_web_view_link: file.webViewLink || null,
+            size: file.size || null,
+          });
+        }
+      }
+
+      rows.sort((a, b) => {
+        if (a.report_date !== b.report_date) return String(b.report_date).localeCompare(String(a.report_date));
+        if (a.sample_date !== b.sample_date) return String(b.sample_date).localeCompare(String(a.sample_date));
+        return String(a.drive_file_name).localeCompare(String(b.drive_file_name), 'ko');
       });
 
       return res.json({ success: true, rows });
     } catch (err) {
       console.error('[water-quality-list]', err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── PDF 파일명 중복 체크 API ──────────────────────────────────────────────
+  router.get('/api/certificates/check-duplicate-pdf', async (req, res) => {
+    try {
+      const pdfName = decodeBase64Utf8(req.query?.pdfNameB64) || String(req.query?.pdfName || '').trim();
+      if (!pdfName) {
+        return res.status(400).json({ success: false, message: 'pdfName 파라미터가 필요합니다.' });
+      }
+
+      return res.json({
+        success: true,
+        exists: false,
+        count: 0,
+        mode: 'drive-file-name',
+        message: '성적서 이미지는 Drive 파일명 기준으로 중복 처리합니다.',
+      });
+    } catch (err) {
+      console.error('[check-duplicate-pdf]', err.message);
       return res.status(500).json({ success: false, message: err.message });
     }
   });
@@ -2349,121 +2524,85 @@ module.exports = function () {
     }
   });
 
-  // ── 수질 성적서 PDF 다운로드 (drive_file_name 기준 이미지 → PDF 병합) ──────
+  // ── 수질 성적서 PDF 다운로드 (drive_file_id 목록 기준 이미지 → PDF 병합) ──────
   router.post('/api/certificates/water-quality-download-pdf', async (req, res) => {
     try {
       if (!ensureAdmin(req, res)) return;
-      const { drive_file_names, pdf_file_name } = req.body || {};
-      if (!Array.isArray(drive_file_names) || drive_file_names.length === 0) {
-        return res.status(400).json({ success: false, message: 'drive_file_names 배열이 필요합니다.' });
-      }
-      if (!drive || !CERTIFICATE_ROOT_FOLDER_ID) {
+      const { drive_file_ids, drive_file_names, pdf_file_name } = req.body || {};
+      
+      const fileIds = Array.isArray(drive_file_ids) ? drive_file_ids.filter(Boolean) : [];
+      const fileNames = Array.isArray(drive_file_names) ? drive_file_names.filter(Boolean) : [];
+      if (!drive) {
         return res.status(400).json({ success: false, message: 'Drive 설정이 필요합니다.' });
       }
 
-      const { mergeDriveFilesToPdf } = require('../utils/pdfMerger.cjs');
-      const { findFileInFolder, getOrCreateFolderPath } = require('../services/driveService.cjs');
-
-      // 파일명으로 Drive 파일 ID 조회 (폴더 구조: 성적서/{year}/{month}/{fileName})
-      const fileIds = [];
+      const resolvedFileIds = [...fileIds];
       const notFound = [];
-
-      for (const fileName of drive_file_names) {
-        const parts = fileName.replace(/\.[^.]+$/, '').split('_');
-        const dateSegment = parts[1] || '';
-        const year = dateSegment.slice(0, 4);
-        const month = dateSegment.slice(4, 6);
-
-        console.log('[water-quality-download-pdf] 파일 탐색:', { fileName, year, month });
-
-        try {
-          const folder = await getOrCreateFolderPath(CERTIFICATE_ROOT_FOLDER_ID, ['성적서', year, month]);
-          const found = await findFileInFolder(folder.id, fileName);
-          console.log('[water-quality-download-pdf] 탐색 결과:', { fileName, found: found?.id || null });
-          if (found) {
-            fileIds.push(found.id);
-          } else {
-            notFound.push(fileName);
-          }
-        } catch (e) {
-          console.error('[water-quality-download-pdf] 폴더 탐색 실패:', { fileName, err: e.message });
-          notFound.push(fileName);
-        }
+      for (const fileName of fileNames) {
+        const found = await findCertificateDriveFileByName(fileName);
+        if (found?.id) resolvedFileIds.push(found.id);
+        else notFound.push(fileName);
       }
 
-      if (fileIds.length === 0) {
-        return res.status(404).json({ success: false, message: 'Drive에서 파일을 찾을 수 없습니다.', notFound });
+      if (resolvedFileIds.length === 0) {
+        return res.status(400).json({ success: false, message: '다운로드할 Drive 파일을 찾을 수 없습니다.', notFound });
       }
 
-      const pdfName = pdf_file_name || (drive_file_names.length === 1
-        ? drive_file_names[0].replace(/\.[^.]+$/, '') + '.pdf'
-        : `성적서_${drive_file_names.length}건.pdf`);
+      const { mergeDriveFilesToPdf } = require('../utils/pdfMerger.cjs');
+      console.log('[water-quality-download-pdf] 다운로드 요청:', { fileIds: resolvedFileIds.length, notFound });
 
-      const pdfResult = await mergeDriveFilesToPdf(drive, fileIds, pdfName);
+      const pdfName = pdf_file_name || `성적서_${resolvedFileIds.length}건.pdf`;
+      const pdfResult = await mergeDriveFilesToPdf(drive, resolvedFileIds, pdfName);
       const pdfBuffer = Buffer.isBuffer(pdfResult) ? pdfResult : Buffer.from(pdfResult.buffer);
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(pdfName)}`);
       res.setHeader('Content-Length', pdfBuffer.length);
       if (notFound.length > 0) {
-        res.setHeader('X-Not-Found-Files', JSON.stringify(notFound));
+        res.setHeader('X-Not-Found-Files', encodeURIComponent(JSON.stringify(notFound)));
       }
       return res.end(pdfBuffer);
     } catch (err) {
-      console.error('[water-quality-download-pdf]', err.message);
+      console.error('[water-quality-download-pdf] 병합 다운로드 실패:', err.message);
       return res.status(500).json({ success: false, message: err.message });
     }
   });
 
-  // ── 수질 성적서 이미지 개별 다운로드 (drive_file_name 기준) ───────────────────
+  // ── 수질 성적서 이미지 개별 다운로드 (drive_file_id 기준) ───────────────────
   router.post('/api/certificates/water-quality-download-image', async (req, res) => {
     try {
       if (!ensureAdmin(req, res)) return;
-      const { drive_file_name } = req.body || {};
-      if (!drive_file_name) {
-        return res.status(400).json({ success: false, message: 'drive_file_name이 필요합니다.' });
-      }
-      if (!drive || !CERTIFICATE_ROOT_FOLDER_ID) {
+      const { drive_file_id, drive_file_name } = req.body || {};
+      
+      if (!drive) {
         return res.status(400).json({ success: false, message: 'Drive 설정이 필요합니다.' });
       }
 
-      // 파일명에서 년도/월 추출 (예: mlss_20260210_xxx.jpg → 2026, 02)
-      const parts = drive_file_name.replace(/\.[^.]+$/, '').split('_');
-      const dateSegment = parts[1] || '';
-      const year = dateSegment.slice(0, 4);
-      const month = dateSegment.slice(4, 6);
+      const resolvedFile = drive_file_id
+        ? { id: drive_file_id, name: drive_file_name || null }
+        : await findCertificateDriveFileByName(drive_file_name);
 
-      console.log('[water-quality-download-image] 파일 검색:', { drive_file_name, year, month });
-
-      // 성적서/년/월 폴더 경로로 파일 검색
-      const folder = await getOrCreateFolderPath(CERTIFICATE_ROOT_FOLDER_ID, ['성적서', year, month]);
-      const file = await findFileInFolder(folder.id, drive_file_name);
-
-      if (!file) {
-        console.warn('[water-quality-download-image] 파일을 찾을 수 없음:', drive_file_name);
+      if (!resolvedFile?.id) {
         return res.status(404).json({ success: false, message: 'Drive에서 파일을 찾을 수 없습니다.' });
       }
 
-      console.log('[water-quality-download-image] 파일 찾음:', file.id);
-
-      // 이미지 다운로드
+      // 드라이브에서 직접 파일 다운로드
       const imageRes = await drive.files.get({
-        fileId: file.id,
+        fileId: resolvedFile.id,
         alt: 'media',
       }, { responseType: 'arraybuffer' });
 
       const buffer = Buffer.from(imageRes.data);
-      const ext = drive_file_name.toLowerCase().endsWith('.png') ? 'png' : 'jpeg';
+      const fileName = drive_file_name || resolvedFile.name || `download_${resolvedFile.id}.jpg`;
+      const ext = fileName.toLowerCase().endsWith('.png') ? 'png' : 'jpeg';
 
       res.set('Content-Type', `image/${ext}`);
-      // 한글/특수문자 파일명을 RFC5987 형식으로 인코딩
-      const encodedFileName = encodeURIComponent(drive_file_name).replace(/['()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+      const encodedFileName = encodeURIComponent(fileName).replace(/['()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
       res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodedFileName}`);
       return res.send(buffer);
     } catch (err) {
-      console.error('[water-quality-download-image] 에러 상세:', err);
-      console.error('[water-quality-download-image] 스택:', err.stack);
-      return res.status(500).json({ success: false, message: err.message, stack: err.stack });
+      console.error('[water-quality-download-image] 다운로드 에러:', err.message);
+      return res.status(500).json({ success: false, message: err.message });
     }
   });
 

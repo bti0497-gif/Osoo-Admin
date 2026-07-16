@@ -116,6 +116,7 @@ const AdvancedDataGrid = ({
     scrollToKey = null,
     /** 데이터가 처음 채워질 때 이 행(row[keyField])을 행 선택 + onRowSelect(1회) */
     defaultSelectedRowKey = null,
+    selectedRowKey = null,
 
 }) => {
     // ---- State ----
@@ -261,18 +262,28 @@ const AdvancedDataGrid = ({
     // ---- 초기 행 선택(유량 등: 오늘 날짜 행 자동 선택) ----
     useEffect(() => {
         if (!defaultSelectedRowKey || defaultRowSelectDoneRef.current || safeData.length === 0) return;
-        const row = safeData.find((d) => d[keyField] === defaultSelectedRowKey);
+        const row = safeData.find((d) => String(d[keyField]) === String(defaultSelectedRowKey));
         if (!row) return;
         defaultRowSelectDoneRef.current = true;
         setSelectedCell({ type: 'row', rowKey: defaultSelectedRowKey });
         onRowSelectRef.current?.(row);
     }, [defaultSelectedRowKey, safeData, keyField]);
 
+    // ---- 외부 선택 행 동기화 (회원/현장 등에서 외부 선택 변경 감지) ----
+    useEffect(() => {
+        if (selectedRowKey === null || selectedRowKey === undefined) return;
+        if (selectedCell && String(selectedCell.rowKey) === String(selectedRowKey)) return;
+        const row = safeData.find(d => String(d[keyField]) === String(selectedRowKey));
+        if (!row) return;
+        setSelectedCell({ type: 'row', rowKey: selectedRowKey });
+        setRangeEnd(null);
+    }, [selectedRowKey, safeData, keyField, selectedCell]);
+
     // ---- Cell Helpers ----
     const canEditCell = useCallback((row, col) => {
         if (!enableEditing) return false;
-        if (editableRowKey !== null && row[keyField] !== editableRowKey) return false;
-        if (hasLockedEditRow && row[keyField] !== editModeLockedRowKey) return false;
+        if (editableRowKey !== null && String(row[keyField]) !== String(editableRowKey)) return false;
+        if (hasLockedEditRow && String(row[keyField]) !== String(editModeLockedRowKey)) return false;
         if (isCellEditable && !isCellEditable(row, col)) return false;
         return true;
     }, [enableEditing, editableRowKey, hasLockedEditRow, keyField, editModeLockedRowKey, isCellEditable]);
@@ -580,7 +591,7 @@ const AdvancedDataGrid = ({
         const timer = setTimeout(() => {
             if (safeData.length === 0 || leafColumns.length === 0) return;
             
-            const editRow = safeData.find(d => d[keyField] === editableRowKey);
+            const editRow = safeData.find(d => String(d[keyField]) === String(editableRowKey));
             if (!editRow) return;
 
             // Find first editable column

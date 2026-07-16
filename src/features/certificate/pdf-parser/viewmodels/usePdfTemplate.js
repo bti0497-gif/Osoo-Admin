@@ -3,6 +3,12 @@ import { useState, useCallback, useEffect } from 'react';
 const STORAGE_KEY = 'roi_template';
 const electron = window.electronAPI || window.electron;
 
+// 기본 ROI 템플릿: 현장명(location) 만 포함
+// date / items / results 는 수질 파싱 전용으로 PDF 업로드 기본값에는 불필요
+const DEFAULT_ROI_TEMPLATE = {
+  location: { x: 229.63, y: 175.04, width: 250, height: 25 }
+};
+
 /**
  * PDF ROI 템플릿 관리 Hook
  * Electron IPC(userData 파일)로 저장, localStorage는 fallback
@@ -13,13 +19,17 @@ export function usePdfTemplate() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        console.log('[usePdfTemplate] 템플릿 초기 로드 (localStorage):', Object.keys(parsed));
-        return parsed;
+        if (Object.keys(parsed).length > 0) {
+          console.log('[usePdfTemplate] 템플릿 초기 로드 (localStorage):', Object.keys(parsed));
+          return parsed;
+        }
       }
     } catch (e) {
       console.error('[usePdfTemplate] 초기 로드 실패:', e);
     }
-    return {};
+    // 기본 ROI 템플릿으로 폴백 (하드코딩)
+    console.log('[usePdfTemplate] 기본 하드코딩 ROI 템플릿 사용');
+    return DEFAULT_ROI_TEMPLATE;
   });
   const [activeField, setActiveField] = useState(null);
   const [showTemplateBoxes, setShowTemplateBoxes] = useState(true);
@@ -27,15 +37,30 @@ export function usePdfTemplate() {
 
   // Electron 파일에서 로드 (더 신뢰성 있음)
   useEffect(() => {
-    if (!electron?.roiLoad) { setInitialized(true); return; }
+    if (!electron?.roiLoad) { 
+      setTimeout(() => setInitialized(true), 0); 
+      return; 
+    }
     electron.roiLoad().then(result => {
-      if (result?.success && result.data && Object.keys(result.data).length > 0) {
-        setGlobalBoxes(result.data);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data));
-        console.log('[usePdfTemplate] 템플릿 로드 (파일):', Object.keys(result.data));
-      }
-      setInitialized(true);
-    }).catch(() => setInitialized(true));
+      setTimeout(() => {
+        if (result?.success && result.data && Object.keys(result.data).length > 0) {
+          setGlobalBoxes(result.data);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(result.data));
+          console.log('[usePdfTemplate] 템플릿 로드 (파일):', Object.keys(result.data));
+        } else {
+          // 파일에 없으면 하드코딩된 기본값 적용
+          setGlobalBoxes(DEFAULT_ROI_TEMPLATE);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_ROI_TEMPLATE));
+          console.log('[usePdfTemplate] 템플릿 파일 비어있음 -> 기본 템플릿 세팅');
+        }
+        setInitialized(true);
+      }, 0);
+    }).catch(() => {
+      setTimeout(() => {
+        setGlobalBoxes(DEFAULT_ROI_TEMPLATE);
+        setInitialized(true);
+      }, 0);
+    });
   }, []);
 
   // globalBoxes 변경 시 자동 저장 (파일 + localStorage)

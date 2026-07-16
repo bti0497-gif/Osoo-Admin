@@ -21,6 +21,12 @@ $root = '${scriptRoot}'
 $currentPid = ${currentPid}
 $candidateIds = New-Object 'System.Collections.Generic.HashSet[int]'
 
+# 1. 8900 (Vite) 및 8901 (Express 백엔드) 포트를 점유하고 있는 프로세스 식별
+Get-NetTCPConnection -LocalPort 8900, 8901 -ErrorAction SilentlyContinue |
+    Where-Object { $_.OwningProcess -and $_.OwningProcess -ne $currentPid } |
+    ForEach-Object { [void]$candidateIds.Add([int]$_.OwningProcess) }
+
+# 2. 프로젝트 루트 경로 및 개발 명령어 매칭을 통한 잔여 프로세스 식별
 Get-CimInstance Win32_Process |
     Where-Object {
         $_.ProcessId -ne $currentPid -and
@@ -37,6 +43,7 @@ Get-CimInstance Win32_Process |
     } |
     ForEach-Object { [void]$candidateIds.Add([int]$_.ProcessId) }
 
+# 3. 수집된 모든 프로세스 강제 종료
 $candidateIds | ForEach-Object { Stop-Process -Id $_ -Force }
 Start-Sleep -Milliseconds 1500
 `.trim();
@@ -135,14 +142,12 @@ async function startAll() {
 
     // 개발환경에서는 run-all 자체가 프로세스 생명주기를 관리하므로
     // 워치독(start.cjs) 대신 실제 서버 엔트리포인트를 직접 실행한다.
-    backend = spawnCommand('node', ['server.cjs'], {
-        env: { ...process.env },
-    });
+    // 개발환경에서는 Electron 내부의 main.cjs에서 server.cjs 백엔드를 직접 fork 하여
+    // 프로세스 생명주기를 완벽히 제어하므로, run-all에서 중복 스폰하지 않고 Electron에 위임합니다.
     frontend = spawnCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev'], {
         env: { ...process.env },
     });
 
-    bindChildExit(backend, 'backend');
     bindChildExit(frontend, 'frontend');
 
     // Electron은 dev 서버를 사용하도록 강제 (빌드된 파일 무시)

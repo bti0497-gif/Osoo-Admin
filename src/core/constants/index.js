@@ -17,6 +17,7 @@ export const MENU_REGISTRY = [
   { id: 'board', label: '소통게시판', icon: 'forum', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'board', displayOrder: 30 },
   { id: 'certificate', label: '성적서', icon: 'description', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'certificate', displayOrder: 40,
     children: [
+      { id: 'excel_upload', label: '엑셀 수치 올리기', workspaceId: 'excel_upload', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'pdf_parser', label: '성적서 올리기', workspaceId: 'pdf_parser', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'water_quality_list', label: '성적서 보기', workspaceId: 'water_quality_list', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'water_quality_query', label: '수질데이터 조회', workspaceId: 'water_quality_query', appTarget: APP_TARGETS.ADMIN_APP },
