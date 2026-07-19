@@ -2,7 +2,23 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs').promises;
 const multer = require('multer');
-const { ensureAdmin } = require('../utils/httpUserHeaders.cjs');
+const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
+
+function resolveUserRole(req) {
+  return decodeUserContextHeader(
+    req.headers['x-user-role']
+    || req.body?._user?.role
+    || req.query?._role
+    || ''
+  ).trim().toLowerCase();
+}
+
+function ensureAdmin(req, res) {
+  const role = resolveUserRole(req);
+  if (role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin') return true;
+  res.status(403).json({ success: false, message: '관리자 권한이 필요합니다.' });
+  return false;
+}
 const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
 
 const router = express.Router();

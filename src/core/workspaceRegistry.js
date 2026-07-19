@@ -14,8 +14,10 @@ const WaterQualityQueryView = lazy(() => import('../features/certificate/water-q
 const WaterQualityListView = lazy(() => import('../features/certificate/water-quality-list/components/WaterQualityListView'));
 const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/TemplateManagerView'));
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
+const GyeonggiMonthlyReportView = lazy(() => import('../features/gyeonggi-reports/monthly-report/GyeonggiMonthlyReportView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
 const MonthlyReportView = lazy(() => import('../features/monthly-report/MonthlyReportView').then((m) => ({ default: m.MonthlyReportView })));
+const PeriodReportView = lazy(() => import('../features/period-report/PeriodReportView').then((m) => ({ default: m.PeriodReportView })));
 
 // ============================================
 // 워크스페이스 레지스트리
@@ -72,6 +74,14 @@ export const WORKSPACE_REGISTRY = {
   monthly_report: {
     render: () => React.createElement(MonthlyReportView),
     helpText: '월별 유량/약품 데이터를 현장별 Excel 월운영일지로 내보냅니다.'
+  },
+  period_report: {
+    render: () => React.createElement(PeriodReportView),
+    helpText: '지정한 기간 동안의 전국 현장 유량, 약품사용량 및 수질 5대 항목 데이터를 엑셀 보고서로 추출합니다.'
+  },
+  gyeonggi_monthly_report: {
+    render: () => React.createElement(GyeonggiMonthlyReportView),
+    helpText: '경기대 요구 양식(월운영보고서.xlsx)에 월별 데이터를 현장별 시트로 바인딩해 출력합니다.'
   },
 };
 

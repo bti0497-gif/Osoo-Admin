@@ -18,7 +18,9 @@ const siteMasterCache = require('./services/siteMasterCacheService.cjs');
 const { getSites: getSitesForCache } = require('./services/sitesSheetsService.cjs');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  exposedHeaders: ['Content-Disposition'],
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(BASE_DIR, 'uploads')));
@@ -70,6 +72,8 @@ app.use(require('./routes/adminDataRoutes.cjs')());        // 데이터 관리
 app.use(require('./routes/aiRoutes.cjs')());               // AI 기능
 app.use(require('./routes/locationRoutes.cjs')(BASE_DIR)); // 위치 정보
 app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter); // 경기도 API
+app.use(require('./routes/periodReportRoutes.cjs'));            // 기간 데이터 조회 Excel 내보내기
+app.use(require('./routes/gyeonggiMonthlyReportRoutes.cjs'));   // 경기대 월운영보고서 출력
 app.use('/api/auth', require('./routes/authRoutes.cjs')()); // 인증
 app.use(require('./routes/attendanceRoutes.cjs'));        // 출근부
 app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR));   // 파일 업로드/다운로드 (/api/upload, /api/download)
@@ -87,8 +91,8 @@ async function findFreePort(startPort, endPort) {
   return startPort;
 }
 
-const API_PORT_MIN = (Number(process.env.VITE_PORT) || 8900) + 1;
-const API_PORT_MAX = API_PORT_MIN + 50;
+const API_PORT_MIN = (Number(process.env.VITE_PORT) || 26240) + 1;
+const API_PORT_MAX = API_PORT_MIN + 4;
 
 function writePortFile(port) {
   const portFilePath = path.join(appDataPath, 'server.port');

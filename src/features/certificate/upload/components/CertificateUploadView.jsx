@@ -59,7 +59,7 @@ export function CertificateUploadView() {
     setUploadResult(null);
     setExcelProgress({ show: true, percent: 10, message: '파일 파싱 중...' });
     
-    const result = { success: 0, failed: 0, totalRows: 0 };
+    const result = { success: 0, failed: 0, totalRows: 0, skippedRows: 0, warnings: [] };
     
     try {
       for (let i = 0; i < excelFiles.length; i++) {
@@ -116,7 +116,11 @@ export function CertificateUploadView() {
             const uploadResult = await uploadToBigQuery(finalData);
             if (uploadResult.success) {
               result.success++;
-              result.totalRows += finalData.length;
+              result.totalRows += uploadResult.inserted || 0;
+              result.skippedRows += uploadResult.skipped || 0;
+              if (Array.isArray(uploadResult.warnings) && uploadResult.warnings.length > 0) {
+                result.warnings.push(...uploadResult.warnings);
+              }
             } else {
               result.failed++;
             }
@@ -133,9 +137,15 @@ export function CertificateUploadView() {
       
       setUploadResult({
         success: result.failed === 0,
-        message: `Excel: ${result.success}개 파일, ${result.totalRows}행 업로드 완료`,
+        message: result.skippedRows > 0
+          ? `Excel: ${result.success}개 파일, ${result.totalRows}행 업로드, ${result.skippedRows}행 제외`
+          : `Excel: ${result.success}개 파일, ${result.totalRows}행 업로드 완료`,
         type: 'excel'
       });
+
+      if (result.warnings.length > 0) {
+        console.warn('[Excel Upload] warnings:', result.warnings);
+      }
 
       if (result.failed === 0) {
         setTimeout(() => setExcelProgress({ show: false, percent: 0, message: '' }), 1500);
@@ -150,7 +160,7 @@ export function CertificateUploadView() {
     } finally {
       setIsUploading(false);
     }
-  }, [excelFiles, parseExcel, filterValidRows, transformToBigQueryFormat, uploadToBigQuery]);
+  }, [excelFiles, parseExcel, filterValidRows, transformToBigQueryFormat, filterDuplicateRows, siteMaster, uploadToBigQuery]);
 
 
 

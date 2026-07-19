@@ -27,6 +27,8 @@ export const MENU_REGISTRY = [
   { id: 'monthly_report', label: '월운영일지', icon: 'summarize', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'monthly_report', displayOrder: 47 },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
     children: [
+      { id: 'period_report', label: '기간 데이타 조회', workspaceId: 'period_report', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'gyeonggi_monthly_report', label: '월운영보고서 출력', workspaceId: 'gyeonggi_monthly_report', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'template_manager', label: '양식관리', workspaceId: 'template_manager', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'template_builder', label: '양식만들기', workspaceId: 'template_builder', appTarget: APP_TARGETS.ADMIN_APP },
     ]

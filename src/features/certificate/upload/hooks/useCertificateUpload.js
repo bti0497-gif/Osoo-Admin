@@ -11,10 +11,18 @@ export function useCertificateUpload() {
     setError(null);
     
     try {
-      const result = await apiClient.post('/api/certificates/water-quality/batch-insert', { rows: data });
+      const result = await apiClient.post('/api/certificates/water-quality/batch-insert', {
+        rows: data,
+        replaceFiveItems: true,
+      });
       
       if (result.success) {
-        return { success: true, inserted: result.inserted || data.length };
+        return {
+          success: true,
+          inserted: Number.isFinite(result.inserted) ? result.inserted : data.length,
+          skipped: Number.isFinite(result.skipped) ? result.skipped : 0,
+          warnings: Array.isArray(result.warnings) ? result.warnings : [],
+        };
       } else {
         setError(result.message || 'BigQuery 업로드 실패');
         return { success: false, error: result.message };

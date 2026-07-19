@@ -91,7 +91,7 @@ async function refreshSiteMasterCache(getSitesFromSheets) {
         method: String(s.method || '').trim(),
         series: String(s.series || '').trim(),
       }))
-      .filter((s) => s.id && s.site_name && s.site_name !== '오수처리장' && s.site_name !== '양북임시휴게소');
+      .filter((s) => s.id && s.site_name && s.site_name !== '오수처리장');
   } catch (err) {
     console.warn('[siteMasterCache] 구글시트 fetch 실패, 캐시 파일 사용:', err.message);
   }

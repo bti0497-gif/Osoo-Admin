@@ -82,7 +82,7 @@ router.get('/api/certificates/water-quality/sites', async (req, res) => {
  */
 router.post('/api/certificates/water-quality/batch-insert', async (req, res) => {
   try {
-    const { rows } = req.body || {};
+    const { rows, replaceFiveItems } = req.body || {};
     
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({
@@ -94,12 +94,17 @@ router.post('/api/certificates/water-quality/batch-insert', async (req, res) => 
     // BigQuery에 배치 삽입
     const { insertRows } = require('../services/certificateWaterQualityService.cjs');
     
-    const result = await insertRows(rows);
+    const result = await insertRows(rows, { replaceFiveItems: Boolean(replaceFiveItems) });
     
     res.json({
       success: true,
-      inserted: result.inserted || rows.length,
-      message: `${rows.length}행이 BigQuery에 삽입되었습니다.`
+      inserted: result.inserted || 0,
+      skipped: result.skipped || 0,
+      replacedFiveItems: Boolean(result.replacedFiveItems),
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
+      message: (result.skipped || 0) > 0
+        ? `${result.inserted || 0}행 삽입, ${result.skipped || 0}행 제외`
+        : `${result.inserted || 0}행이 BigQuery에 삽입되었습니다.`
     });
   } catch (err) {
     console.error('[batch-insert] 삽입 실패:', err.message);

@@ -158,9 +158,10 @@ async function getSiteList() {
  * 엑셀 파싱 결과를 water_quality 테이블에 배치 삽입
  * @param {Array} rows - { site_name, report_date, ss, bod, tn, tp, mlss, total_coliform, source_type }
  */
-async function insertRows(rows) {
+async function insertRows(rows, options = {}) {
   const region = await findDatasetRegion();
   const bq = getBigQueryClient();
+  const replaceFiveItems = Boolean(options.replaceFiveItems);
 
   const toNum = (v) => {
     if (v === null || v === undefined || String(v).trim() === '' || String(v).trim() === '-') return null;
@@ -171,24 +172,87 @@ async function insertRows(rows) {
   const nowIso = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');
   const { randomUUID } = require('crypto');
 
-  const insertData = rows.map(row => ({
-    id: randomUUID(),
-    uploaded_at: nowIso,
-    report_date: row.report_date || null,
-    sample_date: row.sample_date || null,
-    source_row_order: Number.isFinite(Number(row.source_row_order)) ? Number(row.source_row_order) : null,
-    category: row.source_type || 'excel',
-    site_name: row.site_name || null,
-    site_name_raw: row.site_name_raw || row.site_name || null,
-    ss: toNum(row.ss),
-    bod: toNum(row.bod),
-    tn: toNum(row.tn),
-    tp: toNum(row.tp),
-    mlss: toNum(row.mlss),
-    total_coliform: toNum(row.total_coliform),
-    drive_file_name: null,
-    source_pdf_name: row.source_pdf_name || null,
-  }));
+  const normalizeDateLike = (value) => {
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (/^\d{8}$/.test(raw)) {
+      return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+    }
+    return null;
+  };
+
+  const warnings = [];
+  const insertData = [];
+
+  rows.forEach((row, index) => {
+    const reportDate = normalizeDateLike(row.report_date);
+    const sampleDate = normalizeDateLike(row.sample_date);
+
+    if (!reportDate) {
+      warnings.push(`index ${index}: report_date 형식이 올바르지 않아 제외되었습니다.`);
+      return;
+    }
+
+    insertData.push({
+      id: randomUUID(),
+      uploaded_at: nowIso,
+      report_date: reportDate,
+      sample_date: sampleDate || reportDate,
+      source_row_order: Number.isFinite(Number(row.source_row_order)) ? Number(row.source_row_order) : null,
+      category: row.source_type || 'excel',
+      site_name: row.site_name || null,
+      site_name_raw: row.site_name_raw || row.site_name || null,
+      ss: toNum(row.ss),
+      bod: toNum(row.bod),
+      tn: toNum(row.tn),
+      tp: toNum(row.tp),
+      mlss: toNum(row.mlss),
+      total_coliform: toNum(row.total_coliform),
+      drive_file_name: null,
+      source_pdf_name: row.source_pdf_name || null,
+    });
+  });
+
+  if (insertData.length === 0) {
+    return { inserted: 0, skipped: rows.length, warnings, replacedFiveItems: false };
+  }
+
+  const hasFiveItemsRows = insertData.some((row) => row.category === 'excel_5items');
+  if (replaceFiveItems && hasFiveItemsRows) {
+    const fiveItemKeys = [];
+    const seen = new Set();
+
+    for (const row of insertData) {
+      if (row.category !== 'excel_5items') continue;
+      if (!row.site_name || !row.report_date) continue;
+      const key = `${row.site_name}__${row.report_date}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fiveItemKeys.push({ site_name: row.site_name, report_date: row.report_date });
+    }
+
+    if (fiveItemKeys.length > 0) {
+      const conditions = fiveItemKeys
+        .map((_, i) => `(site_name = @site_name_${i} AND report_date = @report_date_${i})`)
+        .join(' OR ');
+
+      const params = {};
+      for (let i = 0; i < fiveItemKeys.length; i += 1) {
+        params[`site_name_${i}`] = fiveItemKeys[i].site_name;
+        params[`report_date_${i}`] = fiveItemKeys[i].report_date;
+      }
+
+      await bq.query({
+        query: `
+          DELETE FROM \`${DATASET}.${TABLE}\`
+          WHERE category = 'excel_5items'
+            AND (${conditions})
+        `,
+        params,
+        location: region,
+      });
+    }
+  }
 
   const dataset = bq.dataset(DATASET);
   const table = dataset.table(TABLE);
@@ -204,7 +268,12 @@ async function insertRows(rows) {
     try { fs.unlinkSync(tempPath); } catch (_) {}
   }
 
-  return { inserted: insertData.length };
+  return {
+    inserted: insertData.length,
+    skipped: rows.length - insertData.length,
+    warnings,
+    replacedFiveItems: replaceFiveItems && hasFiveItemsRows,
+  };
 }
 
 module.exports = {
