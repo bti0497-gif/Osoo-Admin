@@ -32,6 +32,11 @@ module.exports = {
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
   ],
+  asarUnpack: [
+    'server.cjs',
+    'server/**/*',
+    '.env.local'
+  ],
   win: {
     target: [
       { target: 'nsis', arch: ['x64'] },
@@ -47,6 +52,7 @@ module.exports = {
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
     shortcutName: 'Admin Only',
+    artifactName: 'Admin-Only-Setup-${version}.${ext}',
   },
   publish: {
     provider: 'github',

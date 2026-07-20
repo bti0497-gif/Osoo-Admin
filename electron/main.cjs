@@ -23,7 +23,9 @@ function startServer() {
   const serverScriptPath = !isDev && fs.existsSync(unpackedServerScript)
     ? unpackedServerScript
     : path.join(appRootPath, 'server.cjs');
-  const serverWorkingDirectory = isDev ? path.join(__dirname, '..') : process.resourcesPath;
+  const serverWorkingDirectory = !isDev && fs.existsSync(path.join(process.resourcesPath, 'app.asar.unpacked'))
+    ? path.join(process.resourcesPath, 'app.asar.unpacked')
+    : (isDev ? path.join(__dirname, '..') : process.resourcesPath);
 
   serverProcess = fork(serverScriptPath, [], {
     cwd: serverWorkingDirectory,
