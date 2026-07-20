@@ -38,6 +38,7 @@ module.exports = {
     '.env.local'
   ],
   win: {
+    executableName: 'Admin Only',
     target: [
       { target: 'nsis', arch: ['x64'] }
     ],
