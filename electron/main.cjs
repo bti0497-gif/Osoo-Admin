@@ -35,16 +35,13 @@ async function startServer() {
   await cleanupExistingPortProcessesAsync();
 
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
-  const unpackedServerScript = path.join(process.resourcesPath, 'app.asar.unpacked', 'server.cjs');
-  const serverScriptPath = !isDev && fs.existsSync(unpackedServerScript)
-    ? unpackedServerScript
-    : path.join(appRootPath, 'server.cjs');
-  const serverWorkingDirectory = !isDev && fs.existsSync(path.join(process.resourcesPath, 'app.asar.unpacked'))
-    ? path.join(process.resourcesPath, 'app.asar.unpacked')
-    : (isDev ? path.join(__dirname, '..') : process.resourcesPath);
+  const serverScriptPath = path.join(appRootPath, 'server.cjs');
+
+  console.log(`[Electron] Starting server: ${serverScriptPath}`);
+  console.log(`[Electron] CWD: ${appRootPath}`);
 
   serverProcess = fork(serverScriptPath, [], {
-    cwd: serverWorkingDirectory,
+    cwd: appRootPath,
     stdio: 'pipe',
     env: { ...process.env, ELECTRON: '1' }
   });
