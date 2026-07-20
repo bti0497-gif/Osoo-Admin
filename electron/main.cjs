@@ -37,13 +37,29 @@ async function startServer() {
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
   const serverScriptPath = path.join(appRootPath, 'server.cjs');
 
-  console.log(`[Electron] Starting server: ${serverScriptPath}`);
-  console.log(`[Electron] CWD: ${appRootPath}`);
+  // 프로덕션: asarUnpack된 서버 스크립트가 있으면 그것을 사용
+  let actualScript = serverScriptPath;
+  let cwd = appRootPath;
+  const serverEnv = { ...process.env, ELECTRON: '1' };
 
-  serverProcess = fork(serverScriptPath, [], {
-    cwd: appRootPath,
+  if (!isDev) {
+    const unpackedScript = path.join(process.resourcesPath, 'app.asar.unpacked', 'server.cjs');
+    if (fs.existsSync(unpackedScript)) {
+      actualScript = unpackedScript;
+      cwd = path.join(process.resourcesPath, 'app.asar.unpacked');
+    }
+    // asar 내부의 node_modules를 fork()된 자식 프로세스가 찾을 수 있도록 NODE_PATH 지정
+    const asarNodeModules = path.join(app.getAppPath(), 'node_modules');
+    serverEnv.NODE_PATH = asarNodeModules;
+  }
+
+  console.log(`[Electron] Starting server: ${actualScript}`);
+  console.log(`[Electron] CWD: ${cwd}`);
+
+  serverProcess = fork(actualScript, [], {
+    cwd: cwd,
     stdio: 'pipe',
-    env: { ...process.env, ELECTRON: '1' }
+    env: serverEnv
   });
 
   serverProcess.stdout?.on('data', (data) => {

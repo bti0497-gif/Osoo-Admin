@@ -28,7 +28,11 @@ module.exports = {
     { from: 'scripts', to: 'scripts' },
     { from: '.env.local', to: '.env.local' },
   ],
-  asar: false,
+  asarUnpack: [
+    'server.cjs',
+    'server/**/*',
+    '.env.local'
+  ],
   win: {
     executableName: 'Admin Only',
     target: [
