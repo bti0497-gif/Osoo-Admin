@@ -26,6 +26,7 @@ module.exports = {
   extraResources: [
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
+    { from: '.env.local', to: '.env.local' },
   ],
   asarUnpack: [
     'server.cjs',

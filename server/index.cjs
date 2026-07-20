@@ -3,7 +3,19 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const cors = require('cors');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
+// .env.local 안전 로딩
+const envCandidatePaths = [
+  path.join(__dirname, '..', '.env.local'),
+  path.join(__dirname, '.env.local'),
+  path.join(process.resourcesPath || '', '.env.local'),
+  path.join(process.resourcesPath || '', 'app.asar.unpacked', '.env.local'),
+];
+for (const envPath of envCandidatePaths) {
+  if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+    break;
+  }
+}
 
 const BASE_DIR = path.join(__dirname, '..');
 const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Handle_App');
