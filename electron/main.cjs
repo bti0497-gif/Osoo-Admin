@@ -2,11 +2,11 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { fork, execSync } = require('child_process');
-const { setupAutoUpdater, checkForUpdates } = require('./updater.cjs');
+const { setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } = require('./updater.cjs');
 
 // Windows 터미널 한글 깨짐 방지
 if (process.platform === 'win32') {
-  try { execSync('chcp 65001', { stdio: 'ignore' }); } catch (_) {}
+  try { execSync('chcp 65001', { stdio: 'ignore', windowsHide: true }); } catch (_) {}
 }
 process.stdout.setEncoding?.('utf8');
 process.stderr.setEncoding?.('utf8');
@@ -86,7 +86,7 @@ function createWindow() {
   const useDevServer = isDev && (forceDevServer || !fs.existsSync(distIndex));
 
   if (useDevServer) {
-    mainWindow.loadURL('http://localhost:8900');
+    mainWindow.loadURL('http://localhost:26240');
   } else {
     mainWindow.loadFile(distIndex);
   }
@@ -181,6 +181,23 @@ app.on('before-quit', () => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:getServerPort', () => {
+  const baseDir = path.join(__dirname, '..');
+  const appDataPath = path.join(process.env.APPDATA || baseDir, 'Osoo_Handle_App');
+  const portFilePath = path.join(appDataPath, 'server.port');
+  try {
+    if (fs.existsSync(portFilePath)) {
+      const portStr = fs.readFileSync(portFilePath, 'utf8').trim();
+      const port = parseInt(portStr, 10);
+      if (!isNaN(port)) {
+        return port;
+      }
+    }
+  } catch (e) {
+    console.error('[Electron] Failed to read server.port file:', e.message);
+  }
+  return null;
+});
 
 // ROI 템플릿 파일 저장/읽기
 const roiTemplatePath = path.join(app.getPath('userData'), 'roi_template.json');
@@ -217,6 +234,12 @@ ipcMain.handle('shell:openFile', async (_event, filePath) => {
 });
 ipcMain.handle('app:checkForUpdates', () => {
   return checkForUpdates();
+});
+ipcMain.handle('app:downloadUpdate', () => {
+  return downloadUpdate();
+});
+ipcMain.handle('app:quitAndInstall', () => {
+  return quitAndInstall();
 });
 
 ipcMain.handle('pdf:save', async (_event, options = {}) => {

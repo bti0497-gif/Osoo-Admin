@@ -65,12 +65,18 @@ function setupAutoUpdater(mainWindow) {
   return true;
 }
 
-function checkForUpdates() {
+function downloadUpdate() {
   if (!autoUpdater) {
     throw new Error('자동 업데이트 모듈을 찾을 수 없습니다.');
   }
-
-  return autoUpdater.checkForUpdatesAndNotify();
+  return autoUpdater.downloadUpdate();
 }
 
-module.exports = { setupAutoUpdater, checkForUpdates };
+function quitAndInstall() {
+  if (!autoUpdater) {
+    throw new Error('자동 업데이트 모듈을 찾을 수 없습니다.');
+  }
+  return autoUpdater.quitAndInstall(false, true);
+}
+
+module.exports = { setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall };

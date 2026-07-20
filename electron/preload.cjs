@@ -2,7 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const electronAPISchema = {
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getServerPort: () => ipcRenderer.invoke('app:getServerPort'),
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+  downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+  quitAndInstall: () => ipcRenderer.invoke('app:quitAndInstall'),
   onUpdateAvailable: (callback) => ipcRenderer.on('update:available', (_event, info) => callback(info)),
   onUpdateDownloaded: (callback) => ipcRenderer.on('update:downloaded', (_event, info) => callback(info)),
   onUpdateProgress: (callback) => ipcRenderer.on('update:progress', (_event, progress) => callback(progress)),

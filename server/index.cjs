@@ -102,17 +102,21 @@ function writePortFile(port) {
 function startListening(actualPort) {
   writePortFile(actualPort);
 
-  // 현장 마스터 캐시 초기화 및 백그라운드 갱신
+  // 현장 마스터 캐시 로컬 파일 즉시 메모리 적재 (0ms)
   siteMasterCache.init(appDataPath);
-  siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
-    console.warn('[siteMasterCache] 초기 갱신 실패 (캐시 파일 사용):', err.message);
-  });
 
   const server = app.listen(actualPort, '127.0.0.1', () => {
     console.log(`Local Bridge Server running at http://localhost:${actualPort}`);
     if (actualPort !== API_PORT_MIN) {
       console.warn(`[주의] 기본 포트(${API_PORT_MIN})가 이미 사용 중이어서 포트 ${actualPort}로 시작했습니다.`);
     }
+
+    // 서버 시작 완료 후 비동기 백그라운드로 구글시트 최신 갱신 진행 (Non-blocking)
+    setTimeout(() => {
+      siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
+        console.warn('[siteMasterCache] 백그라운드 갱신 실패 (캐시 파일 사용):', err.message);
+      });
+    }, 1000);
   });
   server.on('error', (err) => { console.error('[Server Error]', err.message); });
 }
@@ -123,14 +127,17 @@ if (process.env.ELECTRON === '1') {
   });
 } else {
   siteMasterCache.init(appDataPath);
-  siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
-    console.warn('[siteMasterCache] 초기 갱신 실패 (캐시 파일 사용):', err.message);
-  });
 
   const fixedPort = API_PORT_MIN;
   const server = app.listen(fixedPort, '127.0.0.1', () => {
     writePortFile(fixedPort);
     console.log(`Local Bridge Server running at http://localhost:${fixedPort}`);
+
+    setTimeout(() => {
+      siteMasterCache.refreshSiteMasterCache(getSitesForCache).catch((err) => {
+        console.warn('[siteMasterCache] 백그라운드 갱신 실패 (캐시 파일 사용):', err.message);
+      });
+    }, 1000);
   });
 
   server.on('error', (err) => {

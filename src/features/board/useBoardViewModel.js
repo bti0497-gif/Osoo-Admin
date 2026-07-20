@@ -41,7 +41,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
     const [currentPage, setCurrentPage] = useState(1);
     const [selectedPost, setSelectedPost] = useState(null);
     const [comments, setComments] = useState([]);
-    const [form, setForm] = useState({ title: '', content: '', is_notice: 0, attachments: '', parent_id: null, target_site: '' });
+    const [form, setForm] = useState({ title: '', content: '', is_notice: 0, is_popup: 0, popup_days: 1, attachments: '', parent_id: null, target_site: '' });
     const [sites, setSites] = useState([]); // 현장 목록 (관리자용 글쓰기)
     const postsPerPage = 10;
 
@@ -54,8 +54,11 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             title: `[답글] ${parentPost.title}`,
             content: '',
             is_notice: 0,
+            is_popup: 0,
+            popup_days: 1,
             attachments: '',
-            parent_id: parentPost.id
+            parent_id: parentPost.id,
+            target_site: ''
         });
         setViewMode('form');
     };
@@ -239,12 +242,20 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
         }
     };
 
+    const isPopupActive = (p) => {
+        if (!p?.is_popup || !p?.popup_expires_at) return false;
+        const expiresAt = toTimestampMs(p.popup_expires_at);
+        return expiresAt > Date.now();
+    };
+
     const editPost = (post) => {
         setForm({
             id: post.id,
             title: post.title,
             content: post.content,
-            is_notice: post.is_notice || 0,
+            is_notice: post.is_notice ? 1 : 0,
+            is_popup: (post.is_popup && isPopupActive(post)) ? 1 : 0,
+            popup_days: 1,
             attachments: post.attachments || '',
             parent_id: post.parent_id || null,
             target_site: post.target_site || ''
@@ -253,7 +264,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
     };
 
     const resetForm = () => {
-        setForm({ title: '', content: '', is_notice: 0, attachments: '', parent_id: null, target_site: '' });
+        setForm({ title: '', content: '', is_notice: 0, is_popup: 0, popup_days: 1, attachments: '', parent_id: null, target_site: '' });
         setSelectedPost(null);
         setComments([]);
     };

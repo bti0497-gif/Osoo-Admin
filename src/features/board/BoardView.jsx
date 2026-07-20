@@ -317,6 +317,9 @@ const BoardView = ({ currentUser }) => {
                                                     {p.is_notice ? (
                                                         <span style={{ fontSize: '0.5625rem', fontWeight: 900, color: '#d97706', backgroundColor: '#fef3c7', padding: '1px 5px', borderRadius: '3px', flexShrink: 0 }}>공지</span>
                                                     ) : null}
+                                                    {p.is_popup ? (
+                                                        <span style={{ fontSize: '0.5625rem', fontWeight: 900, color: '#7c3aed', backgroundColor: '#f3e8ff', padding: '1px 5px', borderRadius: '3px', flexShrink: 0 }}>팝업</span>
+                                                    ) : null}
                                                     {p.target_site && isAdmin && (
                                                         <span style={{ fontSize: '0.5625rem', fontWeight: 900, color: '#7c3aed', backgroundColor: '#ede9fe', padding: '1px 5px', borderRadius: '3px', flexShrink: 0 }}>→{p.target_site}</span>
                                                     )}
@@ -400,9 +403,14 @@ const BoardView = ({ currentUser }) => {
                         </div>
                         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
                             {/* 제목 + 메타 */}
-                            {selectedPost.is_notice ? (
-                                <span style={{ fontSize: '0.625rem', fontWeight: 900, color: '#d97706', backgroundColor: '#fef3c7', padding: '2px 6px', borderRadius: '3px', marginBottom: '6px', display: 'inline-block' }}>📌 공지</span>
-                            ) : null}
+                            <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                                {selectedPost.is_notice ? (
+                                    <span style={{ fontSize: '0.625rem', fontWeight: 900, color: '#d97706', backgroundColor: '#fef3c7', padding: '2px 6px', borderRadius: '3px', display: 'inline-block' }}>📌 공지</span>
+                                ) : null}
+                                {selectedPost.is_popup ? (
+                                    <span style={{ fontSize: '0.625rem', fontWeight: 900, color: '#7c3aed', backgroundColor: '#f3e8ff', padding: '2px 6px', borderRadius: '3px', display: 'inline-block' }}>🔔 팝업 공지</span>
+                                ) : null}
+                            </div>
                             <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#1e293b', marginBottom: '0.5rem' }}>{selectedPost.title}</h2>
                             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
                                 <span style={{ fontWeight: 700, color: '#475569' }}>{selectedPost.author}</span>
@@ -557,10 +565,38 @@ const BoardView = ({ currentUser }) => {
                                             style={{ width: '100%', border: '2px solid #1e293b', height: '40px', padding: '0 12px', fontWeight: 700, color: '#1e293b', outline: 'none' }} />
                                     </div>
                                     {isAdmin && (
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '40px', fontSize: '0.75rem', fontWeight: 700, color: '#d97706', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                            <input type="checkbox" checked={form.is_notice === 1} onChange={e => updateForm({ is_notice: e.target.checked ? 1 : 0 })} />
-                                            📌 공지
-                                        </label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', height: '40px' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#d97706', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                                <input type="checkbox" checked={form.is_notice === 1} onChange={e => updateForm({ is_notice: e.target.checked ? 1 : 0 })} />
+                                                📌 공지
+                                            </label>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#7c3aed', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                                <input type="checkbox" checked={form.is_popup === 1} onChange={e => updateForm({ is_popup: e.target.checked ? 1 : 0 })} />
+                                                🔔 팝업 공지
+                                            </label>
+                                            {form.is_popup === 1 && (
+                                                <select
+                                                    value={form.popup_days || 1}
+                                                    onChange={e => updateForm({ popup_days: Number(e.target.value) })}
+                                                    style={{
+                                                        height: '30px',
+                                                        padding: '0 8px',
+                                                        borderRadius: '6px',
+                                                        border: '1.5px solid #c084fc',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 700,
+                                                        color: '#6b21a8',
+                                                        backgroundColor: '#faf5ff',
+                                                        outline: 'none',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    {[1, 2, 3, 4, 5, 6, 7].map(day => (
+                                                        <option key={day} value={day}>{day}일간</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
 

@@ -58,6 +58,18 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'group_admin' || role === 'central_admin';
 }
 
+function popupExpiry(isPopup, requestedDays) {
+  if (!isPopup) return null;
+  const days = Math.min(7, Math.max(1, Number.parseInt(requestedDays, 10) || 1));
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isPopupActive(post) {
+  if (!post?.is_popup || !post?.popup_expires_at) return false;
+  const expiresAt = new Date(post.popup_expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
 /**
  * [CRITICAL] 게시글 가시성 판단 - 권한 체크 핵심 함수
  * - admin/group_admin/central_admin: 모든 글 열람 가능
@@ -118,6 +130,8 @@ async function getPosts(role, siteName, userName) {
 
   posts = posts.map(p => ({
     ...p,
+    is_popup: isPopupActive(p),
+    popup_expires_at: toISOString(p.popup_expires_at),
     comment_count: commentCounts[p.id] || 0,
     // Firestore Timestamp → ISO string 변환
     created_at: toISOString(p.created_at),
@@ -145,6 +159,8 @@ async function getPost(id, { incrementView = false } = {}) {
   if (!doc.exists) return null;
   const data = { id: doc.id, ...doc.data() };
   if (data.is_deleted) return null;
+  data.is_popup = isPopupActive(data);
+  data.popup_expires_at = toISOString(data.popup_expires_at);
   data.created_at = toISOString(data.created_at);
   data.updated_at = toISOString(data.updated_at);
   if (incrementView) {
@@ -178,6 +194,9 @@ async function createPost(data) {
     }
   }
 
+  const isPopup = isAdminRole(data.author_role) ? Boolean(data.is_popup) : false;
+  const popupExpiresAt = isPopup ? popupExpiry(true, data.popup_days) : null;
+
   const row = {
     id,
     author:        data.author       || '',
@@ -188,6 +207,8 @@ async function createPost(data) {
     title:         data.title        || '',
     content:       data.content      || '',
     is_notice:     Boolean(data.is_notice),
+    is_popup:      isPopup,
+    popup_expires_at: popupExpiresAt,
     attachments:   data.attachments  || '[]',
     parent_id:     data.parent_id    || null,
     is_deleted:    false,
@@ -216,6 +237,11 @@ async function updatePost(id, data) {
     updates.target_site = data.target_site;
     // visible_sites도 함께 갱신
     updates.visible_sites = buildVisibleSitesFromTarget(data.target_site, data.author_role);
+  }
+  if (data.is_popup !== undefined) {
+    const isPopup = isAdminRole(data.user_role || data.author_role) ? Boolean(data.is_popup) : false;
+    updates.is_popup = isPopup;
+    updates.popup_expires_at = isPopup ? popupExpiry(true, data.popup_days) : null;
   }
 
   await db.collection('posts').doc(id).update(updates);

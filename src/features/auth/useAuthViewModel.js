@@ -4,8 +4,8 @@ import { ADMIN_ROLES } from '../../core/constants';
 
 const isAdminUser = (member) => ADMIN_ROLES.includes(String(member?.role || ''));
 
-// TODO: 중앙관리자 앱은 특정 로그인이 필요 없으므로 바이패스 활성화
-// 로그인 기능을 다시 활성화하려면 false로 변경
+// [개발 단계 임시 설정] 중앙관리자 앱 기능 개발 중이므로 로그인 바이패스 활성화 중
+// 개발 마무리 단계에서 중앙관리자별 로그인 및 소통게시판 작성자 식별을 적용할 경우 `false`로 변경
 const BYPASS_LOGIN = true;
 
 const DEFAULT_ADMIN_USER = {

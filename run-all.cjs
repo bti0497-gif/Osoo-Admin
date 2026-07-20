@@ -1,8 +1,9 @@
 const { spawn } = require('child_process');
+const path = require('path');
 
-const FRONTEND_PORT = 8900;
-const BACKEND_PORT_MIN = 8901;
-const BACKEND_PORT_MAX = 8951;
+const FRONTEND_PORT = 26240;
+const BACKEND_PORT_MIN = 26241;
+const BACKEND_PORT_MAX = 26245;
 
 let backend = null;
 let frontend = null;
@@ -15,16 +16,24 @@ function buildWindowsCleanupScript() {
     const scriptRoot = __dirname.replace(/'/g, "''");
     const currentPid = process.pid;
 
-        return `
+    return `
 $ErrorActionPreference = 'SilentlyContinue'
 $root = '${scriptRoot}'
 $currentPid = ${currentPid}
 $candidateIds = New-Object 'System.Collections.Generic.HashSet[int]'
 
-# 1. 8900 (Vite) 및 8901 (Express 백엔드) 포트를 점유하고 있는 프로세스 식별
-Get-NetTCPConnection -LocalPort 8900, 8901 -ErrorAction SilentlyContinue |
-    Where-Object { $_.OwningProcess -and $_.OwningProcess -ne $currentPid } |
-    ForEach-Object { [void]$candidateIds.Add([int]$_.OwningProcess) }
+# 1. netstat -ano 출력을 정규식 분석하여 고유 포트 범위(26240~26245)를 쥐고 있는 PID 식별 (일반 권한 100% 작동)
+netstat -ano | ForEach-Object {
+    if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)\\[::1\\]:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') {
+        $tokens = $_ -split '\\s+' | Where-Object { $_ }
+        if ($tokens.Length -ge 5) {
+            $pid = [int]$tokens[-1]
+            if ($pid -and $pid -ne $currentPid) {
+                [void]$candidateIds.Add($pid)
+            }
+        }
+    }
+}
 
 # 2. 프로젝트 루트 경로 및 개발 명령어 매칭을 통한 잔여 프로세스 식별
 Get-CimInstance Win32_Process |
@@ -45,7 +54,20 @@ Get-CimInstance Win32_Process |
 
 # 3. 수집된 모든 프로세스 강제 종료
 $candidateIds | ForEach-Object { Stop-Process -Id $_ -Force }
-Start-Sleep -Milliseconds 1500
+
+# 4. 포트 완전 해제 대기 (최대 3초, 200ms 단위 체크)
+for ($i = 0; $i -lt 15; $i++) {
+    $occupied = $false
+    netstat -ano | ForEach-Object {
+        if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') {
+            $occupied = $true
+        }
+    }
+    if (-not $occupied) {
+        break
+    }
+    Start-Sleep -Milliseconds 200
+}
 `.trim();
 }
 
@@ -153,7 +175,12 @@ async function startAll() {
     // Electron은 dev 서버를 사용하도록 강제 (빌드된 파일 무시)
     await waitForServers();
     console.log('[run-all] Starting Electron...');
-    electron = spawnCommand(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['electron', '.'], {
+    const electronCmd = process.platform === 'win32'
+        ? `"${path.join(__dirname, 'node_modules', '.bin', 'electron.cmd')}"`
+        : './node_modules/.bin/electron';
+    const electronArgs = ['.'];
+
+    electron = spawnCommand(electronCmd, electronArgs, {
         env: { 
             ...process.env,
             ELECTRON_FORCE_DEV_SERVER: '1'  // dev 서버 강제 사용

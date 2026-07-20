@@ -30,11 +30,23 @@ function newUUID() {
 // 조회 필터 SQL (파라미터화 불가 부분은 role 검사 후 보간)
 // ─────────────────────────────────────────────────────────────────────
 function isAdminRole(role) {
-  return role === 'admin' || role === 'group_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
 }
 
 function isPrivilegedPostRole(role) {
-  return role === 'admin' || role === 'group_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
+}
+
+function popupExpiry(isPopup, requestedDays) {
+  if (!isPopup) return null;
+  const days = Math.min(7, Math.max(1, Number.parseInt(requestedDays, 10) || 1));
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isPopupActive(post) {
+  if (!post?.is_popup || !post?.popup_expires_at) return false;
+  const expiresAt = new Date(post.popup_expires_at?.value || post.popup_expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 function buildVisibilityFilter(role, siteName, userName) {
@@ -45,7 +57,7 @@ function buildVisibilityFilter(role, siteName, userName) {
   return {
     where: `p.is_deleted = FALSE AND (
       p.author = @userName
-      OR (p.author_role IN ('admin', 'group_admin') AND (p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName))
+      OR (p.author_role IN ('admin', 'group_admin', 'central_admin') AND (p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName))
     )`,
     params: { siteName, userName }
   };
@@ -90,7 +102,11 @@ async function getPosts(role, siteName, userName) {
   `;
 
   const [rows] = await bq.query({ query, params });
-  return rows;
+  return rows.map(r => ({
+    ...r,
+    is_popup: isPopupActive(r),
+    popup_expires_at: r.popup_expires_at ? (r.popup_expires_at.value || r.popup_expires_at) : null
+  }));
 }
 
 /**
@@ -106,7 +122,11 @@ async function getPost(id) {
     LIMIT 1
   `;
   const [rows] = await bq.query({ query, params: { id } });
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const post = rows[0];
+  post.is_popup = isPopupActive(post);
+  post.popup_expires_at = post.popup_expires_at ? (post.popup_expires_at.value || post.popup_expires_at) : null;
+  return post;
 }
 
 async function getComment(id) {
@@ -124,7 +144,7 @@ async function getComment(id) {
 
 /**
  * 게시글 생성
- * @param {{author, author_role, author_site, target_site, title, content, is_notice, attachments, parent_id}} data
+ * @param {{author, author_role, author_site, target_site, title, content, is_notice, is_popup, popup_days, attachments, parent_id}} data
  */
 async function createPost(data) {
   const bq = getBigQueryClient();
@@ -132,6 +152,10 @@ async function createPost(data) {
 
   const now = new Date().toISOString();
   const id = newUUID();
+
+  const isPopup = isAdminRole(data.author_role) ? Boolean(data.is_popup) : false;
+  const popupExpiresAt = isPopup ? popupExpiry(true, data.popup_days) : null;
+
   const row = {
     id,
     author:       data.author      || '',
@@ -141,6 +165,8 @@ async function createPost(data) {
     title:        data.title       || '',
     content:      data.content     || '',
     is_notice:    Boolean(data.is_notice),
+    is_popup:     isPopup,
+    popup_expires_at: popupExpiresAt,
     attachments:  data.attachments || '[]',
     parent_id:    data.parent_id   || null,
     is_deleted:   false,
@@ -168,6 +194,13 @@ async function updatePost(id, data) {
   if (data.is_notice !== undefined) { sets.push('is_notice = @is_notice'); params.is_notice   = Boolean(data.is_notice); }
   if (data.attachments !== undefined) { sets.push('attachments = @attachments'); params.attachments = data.attachments; }
   if (data.target_site !== undefined) { sets.push('target_site = @target_site'); params.target_site = data.target_site; }
+  if (data.is_popup !== undefined) {
+    const isPopup = isAdminRole(data.user_role || data.author_role) ? Boolean(data.is_popup) : false;
+    sets.push('is_popup = @is_popup');
+    params.is_popup = isPopup;
+    sets.push('popup_expires_at = @popup_expires_at');
+    params.popup_expires_at = isPopup ? popupExpiry(true, data.popup_days) : null;
+  }
   sets.push('updated_at = @updated_at');
 
   await bq.query({

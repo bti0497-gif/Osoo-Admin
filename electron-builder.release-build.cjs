@@ -1,14 +1,10 @@
-/**
- * Temporary CommonJS wrapper for electron-builder execution in a type:module package.
- * Keep this in sync with electron-builder.config.js until the main config is migrated.
- */
 module.exports = {
   appId: 'com.osoo.admin-app',
   productName: 'Admin Only',
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
-    output: 'release',
+    output: 'release-build',
     buildResources: 'build',
   },
   files: [

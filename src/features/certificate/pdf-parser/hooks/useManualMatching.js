@@ -329,7 +329,7 @@ export function useManualMatching(siteMaster) {
         // 2. Drive 및 BigQuery 저장 API 호출 (최대 3회 재시도)
         setUploadProgress({
           percent: Math.round((i / total) * 100),
-          message: `[${i + 1}/${total}] '${p.matchedSite}' 전송 중 (최대 3회 재시도)...`
+          message: `[${i + 1}/${total}] '${p.matchedSite}' 전송 중...`
         });
 
         const targetFileName = p.customFileName || `${p.matchedSite}.jpg`;

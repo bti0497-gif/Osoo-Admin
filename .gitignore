@@ -28,6 +28,7 @@ dist-ssr
 build/
 dist/
 release/
+release-build/
 release-temp/
 *.blockmap
 uploads/

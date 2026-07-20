@@ -1,14 +1,19 @@
 /**
- * Temporary CommonJS wrapper for electron-builder execution in a type:module package.
- * Keep this in sync with electron-builder.config.js until the main config is migrated.
+ * 깃허브 Releases 릴리즈용 (Full Release Bundle) electron-builder 설정
+ * - 버전: 1.0.1 (현장 1.0.0 설치본 구동 시 최신 패치로 자동 업그레이드됨)
+ * - 출력 경로: release/github
+ * - GitHub Releases 연동 (provider: 'github')
  */
 module.exports = {
   appId: 'com.osoo.admin-app',
   productName: 'Admin Only',
+  extraMetadata: {
+    version: '1.0.1'
+  },
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
-    output: 'release',
+    output: 'release/github',
     buildResources: 'build',
   },
   files: [
@@ -29,7 +34,7 @@ module.exports = {
   ],
   win: {
     target: [
-      { target: 'dir', arch: ['x64'] },
+      { target: 'nsis', arch: ['x64'] }
     ],
   },
   nsis: {
@@ -42,5 +47,9 @@ module.exports = {
     createStartMenuShortcut: true,
     shortcutName: 'Admin Only',
   },
-  publish: null,
+  publish: {
+    provider: 'github',
+    owner: 'bti0497-gif',
+    repo: 'Osoo-Admin'
+  },
 };

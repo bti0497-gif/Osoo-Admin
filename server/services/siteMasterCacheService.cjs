@@ -29,6 +29,13 @@ function getCacheFilePath() {
  */
 function init(appDataPath) {
   _appDataPath = appDataPath;
+  try {
+    const cached = readCacheFile();
+    if (cached) {
+      _memCache = cached;
+      console.log(`[siteMasterCache] 로컬 캐시 ${cached.length}개 현장 즉시 메모리 적재 완료 (0ms)`);
+    }
+  } catch (_) {}
 }
 
 /**
