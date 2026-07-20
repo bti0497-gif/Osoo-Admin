@@ -8,7 +8,7 @@ module.exports = {
   appId: 'com.osoo.admin-app',
   productName: 'Admin Only',
   extraMetadata: {
-    version: '1.0.1'
+    version: '1.0.2'
   },
   npmRebuild: false,
   nodeGypRebuild: false,

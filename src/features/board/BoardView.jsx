@@ -66,7 +66,7 @@ const BoardView = ({ currentUser }) => {
     const [uploadProgress, setUploadProgress] = useState({ loading: false, percent: 0, fileName: '' });
     const fileInputRef = useRef(null);
 
-    const isAdmin = ['admin', 'group_admin', 'central_admin'].includes(currentUser?.role);
+    const isAdmin = ['admin', 'group_admin', 'central_admin', 'super_admin'].includes(currentUser?.role);
     const isAuthor = (authorName) => currentUser?.name === authorName;
     const resolveAttachmentHref = (attachment) => {
         const rawUrl = String(attachment?.url || '').trim();
@@ -342,7 +342,7 @@ const BoardView = ({ currentUser }) => {
                                                     {p.author}
                                                 </span>
                                                 <span style={{ width: '130px', textAlign: 'center', fontWeight: 600, color: '#7c3aed', fontSize: '0.75rem' }}>
-                                                    {p.target_site || (p.author_role === 'admin' || p.author_role === 'group_admin' || p.author_role === 'central_admin' ? '전체' : '-')}
+                                                    {p.target_site || (p.author_role === 'admin' || p.author_role === 'group_admin' || p.author_role === 'central_admin' || p.author_role === 'super_admin' ? '전체' : '-')}
                                                 </span>
                                                 <span style={{ width: '100px', textAlign: 'center', color: '#94a3b8', fontSize: '0.6875rem' }}>
                                                     {formatDate(p.created_at)}

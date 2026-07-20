@@ -22,6 +22,10 @@ const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Handle_App'
 if (!fs.existsSync(appDataPath)) {
   fs.mkdirSync(appDataPath, { recursive: true });
 }
+const uploadsPath = path.join(appDataPath, 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
 // 중앙관리자 앱은 SQLite 사용 안함
 const db = null;
 
@@ -35,7 +39,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/uploads', express.static(path.join(BASE_DIR, 'uploads')));
+app.use('/uploads', express.static(uploadsPath));
 
 process.on('uncaughtException', (err) => {
   console.error('[UncaughtException]', err.message);
@@ -88,7 +92,7 @@ app.use(require('./routes/periodReportRoutes.cjs'));            // 기간 데이
 app.use(require('./routes/gyeonggiMonthlyReportRoutes.cjs'));   // 경기대 월운영보고서 출력
 app.use('/api/auth', require('./routes/authRoutes.cjs')()); // 인증
 app.use(require('./routes/attendanceRoutes.cjs'));        // 출근부
-app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR));   // 파일 업로드/다운로드 (/api/upload, /api/download)
+app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR, appDataPath));   // 파일 업로드/다운로드 (/api/upload, /api/download)
 
 async function findFreePort(startPort, endPort) {
   for (let p = startPort; p <= endPort; p++) {

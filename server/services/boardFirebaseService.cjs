@@ -55,7 +55,7 @@ function newUUID() {
 // 권한 헬퍼
 // ─────────────────────────────────────────────────────────────────────
 function isAdminRole(role) {
-  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin';
 }
 
 function popupExpiry(isPopup, requestedDays) {

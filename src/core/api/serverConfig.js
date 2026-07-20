@@ -6,9 +6,15 @@
 const PORT_MIN = 26241;
 const PORT_MAX = 26245;
 const PING_TIMEOUT_MS = 600;
+const ELECTRON_PORT_WAIT_TIMEOUT_MS = 12000;
+const ELECTRON_PORT_POLL_INTERVAL_MS = 250;
 const CACHE_KEY = 'osoo_server_port';
 
 let _cachedBase = null;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function pingPort(port) {
   try {
@@ -31,14 +37,15 @@ export async function initServerConfig() {
   if (hasElectron) {
     const api = window.electronAPI || window.electron;
     if (typeof api.getServerPort === 'function') {
-      for (let attempt = 1; attempt <= 10; attempt++) {
+      const deadline = Date.now() + ELECTRON_PORT_WAIT_TIMEOUT_MS;
+      while (Date.now() < deadline) {
         const port = await api.getServerPort();
         if (port && await pingPort(port)) {
           _cachedBase = `http://localhost:${port}`;
           localStorage.setItem(CACHE_KEY, String(port));
           return _cachedBase;
         }
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await sleep(ELECTRON_PORT_POLL_INTERVAL_MS);
       }
     }
   }

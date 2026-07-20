@@ -15,6 +15,42 @@ let mainWindow = null;
 let serverProcess = null;
 const isDev = !app.isPackaged;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getServerPortFilePath() {
+  const baseDir = path.join(__dirname, '..');
+  const appDataPath = path.join(process.env.APPDATA || baseDir, 'Osoo_Handle_App');
+  return path.join(appDataPath, 'server.port');
+}
+
+async function waitForServerReady(timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  const portFilePath = getServerPortFilePath();
+
+  while (Date.now() < deadline) {
+    try {
+      if (fs.existsSync(portFilePath)) {
+        const portStr = fs.readFileSync(portFilePath, 'utf8').trim();
+        const port = parseInt(portStr, 10);
+        if (!isNaN(port)) {
+          const res = await fetch(`http://127.0.0.1:${port}/api/ping`);
+          if (res.ok) {
+            return port;
+          }
+        }
+      }
+    } catch (_) {
+      // 서버가 아직 뜨지 않았을 수 있으므로 재시도한다.
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error('서버 준비 확인 시간 초과');
+}
+
 function cleanupExistingPortProcessesAsync() {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') return resolve();
@@ -35,12 +71,13 @@ async function startServer() {
   await cleanupExistingPortProcessesAsync();
 
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
+  const appDataPath = path.join(process.env.APPDATA || path.join(__dirname, '..'), 'Osoo_Handle_App');
   const serverScriptPath = path.join(appRootPath, 'server.cjs');
 
   // 프로덕션: asarUnpack된 서버 스크립트가 있으면 그것을 사용
   let actualScript = serverScriptPath;
   let cwd = appRootPath;
-  const serverEnv = { ...process.env, ELECTRON: '1' };
+  const serverEnv = { ...process.env, ELECTRON: '1', APP_DATA_PATH: appDataPath };
 
   if (!isDev) {
     const unpackedScript = path.join(process.resourcesPath, 'app.asar.unpacked', 'server.cjs');
@@ -192,13 +229,21 @@ async function buildPdfBufferFromHtml(htmlContent, printBackground) {
   }
 }
 
-app.whenReady().then(() => {
-  startServer();
+app.whenReady().then(async () => {
+  await startServer();
+  try {
+    await waitForServerReady();
+  } catch (err) {
+    console.warn('[Electron] 서버 준비 대기 실패, 창을 먼저 띄웁니다:', err.message);
+  }
   createWindow();
 
   if (!isDev) {
     setupAutoUpdater(mainWindow);
   }
+}).catch((err) => {
+  console.error('[Electron] 초기화 실패:', err.message);
+  createWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -212,9 +257,7 @@ app.on('before-quit', () => {
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:getServerPort', () => {
-  const baseDir = path.join(__dirname, '..');
-  const appDataPath = path.join(process.env.APPDATA || baseDir, 'Osoo_Handle_App');
-  const portFilePath = path.join(appDataPath, 'server.port');
+  const portFilePath = getServerPortFilePath();
   try {
     if (fs.existsSync(portFilePath)) {
       const portStr = fs.readFileSync(portFilePath, 'utf8').trim();

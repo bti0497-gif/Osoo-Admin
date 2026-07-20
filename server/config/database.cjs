@@ -5,11 +5,15 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
-const { app } = require('electron');
+const fs = require('fs');
 
 // DB 파일 경로 (사용자 데이터 폴더)
 const getDbPath = () => {
-  const userDataPath = app?.getPath('userData') || path.join(process.cwd(), 'data');
+  const userDataPath = process.env.APP_DATA_PATH
+    || path.join(process.env.APPDATA || process.cwd(), 'Osoo_Handle_App');
+  if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true });
+  }
   return path.join(userDataPath, 'upload_queue.db');
 };
 
@@ -50,11 +54,7 @@ function initDatabase() {
       -- 타임스탬프
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       bq_synced_at DATETIME,
-      drive_synced_at DATETIME,
-      
-      -- 인덱스
-      INDEX idx_status (bq_status, drive_status),
-      INDEX idx_created (created_at)
+      drive_synced_at DATETIME
     );
     
     -- 동기화 로그 테이블 (선택적)
@@ -66,6 +66,12 @@ function initDatabase() {
       message TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE INDEX IF NOT EXISTS idx_certificate_upload_queue_status
+      ON certificate_upload_queue (bq_status, drive_status);
+
+    CREATE INDEX IF NOT EXISTS idx_certificate_upload_queue_created
+      ON certificate_upload_queue (created_at);
   `);
   
   console.log('[Database] Tables created successfully');

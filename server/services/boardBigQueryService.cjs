@@ -30,11 +30,11 @@ function newUUID() {
 // 조회 필터 SQL (파라미터화 불가 부분은 role 검사 후 보간)
 // ─────────────────────────────────────────────────────────────────────
 function isAdminRole(role) {
-  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin';
 }
 
 function isPrivilegedPostRole(role) {
-  return role === 'admin' || role === 'group_admin' || role === 'central_admin';
+  return role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin';
 }
 
 function popupExpiry(isPopup, requestedDays) {
@@ -57,7 +57,7 @@ function buildVisibilityFilter(role, siteName, userName) {
   return {
     where: `p.is_deleted = FALSE AND (
       p.author = @userName
-      OR (p.author_role IN ('admin', 'group_admin', 'central_admin') AND (p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName))
+      OR (p.author_role IN ('admin', 'group_admin', 'central_admin', 'super_admin') AND (p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName))
     )`,
     params: { siteName, userName }
   };
