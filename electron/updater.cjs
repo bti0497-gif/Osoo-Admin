@@ -11,7 +11,7 @@ function setupAutoUpdater(mainWindow) {
     return false;
   }
 
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {

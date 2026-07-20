@@ -48,5 +48,9 @@ module.exports = {
     createStartMenuShortcut: true,
     shortcutName: 'Admin Only',
   },
-  publish: null,
+  publish: {
+    provider: 'github',
+    owner: 'bti0497-gif',
+    repo: 'Osoo-Admin',
+  },
 };
