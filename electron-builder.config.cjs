@@ -27,9 +27,16 @@ module.exports = {
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
   ],
+  asarUnpack: [
+    'server.cjs',
+    'server/**/*',
+    '.env.local'
+  ],
   win: {
+    executableName: 'Admin Only',
     target: [
-      { target: 'dir', arch: ['x64'] },
+      { target: 'nsis', arch: ['x64'] },
+      { target: 'dir', arch: ['x64'] }
     ],
   },
   nsis: {
@@ -41,6 +48,11 @@ module.exports = {
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
     shortcutName: 'Admin Only',
+    artifactName: 'Admin-Only-Setup-${version}.${ext}',
   },
-  publish: null,
+  publish: {
+    provider: 'github',
+    owner: 'bti0497-gif',
+    repo: 'Osoo-Admin',
+  },
 };

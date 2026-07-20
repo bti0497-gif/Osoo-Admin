@@ -26,36 +26,29 @@ async function pingPort(port) {
  * 앱 시작 시 한 번 호출. 서버 포트를 탐색하고 캐시합니다.
  */
 export async function initServerConfig() {
-  // 1. Electron 환경인지 확인하고 IPC로 포트 알아내기
+  // 1. Electron 환경인 경우 IPC 포트 우선 탐색 (100% 최우선)
   const hasElectron = typeof window !== 'undefined' && (window.electronAPI || window.electron);
   if (hasElectron) {
     const api = window.electronAPI || window.electron;
     if (typeof api.getServerPort === 'function') {
-      console.log('[ServerConfig] Electron 환경 감지. IPC 포트 조회를 시도합니다.');
-      // 서버가 뜨는 중일 수 있으므로, 포트 파일을 읽고 핑이 성공할 때까지 재시도
-      for (let attempt = 1; attempt <= 15; attempt++) {
+      for (let attempt = 1; attempt <= 10; attempt++) {
         const port = await api.getServerPort();
-        if (port) {
-          if (await pingPort(port)) {
-            _cachedBase = `http://localhost:${port}`;
-            localStorage.setItem(CACHE_KEY, String(port));
-            console.log(`[ServerConfig] IPC 포트 연결 성공: ${port} (시도 #${attempt})`);
-            return _cachedBase;
-          }
+        if (port && await pingPort(port)) {
+          _cachedBase = `http://localhost:${port}`;
+          localStorage.setItem(CACHE_KEY, String(port));
+          return _cachedBase;
         }
-        await new Promise(resolve => setTimeout(resolve, 200)); // 200ms 대기
+        await new Promise(resolve => setTimeout(resolve, 150));
       }
-      console.warn('[ServerConfig] IPC 포트 획득 또는 연결에 실패했습니다. 포트 스캔을 진행합니다.');
     }
   }
 
-  // 2. 캐시된 포트 검사
+  // 2. 캐시된 포트 검사 (유효한 범주의 포트만 허용: PORT_MIN ~ PORT_MAX)
   const cached = localStorage.getItem(CACHE_KEY);
   if (cached) {
     const port = parseInt(cached, 10);
-    if (!isNaN(port) && await pingPort(port)) {
+    if (!isNaN(port) && port >= PORT_MIN && port <= PORT_MAX && await pingPort(port)) {
       _cachedBase = `http://localhost:${port}`;
-      console.log(`[ServerConfig] 캐시된 포트 ${port} 연결 성공`);
       return _cachedBase;
     }
     localStorage.removeItem(CACHE_KEY);
