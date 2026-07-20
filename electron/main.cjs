@@ -14,10 +14,20 @@ process.stderr.setEncoding?.('utf8');
 let mainWindow = null;
 let serverProcess = null;
 
-const isDev = !app.isPackaged;
+function cleanupExistingPortProcesses() {
+  if (process.platform !== 'win32') return;
+  try {
+    const psScript = `$ErrorActionPreference='SilentlyContinue'; $currentPid=${process.pid}; netstat -ano | ForEach-Object { if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') { $tokens = $_ -split '\\s+' | Where-Object { $_ }; if ($tokens.Length -ge 5) { $pid = [int]$tokens[-1]; if ($pid -and $pid -ne $currentPid) { Stop-Process -Id $pid -Force } } } }`;
+    execSync(`powershell.exe -NoProfile -Command "${psScript}"`, { windowsHide: true, stdio: 'ignore' });
+  } catch (err) {
+    console.warn('[CleanBoot] Port cleanup notice:', err.message);
+  }
+}
 
 function startServer() {
   if (serverProcess) return;
+
+  cleanupExistingPortProcesses();
 
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
   const unpackedServerScript = path.join(process.resourcesPath, 'app.asar.unpacked', 'server.cjs');
