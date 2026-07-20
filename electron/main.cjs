@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { fork, execSync } = require('child_process');
+const { fork, exec, execSync } = require('child_process');
 const { setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall } = require('./updater.cjs');
 
 // Windows 터미널 한글 깨짐 방지
@@ -15,8 +15,24 @@ let mainWindow = null;
 let serverProcess = null;
 const isDev = !app.isPackaged;
 
-function startServer() {
+function cleanupExistingPortProcessesAsync() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve();
+    const psScript = `$ErrorActionPreference='SilentlyContinue'; $currentPid=${process.pid}; netstat -ano | ForEach-Object { if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') { $tokens = $_ -split '\\s+' | Where-Object { $_ }; if ($tokens.Length -ge 5) { $pid = [int]$tokens[-1]; if ($pid -and $pid -ne $currentPid) { Stop-Process -Id $pid -Force } } } }`;
+    const killer = exec(`powershell.exe -NoProfile -Command "${psScript}"`, { windowsHide: true });
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    killer.on('exit', finish);
+    killer.on('error', finish);
+    setTimeout(finish, 800); // 800ms 안전 타임아웃
+  });
+}
+
+async function startServer() {
   if (serverProcess) return;
+
+  // 비동기 클린부팅 (메인 스레드 멈춤 없이 26240~26245 잔여 프로세스 강제 종료)
+  await cleanupExistingPortProcessesAsync();
 
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
   const unpackedServerScript = path.join(process.resourcesPath, 'app.asar.unpacked', 'server.cjs');
