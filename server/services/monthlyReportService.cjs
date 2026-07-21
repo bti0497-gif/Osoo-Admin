@@ -164,7 +164,7 @@ function transformToReportData(year, month, siteName, { flowRows, medicineRows, 
     if (!dailyMap[dateStr]) continue;
     if (row.type === '유입유량계') dailyMap[dateStr].유입 = row.calculated_flow ?? null;
     if (row.type === '방류유량계') dailyMap[dateStr].방류 = row.calculated_flow ?? null;
-    if (row.type === '슬러지')    dailyMap[dateStr].슬러지 = row.sludge_export ?? null;
+    if (row.type === '슬러지')    dailyMap[dateStr].슬러지 = (row.sludge_export ? row.sludge_export : row.calculated_flow) ?? null;
   }
 
   // 약품 채우기
