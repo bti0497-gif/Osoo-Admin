@@ -271,14 +271,24 @@ export function PeriodReportView() {
         fileName = buildExportFileName(selectedSites.map((site) => site.site_name), startDate, endDate, 'zip');
       }
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      if (window.electronAPI && window.electronAPI.saveFileToTemp && window.electronAPI.openFile) {
+        const arrayBuffer = await blob.arrayBuffer();
+        const saveRes = await window.electronAPI.saveFileToTemp(fileName, arrayBuffer);
+        if (saveRes.success && saveRes.filePath) {
+          await window.electronAPI.openFile(saveRes.filePath);
+        } else {
+          throw new Error(saveRes.error || '임시 폴더 저장 실패');
+        }
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
 
       setActionMessage({
         type: 'success',

@@ -18,28 +18,28 @@ const MEDICINE_NAMES = {
   응집제: '팩(PAC)',
 };
 
-/**
- * 해당 월에 데이터가 있는 현장 목록 반환
- * @param {number} year
- * @param {number} month
- * @returns {Promise<Array<{site_id, site_name}>>}
- */
+const { getSites } = require('./sitesSheetsService.cjs');
+
 async function getReportSiteList(year, month) {
   const bq = getBigQueryClient();
   if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
 
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-  const endDate   = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-
+  // BigQuery 실제 운용 테이블(flow_readings, attendance, medicine_logs)에서
+  // 실제 앱이 설치되어 운영 중인 현장 목록을 통합 조회 (미입력 일자/미로그인 상태 포함)
   const query = `
-    SELECT DISTINCT site_id, site_name
-    FROM \`${DATASET_ID}.flow_readings\`
-    WHERE date >= @startDate AND date < @endDate
-      AND site_name IS NOT NULL
+    SELECT DISTINCT CAST(site_id AS STRING) AS site_id, site_name
+    FROM (
+      SELECT CAST(site_id AS STRING) AS site_id, site_name FROM \`${DATASET_ID}.flow_readings\` WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
+      UNION ALL
+      SELECT CAST(site_id AS STRING) AS site_id, site_name FROM \`${DATASET_ID}.attendance\` WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
+      UNION ALL
+      SELECT CAST(site_id AS STRING) AS site_id, site_name FROM \`${DATASET_ID}.medicine_logs\` WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
+    )
+    WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
     ORDER BY site_name
   `;
 
-  const [rows] = await bq.query({ query, params: { startDate, endDate } });
+  const [rows] = await bq.query({ query });
   return rows;
 }
 

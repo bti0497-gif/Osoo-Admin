@@ -21,19 +21,27 @@ async function getDailyAttendance(date, siteId = null) {
 
   let query = `
     SELECT
-      id, site_id, site_name, member_id, member_name, date,
-      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
-      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
-      location_matched, remote_session_detected,
-      remote_session_type, remote_session_evidence,
-      auto_logout, uploaded_at
-    FROM \`${DATASET_ID}.attendance\`
-    WHERE date = @date
+      ANY_VALUE(t.id) AS id,
+      t.site_id,
+      ANY_VALUE(t.site_name) AS site_name,
+      t.member_id,
+      ANY_VALUE(t.member_name) AS member_name,
+      t.date,
+      FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
+      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
+      LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
+      MAX(t.remote_session_type) AS remote_session_type,
+      MAX(t.remote_session_evidence) AS remote_session_evidence,
+      LOGICAL_OR(COALESCE(t.auto_logout, FALSE) OR (t.logout_time IS NOT NULL AND EXTRACT(HOUR FROM t.logout_time) = 20 AND EXTRACT(MINUTE FROM t.logout_time) = 0)) AS auto_logout,
+      MAX(t.uploaded_at) AS uploaded_at
+    FROM \`${DATASET_ID}.attendance\` AS t
+    WHERE t.date = @date
   `;
 
   const params = { date };
-  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
-  query += ` ORDER BY site_name, member_name`;
+  if (siteId) { query += ` AND t.site_id = @siteId`; params.siteId = siteId; }
+  query += ` GROUP BY t.date, t.site_id, t.member_id ORDER BY site_name, member_name`;
 
   const [rows] = await bq.query({ query, params });
   return rows.map(normalizeRow);
@@ -51,19 +59,27 @@ async function getWeeklyAttendance(startDate, endDate, siteId = null) {
 
   let query = `
     SELECT
-      id, site_id, site_name, member_id, member_name, date,
-      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
-      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
-      location_matched, remote_session_detected,
-      remote_session_type, remote_session_evidence,
-      auto_logout, uploaded_at
-    FROM \`${DATASET_ID}.attendance\`
-    WHERE date BETWEEN @startDate AND @endDate
+      ANY_VALUE(t.id) AS id,
+      t.site_id,
+      ANY_VALUE(t.site_name) AS site_name,
+      t.member_id,
+      ANY_VALUE(t.member_name) AS member_name,
+      t.date,
+      FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
+      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
+      LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
+      MAX(t.remote_session_type) AS remote_session_type,
+      MAX(t.remote_session_evidence) AS remote_session_evidence,
+      LOGICAL_OR(COALESCE(t.auto_logout, FALSE) OR (t.logout_time IS NOT NULL AND EXTRACT(HOUR FROM t.logout_time) = 20 AND EXTRACT(MINUTE FROM t.logout_time) = 0)) AS auto_logout,
+      MAX(t.uploaded_at) AS uploaded_at
+    FROM \`${DATASET_ID}.attendance\` AS t
+    WHERE t.date BETWEEN @startDate AND @endDate
   `;
 
   const params = { startDate, endDate };
-  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
-  query += ` ORDER BY date DESC, login_time DESC`;
+  if (siteId) { query += ` AND t.site_id = @siteId`; params.siteId = siteId; }
+  query += ` GROUP BY t.date, t.site_id, t.member_id ORDER BY t.date DESC, MIN(t.login_time) DESC`;
 
   const [rows] = await bq.query({ query, params });
   return rows.map(normalizeRow);
@@ -84,19 +100,27 @@ async function getMonthlyAttendance(yearMonth, siteId = null) {
 
   let query = `
     SELECT
-      id, site_id, site_name, member_id, member_name, date,
-      FORMAT_TIME('%H:%M:%S', login_time) AS login_time,
-      FORMAT_TIME('%H:%M:%S', logout_time) AS logout_time,
-      location_matched, remote_session_detected,
-      remote_session_type, remote_session_evidence,
-      auto_logout, uploaded_at
-    FROM \`${DATASET_ID}.attendance\`
-    WHERE date BETWEEN @startDate AND @endDate
+      ANY_VALUE(t.id) AS id,
+      t.site_id,
+      ANY_VALUE(t.site_name) AS site_name,
+      t.member_id,
+      ANY_VALUE(t.member_name) AS member_name,
+      t.date,
+      FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
+      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
+      LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
+      MAX(t.remote_session_type) AS remote_session_type,
+      MAX(t.remote_session_evidence) AS remote_session_evidence,
+      LOGICAL_OR(COALESCE(t.auto_logout, FALSE) OR (t.logout_time IS NOT NULL AND EXTRACT(HOUR FROM t.logout_time) = 20 AND EXTRACT(MINUTE FROM t.logout_time) = 0)) AS auto_logout,
+      MAX(t.uploaded_at) AS uploaded_at
+    FROM \`${DATASET_ID}.attendance\` AS t
+    WHERE t.date BETWEEN @startDate AND @endDate
   `;
 
   const params = { startDate, endDate };
-  if (siteId) { query += ` AND site_id = @siteId`; params.siteId = siteId; }
-  query += ` ORDER BY date DESC, login_time DESC`;
+  if (siteId) { query += ` AND t.site_id = @siteId`; params.siteId = siteId; }
+  query += ` GROUP BY t.date, t.site_id, t.member_id ORDER BY t.date DESC, MIN(t.login_time) DESC`;
 
   const [rows] = await bq.query({ query, params });
   return rows.map(normalizeRow);

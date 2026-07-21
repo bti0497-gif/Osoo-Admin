@@ -16,7 +16,6 @@ const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/Temp
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 const GyeonggiMonthlyReportView = lazy(() => import('../features/gyeonggi-reports/monthly-report/GyeonggiMonthlyReportView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
-const MonthlyReportView = lazy(() => import('../features/monthly-report/MonthlyReportView').then((m) => ({ default: m.MonthlyReportView })));
 const PeriodReportView = lazy(() => import('../features/period-report/PeriodReportView').then((m) => ({ default: m.PeriodReportView })));
 
 // ============================================
@@ -70,10 +69,6 @@ export const WORKSPACE_REGISTRY = {
   attendance_dashboard: {
     render: () => React.createElement(AttendanceDashboardView),
     helpText: '전국 현장관리자 출결현황을 조회합니다.'
-  },
-  monthly_report: {
-    render: () => React.createElement(MonthlyReportView),
-    helpText: '월별 유량/약품 데이터를 현장별 Excel 월운영일지로 내보냅니다.'
   },
   period_report: {
     render: () => React.createElement(PeriodReportView),

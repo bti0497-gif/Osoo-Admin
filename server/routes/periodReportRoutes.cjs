@@ -340,12 +340,12 @@ function getRangeCellAddress(range, offset) {
 
   if (isVertical) {
     const row = range.startRow + offset;
-    if (row > range.endRow) return null;
+    if (range.startRow !== range.endRow && row > range.endRow) return null;
     return `${range.startColumn}${row}`;
   }
 
   const col = startCol + offset;
-  if (col > endCol) return null;
+  if (range.startColumn !== range.endColumn && col > endCol) return null;
   return `${colNumberToLetter(col)}${range.startRow}`;
 }
 

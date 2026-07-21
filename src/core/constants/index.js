@@ -24,7 +24,6 @@ export const MENU_REGISTRY = [
     ]
   },
   { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },
-  { id: 'monthly_report', label: '월운영일지', icon: 'summarize', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'monthly_report', displayOrder: 47 },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
     children: [
       { id: 'period_report', label: '기간 데이타 조회', workspaceId: 'period_report', appTarget: APP_TARGETS.ADMIN_APP },

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { GyeonggiMonthlyReportModel } from './GyeonggiMonthlyReportModel';
 
 const currentDate = new Date();
@@ -33,6 +33,10 @@ export function useGyeonggiMonthlyReportViewModel() {
       setLoadingState('error');
     }
   }, [year, month]);
+
+  useEffect(() => {
+    loadSites();
+  }, [loadSites]);
 
   const toggleSite = useCallback((siteId) => {
     setSelectedSiteIds((prev) => {
@@ -69,14 +73,28 @@ export function useGyeonggiMonthlyReportViewModel() {
         selected.map((site) => ({ siteId: site.site_id, siteName: site.site_name }))
       );
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `월운영보고서_${year}년${String(month).padStart(2, '0')}월.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const fileName = `월운영보고서_${year}년${String(month).padStart(2, '0')}월.xlsx`;
+
+      if (window.electronAPI && window.electronAPI.saveFileToTemp && window.electronAPI.openFile) {
+        // 일렉트론 환경: 임시 폴더 저장 후 기본 앱(Excel)으로 자동 열기
+        const arrayBuffer = await blob.arrayBuffer();
+        const saveRes = await window.electronAPI.saveFileToTemp(fileName, arrayBuffer);
+        if (saveRes.success && saveRes.filePath) {
+          await window.electronAPI.openFile(saveRes.filePath);
+        } else {
+          throw new Error(saveRes.error || '임시 폴더 저장에 실패했습니다.');
+        }
+      } else {
+        // 웹 브라우저 환경: 다운로드
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
 
       setSuccessMsg(`${selected.length}개 현장 월운영보고서 출력 완료`);
     } catch (err) {

@@ -152,18 +152,26 @@ function JudgeBadge(row) {
 
 function AccessBadge(row) {
   if (!row.login_time) return null;
-  const isRemote = row.remote_session_detected;
+  const remoteProgram = (
+    row.remote_session_type &&
+    row.remote_session_type !== 'local' &&
+    row.remote_session_type !== 'none'
+  ) ? row.remote_session_type : (row.remote_session_evidence || null);
+
+  const isRemote = Boolean(row.remote_session_detected || remoteProgram);
   const color = isRemote ? '#ef4444' : '#22c55e';
   const label = isRemote ? '원격' : '정상';
-  const title = row.remote_session_evidence || row.remote_session_type || undefined;
   return (
-    <span key="a" title={title} style={{
-      ...styles.badge, background: `${color}22`, color,
-      cursor: title ? 'help' : 'default',
-      borderBottom: title ? '1px dashed currentColor' : 'none',
-    }}>
-      {label}
-    </span>
+    <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+      <span key="a" style={{ ...styles.badge, background: `${color}22`, color }}>
+        {label}
+      </span>
+      {isRemote && remoteProgram && (
+        <span style={{ fontSize: '9px', color: '#ef4444', fontWeight: 600, marginTop: '1px' }}>
+          {remoteProgram}
+        </span>
+      )}
+    </div>
   );
 }
 

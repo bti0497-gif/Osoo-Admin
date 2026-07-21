@@ -24,6 +24,9 @@ const electronAPISchema = {
   // 바이너리 버퍼를 다운로드 폴더에 저장 (대화상자 없음)
   saveFileToDownloads: (fileName, buffer) => ipcRenderer.invoke('file:saveBuffer', { fileName, buffer }),
 
+  // 바이너리 버퍼를 임시 폴더에 저장 (대화상자 없음, 자동 열기용)
+  saveFileToTemp: (fileName, buffer) => ipcRenderer.invoke('file:saveBufferToTemp', { fileName, buffer }),
+
   // 하위 호환성 유지 (웹앱에서 호출해도 무시)
   send: (channel, data) => {
     console.log('[Preload] send called (no-op):', channel);

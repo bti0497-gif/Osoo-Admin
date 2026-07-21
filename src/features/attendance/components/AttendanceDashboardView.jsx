@@ -151,10 +151,14 @@ export function AttendanceDashboardView() {
                       {badgeSpan(row.judgment)}
                     </td>
                     <td style={{ ...styles.td, textAlign: 'center' }}>
-                      <span title={row.remoteEvidence || row.remoteType || undefined}
-                        style={{ cursor: row.remoteEvidence ? 'help' : 'default' }}>
-                        {badgeSpan(row.access, !!row.remoteEvidence)}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        {badgeSpan(row.access)}
+                        {row.access?.label === '원격' && (row.access?.program || row.remoteType) && (
+                          <span style={{ fontSize: '10px', color: '#ef4444', marginTop: '2px', fontWeight: 600 }}>
+                            {row.access?.program || row.remoteType}
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

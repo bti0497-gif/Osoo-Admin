@@ -382,3 +382,20 @@ ipcMain.handle('file:saveBuffer', async (_event, { fileName, buffer }) => {
     return { success: false, error: err.message };
   }
 });
+
+// 바이너리 버퍼를 임시 폴더(Temp)에 저장 후 바로 열기용
+ipcMain.handle('file:saveBufferToTemp', async (_event, { fileName, buffer }) => {
+  try {
+    const tempPath = app.getPath('temp');
+    const filePath = path.join(tempPath, fileName);
+    
+    const nodeBuffer = Buffer.from(buffer);
+    fs.writeFileSync(filePath, nodeBuffer);
+    
+    console.log('[file:saveBufferToTemp] Saved:', filePath);
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('[file:saveBufferToTemp] Error:', err);
+    return { success: false, error: err.message };
+  }
+});

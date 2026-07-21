@@ -135,14 +135,34 @@ export function useAttendanceDashboard() {
 // 판정: 출근 여부
 function getJudgment(row) {
   if (!row.login_time) return { label: '미출근', color: '#94a3b8' };
-  if (row.auto_logout) return { label: '비정상', color: '#f97316' };
+  
+  // auto_logout 플래그가 true이거나 퇴근시각이 20:00(저녁 8시) 정각인 경우 자동 로그아웃이므로 '비정상' 판정
+  const isAutoLogout = Boolean(row.auto_logout) || (
+    typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00')
+  );
+
+  if (isAutoLogout) return { label: '비정상', color: '#f97316' };
   if (row.logout_time) return { label: '정상', color: '#22c55e' };
   return { label: '근무중', color: '#3b82f6' };
 }
 
-// 접속: 원격 여부
+// 접속: 원격 여부 및 접속 프로그램 정보
 function getAccess(row) {
   if (!row.login_time) return { label: '-', color: '#94a3b8' };
-  if (row.remote_session_detected) return { label: '원격', color: '#ef4444' };
+  
+  const program = (
+    row.remote_session_type &&
+    row.remote_session_type !== 'local' &&
+    row.remote_session_type !== 'none'
+  ) ? row.remote_session_type : (row.remote_session_evidence || null);
+
+  const isRemote = Boolean(row.remote_session_detected || program);
+  if (isRemote) {
+    return {
+      label: '원격',
+      color: '#ef4444',
+      program: program || ''
+    };
+  }
   return { label: '정상', color: '#22c55e' };
 }

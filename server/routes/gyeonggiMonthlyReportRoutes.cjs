@@ -277,12 +277,14 @@ function getRangeCellAddress(range, offset) {
 
   if (isVertical) {
     const row = range.startRow + offset;
-    if (row > range.endRow) return null;
+    // 명시적으로 여러 행 범위(startRow != endRow)를 지정했는데 범위를 초과한 경우만 null
+    if (range.startRow !== range.endRow && row > range.endRow) return null;
     return `${range.startColumn}${row}`;
   }
 
   const col = startCol + offset;
-  if (col > endCol) return null;
+  // 명시적으로 여러 열 범위(startColumn != endColumn)를 지정했는데 범위를 초과한 경우만 null
+  if (range.startColumn !== range.endColumn && col > endCol) return null;
   return `${colNumberToLetter(col)}${range.startRow}`;
 }
 

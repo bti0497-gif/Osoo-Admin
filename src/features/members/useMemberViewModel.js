@@ -522,7 +522,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
     };
 
     const filteredMembers = members.filter(m =>
-        m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (m.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (m.site_name1 && m.site_name1.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
@@ -580,7 +580,7 @@ export const useMemberViewModel = ({ showAlert, showConfirm } = {}) => {
     };
 
     return {
-        members: currentMembers,
+        members: filteredMembers,
         allMembersCount: filteredMembers.length,
         loading,
         form,
