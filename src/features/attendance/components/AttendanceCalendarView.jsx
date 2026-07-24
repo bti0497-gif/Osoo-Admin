@@ -158,7 +158,10 @@ function AccessBadge(row) {
     row.remote_session_type !== 'none'
   ) ? row.remote_session_type : (row.remote_session_evidence || null);
 
-  const isRemote = Boolean(row.remote_session_detected || remoteProgram);
+  const isRemote = row.remote_session_detected === true ||
+                   row.remote_session_detected === 1 ||
+                   row.remote_session_detected === 'true' ||
+                   row.remote_session_detected === '1';
   const color = isRemote ? '#ef4444' : '#22c55e';
   const label = isRemote ? '원격' : '정상';
   return (
@@ -179,7 +182,11 @@ function AccessBadge(row) {
 
 function getCellState(row) {
   if (!row.login_time) return 'rest';
-  if (row.remote_session_detected) return 'remote';
+  const isRemote = row.remote_session_detected === true ||
+                   row.remote_session_detected === 1 ||
+                   row.remote_session_detected === 'true' ||
+                   row.remote_session_detected === '1';
+  if (isRemote) return 'remote';
   if (row.auto_logout) return 'abnormal';
   if (!row.logout_time) return 'working';
   return 'normal';

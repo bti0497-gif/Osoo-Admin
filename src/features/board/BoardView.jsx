@@ -445,13 +445,13 @@ const BoardView = ({ currentUser }) => {
                                     <span className="material-icons" style={{ fontSize: '14px' }}>reply</span> 답글 쓰기
                                 </button>
 
-                                {isAuthor(selectedPost.author) && (
-                                    <>
-                                        <button onClick={() => editPost(selectedPost)}
-                                            style={{ height: '30px', padding: '0 12px', backgroundColor: 'white', color: '#1e293b', borderRadius: '6px', border: '1.5px solid #e2e8f0', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>수정</button>
-                                        <button onClick={() => deletePost(selectedPost.id)}
-                                            style={{ height: '30px', padding: '0 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px', border: '1.5px solid #fecaca', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>삭제</button>
-                                    </>
+                                {(isAuthor(selectedPost.author) || isAdmin) && (
+                                    <button onClick={() => editPost(selectedPost)}
+                                        style={{ height: '30px', padding: '0 12px', backgroundColor: 'white', color: '#1e293b', borderRadius: '6px', border: '1.5px solid #e2e8f0', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>수정</button>
+                                )}
+                                {(isAuthor(selectedPost.author) || isAdmin) && (
+                                    <button onClick={() => deletePost(selectedPost.id)}
+                                        style={{ height: '30px', padding: '0 12px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px', border: '1.5px solid #fecaca', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}>삭제</button>
                                 )}
                             </div>
 
@@ -480,7 +480,7 @@ const BoardView = ({ currentUser }) => {
                                                         }}>
                                                         <span className="material-icons" style={{ fontSize: '12px' }}>reply</span> 댓글
                                                     </button>
-                                                    {isAuthor(c.author) && (
+                                                    {(isAuthor(c.author) || isAdmin) && (
                                                         <button onClick={() => deleteComment(c.id, selectedPost.id)}
                                                             style={{
                                                                 background: '#fff1f2', border: '1px solid #fecdd3',
@@ -509,7 +509,7 @@ const BoardView = ({ currentUser }) => {
                                                                 padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
                                                                 fontSize: '0.625rem', fontWeight: 700, color: '#64748b'
                                                             }}>답글</button>
-                                                        {isAuthor(r.author) && (
+                                                        {(isAuthor(r.author) || isAdmin) && (
                                                             <button onClick={() => deleteComment(r.id, selectedPost.id)}
                                                                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700, color: '#ef4444' }}>삭제</button>
                                                         )}

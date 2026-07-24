@@ -156,7 +156,10 @@ function getAccess(row) {
     row.remote_session_type !== 'none'
   ) ? row.remote_session_type : (row.remote_session_evidence || null);
 
-  const isRemote = Boolean(row.remote_session_detected || program);
+  const isRemote = row.remote_session_detected === true ||
+                   row.remote_session_detected === 1 ||
+                   row.remote_session_detected === 'true' ||
+                   row.remote_session_detected === '1';
   if (isRemote) {
     return {
       label: '원격',
