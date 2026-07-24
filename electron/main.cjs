@@ -21,7 +21,7 @@ function sleep(ms) {
 
 function getServerPortFilePath() {
   const baseDir = path.join(__dirname, '..');
-  const appDataPath = path.join(process.env.APPDATA || baseDir, 'Osoo_Handle_App');
+  const appDataPath = path.join(process.env.APPDATA || baseDir, 'Osoo_Admin_App');
   return path.join(appDataPath, 'server.port');
 }
 
@@ -71,7 +71,7 @@ async function startServer() {
   await cleanupExistingPortProcessesAsync();
 
   const appRootPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
-  const appDataPath = path.join(process.env.APPDATA || path.join(__dirname, '..'), 'Osoo_Handle_App');
+  const appDataPath = path.join(process.env.APPDATA || path.join(__dirname, '..'), 'Osoo_Admin_App');
   const serverScriptPath = path.join(appRootPath, 'server.cjs');
 
   // 프로덕션: asarUnpack된 서버 스크립트가 있으면 그것을 사용
@@ -262,7 +262,7 @@ ipcMain.handle('app:getServerPort', () => {
     if (fs.existsSync(portFilePath)) {
       const portStr = fs.readFileSync(portFilePath, 'utf8').trim();
       const port = parseInt(portStr, 10);
-      if (!isNaN(port)) {
+      if (!isNaN(port) && port >= 26241 && port <= 26245) {
         return port;
       }
     }
@@ -398,4 +398,22 @@ ipcMain.handle('file:saveBufferToTemp', async (_event, { fileName, buffer }) => 
     console.error('[file:saveBufferToTemp] Error:', err);
     return { success: false, error: err.message };
   }
+});
+
+// 폴더 선택 공통 다이얼로그
+ipcMain.handle('dialog:selectFolder', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    throw new Error('메인 윈도우가 준비되지 않았습니다.');
+  }
+
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '사진을 저장할 폴더 선택',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+
+  if (canceled || filePaths.length === 0) {
+    return null;
+  }
+
+  return filePaths[0];
 });

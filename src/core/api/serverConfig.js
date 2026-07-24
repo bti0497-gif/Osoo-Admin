@@ -40,7 +40,7 @@ export async function initServerConfig() {
       const deadline = Date.now() + ELECTRON_PORT_WAIT_TIMEOUT_MS;
       while (Date.now() < deadline) {
         const port = await api.getServerPort();
-        if (port && await pingPort(port)) {
+        if (port && port >= PORT_MIN && port <= PORT_MAX && await pingPort(port)) {
           _cachedBase = `http://localhost:${port}`;
           localStorage.setItem(CACHE_KEY, String(port));
           return _cachedBase;

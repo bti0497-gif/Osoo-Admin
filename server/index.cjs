@@ -18,7 +18,7 @@ for (const envPath of envCandidatePaths) {
 }
 
 const BASE_DIR = path.join(__dirname, '..');
-const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Handle_App');
+const appDataPath = path.join(process.env.APPDATA || BASE_DIR, 'Osoo_Admin_App');
 if (!fs.existsSync(appDataPath)) {
   fs.mkdirSync(appDataPath, { recursive: true });
 }
@@ -90,6 +90,7 @@ app.use(require('./routes/locationRoutes.cjs')(BASE_DIR)); // 위치 정보
 app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter); // 경기도 API
 app.use(require('./routes/periodReportRoutes.cjs'));            // 기간 데이터 조회 Excel 내보내기
 app.use(require('./routes/gyeonggiMonthlyReportRoutes.cjs'));   // 경기대 월운영보고서 출력
+app.use(require('./routes/photoExportRoutes.cjs'));          // 현장 사진 일괄 다운로드
 app.use('/api/auth', require('./routes/authRoutes.cjs')()); // 인증
 app.use(require('./routes/attendanceRoutes.cjs'));        // 출근부
 app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR, appDataPath));   // 파일 업로드/다운로드 (/api/upload, /api/download)

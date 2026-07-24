@@ -10,7 +10,7 @@ const fs = require('fs');
 // DB 파일 경로 (사용자 데이터 폴더)
 const getDbPath = () => {
   const userDataPath = process.env.APP_DATA_PATH
-    || path.join(process.env.APPDATA || process.cwd(), 'Osoo_Handle_App');
+    || path.join(process.env.APPDATA || process.cwd(), 'Osoo_Admin_App');
   if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true });
   }

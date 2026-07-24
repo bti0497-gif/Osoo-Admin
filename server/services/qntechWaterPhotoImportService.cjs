@@ -60,7 +60,7 @@ async function ensureDrivePhotoFolder(siteName, date) {
 
 function getDefaultPhotoRoot(baseDir) {
   const appDataRoot = process.env.APPDATA
-    ? path.join(process.env.APPDATA, 'Osoo_Handle_App')
+    ? path.join(process.env.APPDATA, 'Osoo_Admin_App')
     : '';
 
   if (appDataRoot) {

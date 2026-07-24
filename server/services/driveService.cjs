@@ -201,6 +201,32 @@ async function getOrCreateBoardUploadsFolder() {
   }
 }
 
+async function listFilesFolder(folderId) {
+  if (!drive) return [];
+  const normalizedParentId = String(folderId || '').trim();
+  if (!normalizedParentId) return [];
+
+  const response = await drive.files.list({
+    q: `'${normalizedParentId}' in parents and trashed=false`,
+    fields: 'files(id, name, mimeType, size, webViewLink, webContentLink, createdTime)',
+    spaces: 'drive',
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    pageSize: 1000
+  });
+
+  return response.data.files || [];
+}
+
+async function downloadDriveFileBuffer(fileId) {
+  if (!drive) throw new Error('Google Drive 인증 정보가 없습니다.');
+  const response = await drive.files.get(
+    { fileId: String(fileId), alt: 'media', supportsAllDrives: true },
+    { responseType: 'arraybuffer' }
+  );
+  return Buffer.from(response.data);
+}
+
 module.exports = {
   drive,
   driveAuthMode,
@@ -210,5 +236,7 @@ module.exports = {
   findFileInFolder,
   getOrCreateFolderPath,
   uploadBufferToFolder,
-  getOrCreateBoardUploadsFolder
+  getOrCreateBoardUploadsFolder,
+  listFilesFolder,
+  downloadDriveFileBuffer,
 };
