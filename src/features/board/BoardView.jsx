@@ -320,9 +320,6 @@ const BoardView = ({ currentUser }) => {
                                                     {p.is_popup ? (
                                                         <span style={{ fontSize: '0.5625rem', fontWeight: 900, color: '#7c3aed', backgroundColor: '#f3e8ff', padding: '1px 5px', borderRadius: '3px', flexShrink: 0 }}>팝업</span>
                                                     ) : null}
-                                                    {p.target_site && isAdmin && (
-                                                        <span style={{ fontSize: '0.5625rem', fontWeight: 900, color: '#7c3aed', backgroundColor: '#ede9fe', padding: '1px 5px', borderRadius: '3px', flexShrink: 0 }}>→{p.target_site}</span>
-                                                    )}
                                                     {p.parent_id && (
                                                         <span style={{ color: '#94a3b8', fontWeight: 800, marginRight: '4px' }}>↳</span>
                                                     )}
