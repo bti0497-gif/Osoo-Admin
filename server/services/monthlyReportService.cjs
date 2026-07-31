@@ -24,8 +24,7 @@ async function getReportSiteList(year, month) {
   const bq = getBigQueryClient();
   if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
 
-  // BigQuery 실제 운용 테이블(flow_readings, attendance, medicine_logs)에서
-  // 실제 앱이 설치되어 운영 중인 현장 목록을 통합 조회 (미입력 일자/미로그인 상태 포함)
+  // BigQuery 실제 운용 테이블(flow_readings, attendance, medicine_logs)에서 site_id 목록 조회
   const query = `
     SELECT DISTINCT CAST(site_id AS STRING) AS site_id, site_name
     FROM (
@@ -36,11 +35,36 @@ async function getReportSiteList(year, month) {
       SELECT CAST(site_id AS STRING) AS site_id, site_name FROM \`${DATASET_ID}.medicine_logs\` WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
     )
     WHERE site_name IS NOT NULL AND TRIM(site_name) != ''
-    ORDER BY site_name
   `;
 
   const [rows] = await bq.query({ query });
-  return rows;
+
+  // 구글 시트 마스터 현장 목록 로드 (공식 현장명 바인딩 기준)
+  let masterSites = [];
+  try {
+    masterSites = await getSites();
+  } catch (err) {
+    console.warn('[monthlyReportService] Google Sheets 마스터 현장 조회 실패, BigQuery 데이터 사용:', err.message);
+  }
+
+  const masterMap = new Map();
+  (masterSites || []).forEach(s => {
+    if (s?.id && s?.site_name) masterMap.set(String(s.id), String(s.site_name).trim());
+  });
+
+  // site_id 단일화 및 구글 시트 마스터 공식 현장명 매핑
+  const siteMap = new Map();
+  for (const r of rows) {
+    const sId = String(r.site_id);
+    const officialName = masterMap.get(sId) || String(r.site_name).trim();
+    if (!siteMap.has(sId)) {
+      siteMap.set(sId, { site_id: sId, site_name: officialName });
+    }
+  }
+
+  const result = Array.from(siteMap.values());
+  result.sort((a, b) => (a.site_name || '').localeCompare(b.site_name || '', 'ko'));
+  return result;
 }
 
 /**
@@ -200,15 +224,18 @@ function transformToReportData(year, month, siteName, { flowRows, medicineRows, 
   };
 }
 
-/** BigQuery DATE 또는 Date 객체를 YYYY-MM-DD 문자열로 */
+/** BigQuery DATE 또는 Date 객체를 KST/로컬 YYYY-MM-DD 문자열로 변환 (UTC 시차 1일 밀림 오류 방지) */
 function toDateStr(val) {
   if (!val) return '';
   if (typeof val === 'string') return val.slice(0, 10);
-  if (val instanceof Date) {
-    return val.toISOString().slice(0, 10);
-  }
-  // BigQuery DATE 객체 { value: 'YYYY-MM-DD' }
   if (val && typeof val === 'object' && val.value) return String(val.value).slice(0, 10);
+  if (val instanceof Date) {
+    // toISOString() 사용 시 UTC 시차(-9시간)로 인해 KST 00:00 시점 날짜가 전날(1일 딜레이)로 밀리는 버그 방지
+    const year = val.getFullYear();
+    const month = String(val.getMonth() + 1).padStart(2, '0');
+    const day = String(val.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
   return String(val).slice(0, 10);
 }
 

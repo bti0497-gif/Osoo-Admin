@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FileText, Play, Download, Calendar, MapPin, Filter, AlertCircle } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+import { getApiBase } from '../../core/api/serverConfig.js';
 
 const adminHeaders = () => {
   const token = localStorage.getItem('token');
@@ -30,7 +30,7 @@ export function TemplateBuilderView() {
 
   // 양식 목록 로드
   useEffect(() => {
-    fetch(`${API_BASE}/api/gyeonggi/templates`, { headers: adminHeaders() })
+    fetch(`${getApiBase()}/api/gyeonggi/templates`, { headers: adminHeaders() })
       .then(res => res.json())
       .then(data => setTemplates(data.templates || []))
       .catch(err => console.error('양식 로드 실패:', err));
@@ -38,7 +38,7 @@ export function TemplateBuilderView() {
 
   // 현장 목록 로드
   useEffect(() => {
-    fetch(`${API_BASE}/api/certificates/site-normalization`, { headers: adminHeaders() })
+    fetch(`${getApiBase()}/api/certificates/site-normalization`, { headers: adminHeaders() })
       .then(res => res.json())
       .then(data => {
         const siteNames = (data.siteMaster || []).map(s => s.official_name).filter(Boolean);
@@ -69,7 +69,7 @@ export function TemplateBuilderView() {
         sites: selectedSites.join(','),
       });
 
-      const res = await fetch(`${API_BASE}/api/gyeonggi/data-preview?${params}`, {
+      const res = await fetch(`${getApiBase()}/api/gyeonggi/data-preview?${params}`, {
         headers: adminHeaders(),
       });
 
@@ -91,7 +91,7 @@ export function TemplateBuilderView() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/gyeonggi/generate`, {
+      const res = await fetch(`${getApiBase()}/api/gyeonggi/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...adminHeaders() },
         body: JSON.stringify({

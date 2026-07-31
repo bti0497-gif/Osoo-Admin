@@ -187,7 +187,10 @@ module.exports = function (db, baseDir, appDataPath) {
         }
       }
 
-      if (isDriveConfigured()) {
+      // 현장명 루트 폴더는 더 이상 Drive에 자동 생성하지 않는다.
+      // 작업사진·성적서·월정산은 각 업무의 공통 루트 아래에서만 관리한다.
+      const createLegacySiteFoldersInDrive = String(process.env.ENABLE_LEGACY_SITE_DRIVE_FOLDERS || '').toLowerCase() === 'true';
+      if (createLegacySiteFoldersInDrive && isDriveConfigured()) {
         try {
           if (folderNameBySite) {
             driveSiteFolder = await getOrCreateFolder(getDriveRootFolderId(), folderNameBySite);

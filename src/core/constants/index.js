@@ -24,6 +24,12 @@ export const MENU_REGISTRY = [
     ]
   },
   { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },
+  { id: 'settlement', label: '정산 관리', icon: 'receipt_long', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'settlement', displayOrder: 48,
+    children: [
+      { id: 'tax_invoice_mgr', label: '계산서 관리', workspaceId: 'tax_invoice_mgr', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'deposit_receipt_mgr', label: '입금표 관리', workspaceId: 'deposit_receipt_mgr', appTarget: APP_TARGETS.ADMIN_APP },
+    ]
+  },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,
     children: [
       { id: 'period_report', label: '기간 데이타 조회', workspaceId: 'period_report', appTarget: APP_TARGETS.ADMIN_APP },

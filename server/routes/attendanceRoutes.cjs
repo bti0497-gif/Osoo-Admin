@@ -81,7 +81,7 @@ router.get('/api/attendance/sites', async (req, res) => {
     const formattedSites = sites.map((site) => ({
       site_id: site.id,
       site_name: site.site_name,
-    }));
+    })).sort((a, b) => (a.site_name || '').localeCompare(b.site_name || '', 'ko'));
     res.json({
       success: true,
       count: formattedSites.length,

@@ -305,6 +305,26 @@ ipcMain.handle('shell:openFile', async (_event, filePath) => {
   if (err) throw new Error(err);
   return { ok: true };
 });
+const { Notification } = require('electron');
+
+ipcMain.handle('notification:show', (_event, { title, body }) => {
+  if (!Notification.isSupported()) return { success: false };
+  const notification = new Notification({
+    title: title || '🚨 [알림]',
+    body: body || '',
+    silent: false,
+  });
+  notification.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+  notification.show();
+  return { success: true };
+});
+
 ipcMain.handle('app:checkForUpdates', () => {
   return checkForUpdates();
 });

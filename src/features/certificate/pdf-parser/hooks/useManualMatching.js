@@ -140,6 +140,8 @@ export function useManualMatching(siteMaster) {
     const date = selectedDate || 'YYYYMMDD';
     const defaultName = generateFileName(prefix, date, siteName);
 
+    console.log(`[CERT_CLIENT_DIAGNOSTIC] assignSite: Page ${index + 1}, siteId: '${siteId}', siteName: '${siteName}', defaultFileName: '${defaultName}'`);
+
     // 1. 페이지 상태 업데이트
     setPages(prev => {
       const next = [...prev];
@@ -281,8 +283,8 @@ export function useManualMatching(siteMaster) {
         }
 
         const data = await res.json();
-        if (!data.success && data.failed_count > 0) {
-          throw new Error(data.errors?.[0]?.message || '드라이브 전송 결과 실패');
+        if (!data.success || (data.uploaded_count === 0 && !data.already_exists && !data.alreadyExists)) {
+          throw new Error(data.errors?.[0]?.message || 'Google Drive 전송 실패 (드라이브 전송 건수 0개)');
         }
 
         return data;

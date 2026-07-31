@@ -82,11 +82,13 @@ app.use(require('./routes/boardRoutes.cjs')());            // 게시판 (/api/bo
 app.use(require('./routes/certificateRoutes.cjs')());      // 성적서 (/api/certificates/*)
 app.use(require('./routes/certificateQueueRoutes.cjs')());  // 성적서 업로드 큐 (로컬 저장 + 순차 동기화)
 app.use(require('./routes/siteMasterRoutes.cjs'));             // 현장 마스터 캐시
+app.use(require('./routes/vendorRoutes.cjs'));                 // 거래처 기준정보 (Google Sheets)
 app.use(require('./routes/monthlyReportRoutes.cjs'));          // 월운영일지 Excel 내보내기
 app.use(require('./routes/certificateWaterQualityRoutes.cjs')); // 수질 데이터
 app.use(require('./routes/adminDataRoutes.cjs')());        // 데이터 관리
 app.use(require('./routes/aiRoutes.cjs')());               // AI 기능
 app.use(require('./routes/locationRoutes.cjs')(BASE_DIR)); // 위치 정보
+app.use('/api/settlement', require('./routes/settlementRoutes.cjs')(db, BASE_DIR, appDataPath)); // 정산 (계산서/입금표 ROI 영구 설정)
 app.use(require('./routes/gyeonggiRoutes.cjs').gyeonggiRouter); // 경기도 API
 app.use(require('./routes/periodReportRoutes.cjs'));            // 기간 데이터 조회 Excel 내보내기
 app.use(require('./routes/gyeonggiMonthlyReportRoutes.cjs'));   // 경기대 월운영보고서 출력

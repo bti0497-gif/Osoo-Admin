@@ -144,6 +144,7 @@ const BoardView = ({ currentUser }) => {
                 setUploadProgress({ loading: false, percent: 0, fileName: '' });
             }
         } catch (err) {
+            console.error('[BoardView] handleFileUpload error:', err);
             clearInterval(progressInterval);
             setUploadProgress({ loading: false, percent: 0, fileName: '' });
             await showAlert('파일 업로드 중 오류가 발생했습니다.');
@@ -215,6 +216,14 @@ const BoardView = ({ currentUser }) => {
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit'
         });
+    };
+
+    const [nowTimestamp] = useState(() => Date.now());
+    const isNewPost = (dateStr) => {
+        const d = parseBoardDate(dateStr);
+        if (!d) return false;
+        const diffHours = (nowTimestamp - d.getTime()) / (1000 * 60 * 60);
+        return diffHours >= 0 && diffHours <= 24;
     };
 
     const getAttachments = (attachmentsStr) => {
@@ -308,7 +317,7 @@ const BoardView = ({ currentUser }) => {
                                                 onMouseLeave={e => e.currentTarget.style.backgroundColor = p.is_notice ? '#fffbeb' : 'transparent'}
                                             >
                                                 <span style={{ width: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 500 }}>
-                                                    {p.is_notice ? '📌' : (p.parent_id ? '' : (currentPage - 1) * 10 + index + 1)}
+                                                    {p.is_notice ? '📌' : (p.parent_id ? '' : (p.postNo ?? ((currentPage - 1) * 10 + index + 1)))}
                                                 </span>
                                                 <div style={{
                                                     flex: 1, display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden',
@@ -326,6 +335,22 @@ const BoardView = ({ currentUser }) => {
                                                     <span style={{ fontWeight: p.parent_id ? 500 : 700, color: '#1e293b', fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                         {p.title}
                                                     </span>
+                                                    {isNewPost(p.created_at) && (
+                                                        <span style={{
+                                                            fontSize: '0.5625rem',
+                                                            fontWeight: 900,
+                                                            color: '#ffffff',
+                                                            backgroundColor: '#ef4444',
+                                                            padding: '1px 4px',
+                                                            borderRadius: '3px',
+                                                            flexShrink: 0,
+                                                            lineHeight: 1,
+                                                            letterSpacing: '0.02em',
+                                                            boxShadow: '0 1px 2px rgba(239, 68, 68, 0.4)'
+                                                        }} title="24시간 이내 등록된 새글">
+                                                            N
+                                                        </span>
+                                                    )}
                                                     {p.comment_count > 0 && (
                                                         <span style={{ fontSize: '0.625rem', color: '#3b82f6', fontWeight: 800, flexShrink: 0 }}>
                                                             [{p.comment_count}]

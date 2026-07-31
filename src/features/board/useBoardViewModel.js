@@ -113,10 +113,10 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             }
         });
 
-        // 공지글 스레드 정렬: 공지글 최신순, 답글은 생성일순
+        // 공지글 스레드 정렬: 등록순 (생성일 오름차순)
         const sortedNoticePosts = [];
         const sortedNoticeThreadList = Object.values(noticeThreads)
-            .sort((a, b) => b.rootCreatedAt - a.rootCreatedAt);
+            .sort((a, b) => a.rootCreatedAt - b.rootCreatedAt);
 
         sortedNoticeThreadList.forEach(thread => {
             // 공지글 먼저
@@ -129,18 +129,20 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             sortedNoticePosts.push(...replies);
         });
 
-        // 일반 스레드 정렬: 최근 활동 순
+        // 일반 스레드 정렬: 등록순 (ASCENDING: 오래된 글이 상단, 최근 글이 맨 아래에 오도록 정렬)
         const sortedRegularPosts = [];
         const regularThreadList = Object.keys(regularThreads).map(rootId => {
             const thread = regularThreads[rootId];
-            const lastActivity = thread.items.reduce((max, curr) => {
+            const rootPost = thread.items.find(p => !p.parent_id);
+            const rootCreatedAt = rootPost ? toTimestampMs(rootPost.created_at) : thread.items.reduce((min, curr) => {
                 const currTime = toTimestampMs(curr.created_at);
-                return currTime > max ? currTime : max;
+                return min === 0 || currTime < min ? currTime : min;
             }, 0);
-            return { rootId, items: thread.items, lastActivity };
+            return { rootId, items: thread.items, rootCreatedAt };
         });
 
-        regularThreadList.sort((a, b) => b.lastActivity - a.lastActivity);
+        // 등록순 오름차순 정렬 (a - b: 최근 글이 맨 아래에 위치)
+        regularThreadList.sort((a, b) => a.rootCreatedAt - b.rootCreatedAt);
 
         regularThreadList.forEach(t => {
             const flatten = (parentId = null) => {
@@ -156,6 +158,14 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
                 });
             };
             flatten();
+        });
+
+        // 일반 게시글 등록 순서대로 고유 번호(postNo) 연속 부여 (1, 2, 3, 4...)
+        let regularPostNumber = 1;
+        sortedRegularPosts.forEach(p => {
+            if (!p.parent_id) {
+                p.postNo = regularPostNumber++;
+            }
         });
 
         return [...sortedNoticePosts, ...sortedRegularPosts];

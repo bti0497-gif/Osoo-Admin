@@ -22,14 +22,14 @@ $root = '${scriptRoot}'
 $currentPid = ${currentPid}
 $candidateIds = New-Object 'System.Collections.Generic.HashSet[int]'
 
-# 1. netstat -ano 출력을 정규식 분석하여 고유 포트 범위(26240~26245)를 쥐고 있는 PID 식별 (일반 권한 100% 작동)
+# 1. netstat -ano 출력을 분석하여 고유 포트 범위(26240~26245)를 점유 중인 PID 식별
 netstat -ano | ForEach-Object {
-    if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)\\[::1\\]:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') {
+    if ($_ -match ':2624[0-5]\\b') {
         $tokens = $_ -split '\\s+' | Where-Object { $_ }
-        if ($tokens.Length -ge 5) {
-            $pid = [int]$tokens[-1]
-            if ($pid -and $pid -ne $currentPid) {
-                [void]$candidateIds.Add($pid)
+        if ($tokens -and $tokens.Count -ge 5) {
+            $targetPid = [int]$tokens[-1]
+            if ($targetPid -and $targetPid -ne $currentPid) {
+                [void]$candidateIds.Add($targetPid)
             }
         }
     }
@@ -59,7 +59,7 @@ $candidateIds | ForEach-Object { Stop-Process -Id $_ -Force }
 for ($i = 0; $i -lt 15; $i++) {
     $occupied = $false
     netstat -ano | ForEach-Object {
-        if ($_ -match '(?i)127\\.0\\.0\\.1:2624[0-5]\\b' -or $_ -match '(?i)0\\.0\\.0\\.0:2624[0-5]\\b') {
+        if ($_ -match ':2624[0-5]\\b') {
             $occupied = $true
         }
     }
@@ -83,7 +83,9 @@ function cleanupExistingDevProcesses() {
             cwd: __dirname,
         });
 
-        killer.on('exit', () => resolve());
+        killer.on('exit', () => {
+            setTimeout(resolve, 800);
+        });
         killer.on('error', () => resolve());
     });
 }

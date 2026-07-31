@@ -12,13 +12,29 @@ const OAUTH_SCOPES = [
 ];
 
 function findOAuthClientSecretFile() {
-  try {
-    const files = fs.readdirSync(WORKSPACE_ROOT);
-    const match = files.find((name) => /^client_secret_.*\.json$/i.test(String(name || '').trim()));
-    return match ? path.join(WORKSPACE_ROOT, match) : '';
-  } catch (_) {
-    return '';
+  const candidates = [
+    path.join(__dirname, '../config/client_secret.json'),
+    path.join(__dirname, '../config'),
+    WORKSPACE_ROOT,
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config') : '',
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo_Admin_App') : '',
+    process.resourcesPath ? process.resourcesPath : '',
+    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config') : '',
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'server', 'config') : '',
+  ].filter(Boolean);
+
+  for (const item of candidates) {
+    if (fs.existsSync(item)) {
+      try {
+        const stat = fs.statSync(item);
+        if (stat.isFile()) return item;
+        const files = fs.readdirSync(item);
+        const match = files.find((name) => /^client_secret.*\.json$/i.test(String(name || '').trim()));
+        if (match) return path.join(item, match);
+      } catch (_) {}
+    }
   }
+  return '';
 }
 
 function loadOAuthClientConfig() {
@@ -53,6 +69,32 @@ function loadOAuthClientConfig() {
   }
 }
 
+function findServiceAccountKeyFile() {
+  const candidates = [
+    path.join(__dirname, '../config/google-key.json'),
+    path.join(__dirname, '../config/work-jindan-194620a46d59.json'),
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config', 'google-key.json') : '',
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config', 'work-jindan-194620a46d59.json') : '',
+    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config', 'google-key.json') : '',
+    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config', 'work-jindan-194620a46d59.json') : '',
+  ].filter(Boolean);
+
+  for (const file of candidates) {
+    if (fs.existsSync(file)) return file;
+  }
+
+  // 폴백: server/config 내의 모든 json 파일 탐색
+  const configDir = path.join(__dirname, '../config');
+  if (fs.existsSync(configDir)) {
+    try {
+      const files = fs.readdirSync(configDir);
+      const match = files.find(f => /^(google-key|work-jindan).*\.json$/i.test(f));
+      if (match) return path.join(configDir, match);
+    } catch (_) {}
+  }
+  return '';
+}
+
 function createDriveAuth() {
   const refreshToken = String(process.env.GOOGLE_REFRESH_TOKEN || '').trim();
   const oauthClient = loadOAuthClientConfig();
@@ -66,15 +108,17 @@ function createDriveAuth() {
     return { auth: oauth2, mode: 'oauth' };
   }
 
-  const serviceAccountReady = fs.existsSync(KEY_FILE);
-  if (serviceAccountReady) {
+  const keyFile = findServiceAccountKeyFile();
+  if (keyFile) {
+    console.log('[DriveService] Service Account 인증 키 발견:', keyFile);
     const saAuth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE,
+      keyFile,
       scopes: OAUTH_SCOPES,
     });
     return { auth: saAuth, mode: 'service_account' };
   }
 
+  console.warn('[DriveService] 구글 드라이브 인증 키 파일을 찾을 수 없습니다.');
   return { auth: null, mode: 'none' };
 }
 
@@ -132,6 +176,29 @@ async function getOrCreateFolder(parentFolderId, folderName) {
   });
 
   return folder.data;
+}
+
+async function findFolderInParent(parentFolderId, folderName) {
+  if (!drive) return null;
+  const normalizedParentId = String(parentFolderId || '').trim();
+  const normalizedName = String(folderName || '').trim();
+  if (!normalizedParentId || !normalizedName) return null;
+
+  const response = await drive.files.list({
+    q: [
+      "mimeType='application/vnd.google-apps.folder'",
+      `name='${escapeDriveQueryValue(normalizedName)}'`,
+      `'${normalizedParentId}' in parents`,
+      'trashed=false',
+    ].join(' and '),
+    fields: 'files(id, name, webViewLink)',
+    spaces: 'drive',
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+    pageSize: 1,
+  });
+
+  return response.data.files?.[0] || null;
 }
 
 async function findFileInFolder(parentFolderId, fileName) {
@@ -233,6 +300,7 @@ module.exports = {
   isDriveConfigured,
   getDriveRootFolderId,
   getOrCreateFolder,
+  findFolderInParent,
   findFileInFolder,
   getOrCreateFolderPath,
   uploadBufferToFolder,

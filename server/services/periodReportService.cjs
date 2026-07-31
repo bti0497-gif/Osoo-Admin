@@ -88,13 +88,19 @@ async function getWaterQualityData(siteName, startDate, endDate) {
 }
 
 /**
- * BigQuery DATE 객체를 YYYY-MM-DD 문자열로 변환
+ * BigQuery DATE 객체 또는 JS Date 객체를 KST/로컬 YYYY-MM-DD 문자열로 변환 (UTC 시차 1일 밀림 오류 방지)
  */
 function bqDateToStr(d) {
   if (!d) return null;
-  if (typeof d === 'string') return d;
-  if (d.value) return d.value;
-  return String(d);
+  if (typeof d === 'string') return d.slice(0, 10);
+  if (d && typeof d === 'object' && d.value) return String(d.value).slice(0, 10);
+  if (d instanceof Date) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return String(d).slice(0, 10);
 }
 
 module.exports = {

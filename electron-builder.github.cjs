@@ -7,9 +7,6 @@
 module.exports = {
   appId: 'com.osoo.admin-app',
   productName: 'Admin Only',
-  extraMetadata: {
-    version: '1.0.2'
-  },
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
@@ -31,10 +28,12 @@ module.exports = {
   extraResources: [
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
+    { from: 'server/config', to: 'server/config' },
   ],
   asarUnpack: [
     'server.cjs',
     'server/**/*',
+    'server/config/*',
     '.env.local'
   ],
   win: {

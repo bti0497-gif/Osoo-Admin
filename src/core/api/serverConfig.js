@@ -20,6 +20,14 @@ async function pingPort(port) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+    const res = await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (res.ok) return true;
+  } catch (_) {}
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
     const res = await fetch(`http://localhost:${port}/api/ping`, { signal: ctrl.signal });
     clearTimeout(timer);
     return res.ok;
@@ -41,7 +49,7 @@ export async function initServerConfig() {
       while (Date.now() < deadline) {
         const port = await api.getServerPort();
         if (port && port >= PORT_MIN && port <= PORT_MAX && await pingPort(port)) {
-          _cachedBase = `http://localhost:${port}`;
+          _cachedBase = `http://127.0.0.1:${port}`;
           localStorage.setItem(CACHE_KEY, String(port));
           return _cachedBase;
         }
@@ -55,7 +63,7 @@ export async function initServerConfig() {
   if (cached) {
     const port = parseInt(cached, 10);
     if (!isNaN(port) && port >= PORT_MIN && port <= PORT_MAX && await pingPort(port)) {
-      _cachedBase = `http://localhost:${port}`;
+      _cachedBase = `http://127.0.0.1:${port}`;
       return _cachedBase;
     }
     localStorage.removeItem(CACHE_KEY);
@@ -76,7 +84,7 @@ export async function initServerConfig() {
     );
     const found = scanResults.find((r) => r.ok);
     if (found) {
-      _cachedBase = `http://localhost:${found.port}`;
+      _cachedBase = `http://127.0.0.1:${found.port}`;
       localStorage.setItem(CACHE_KEY, String(found.port));
       console.log(`[ServerConfig] 병렬 스캔을 통해 포트 ${found.port}에서 서버 발견`);
       return _cachedBase;

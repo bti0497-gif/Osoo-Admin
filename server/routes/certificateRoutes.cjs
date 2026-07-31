@@ -8,6 +8,7 @@ const { isSheetsConfigured: isSitesSheetsConfigured, getSites: getSitesFromSheet
 const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
 const { syncCertificateCacheForSiteMonth } = require('../services/certificateCacheSyncService.cjs');
+const { logCertDiagnostic } = require('../services/certAuditLogger.cjs');
 
 const router = express.Router();
 
@@ -136,11 +137,11 @@ async function resolveMonthFolders({ year, month }) {
       continue;
     }
 
-    // 월 매칭: 0패딩 유무 관계없이 매칭 (04 ↔ 4)
-    const normalizedQueryMonth = String(Number(month)); // "04" → "4"
+    // 월 매칭: 고정 규격 2자리 0패딩 (01, 02, ..., 07, 08) 기준 매칭
+    const targetMonth = String(month).padStart(2, '0');
     const monthFolder = months.find((f) => {
-      const folderMonth = String(f.name || '');
-      return folderMonth === month || folderMonth === normalizedQueryMonth;
+      const folderMonth = String(f.name || '').trim();
+      return folderMonth === targetMonth || folderMonth === String(Number(targetMonth));
     });
     if (!monthFolder) continue;
     const key = `${year}|${month}|${monthFolder.id}`;
@@ -324,6 +325,22 @@ function buildAliasCandidates(siteName) {
 }
 
 async function loadSiteMaster() {
+  try {
+    const { getSiteMaster } = require('../services/siteMasterCacheService.cjs');
+    const cachedSites = getSiteMaster();
+    if (cachedSites && cachedSites.length > 0) {
+      return cachedSites.map((site) => {
+        const officialName = String(site.site_name || site.official_name || '').trim();
+        return {
+          site_id: String(site.id || site.site_id || '').trim(),
+          official_name: officialName,
+          aliases: buildAliasCandidates(officialName),
+          normalized_key: normalizeSiteNameKey(officialName),
+        };
+      }).filter((item) => item.site_id && item.official_name);
+    }
+  } catch (_) {}
+
   const sheetActive = isSitesSheetsConfigured();
   if (sheetActive) {
     const sites = await getSitesFromSheets();
@@ -498,14 +515,29 @@ function ensureAdmin(req, res) {
 function parseManualCertificateFileName(fileName) {
   const normalized = String(fileName || '').trim();
   const match = normalized.match(MANUAL_CERT_FILE_RE);
-  if (!match) return null;
-  return {
-    prefix: String(match[1] || '').toLowerCase(),
-    yyyymmdd: String(match[2] || ''),
-    sample_yyyymmdd: String(match[3] || ''),
-    site_name_raw: String(match[4] || '').trim(),
-    ext: String(match[5] || '').toLowerCase(),
-  };
+  if (match) {
+    return {
+      prefix: String(match[1] || '성적서').toLowerCase(),
+      yyyymmdd: String(match[2] || '').replace(/[-._]/g, ''),
+      sample_yyyymmdd: String(match[3] || '').replace(/[-._]/g, ''),
+      site_name_raw: String(match[4] || '').trim(),
+      ext: String(match[5] || '').toLowerCase(),
+    };
+  }
+
+  // 폴백 매칭: 하이픈 날짜(2026-07-16)나 접두어가 생략된 수질 이미지 파일명 파싱
+  const fallbackMatch = normalized.match(/^(?:(성적서|기타_성적서|mlss|ss)[_-])?(\d{4}[-_.]?\d{2}[-_.]?\d{2})[_-](.+)\.(jpg|jpeg|png|webp|pdf)$/i);
+  if (fallbackMatch) {
+    return {
+      prefix: String(fallbackMatch[1] || '성적서').toLowerCase(),
+      yyyymmdd: String(fallbackMatch[2] || '').replace(/[-._]/g, ''),
+      sample_yyyymmdd: '',
+      site_name_raw: String(fallbackMatch[3] || '').trim(),
+      ext: String(fallbackMatch[4] || '').toLowerCase(),
+    };
+  }
+
+  return null;
 }
 
 function decodeUploadNameCandidates(value) {
@@ -1384,7 +1416,8 @@ module.exports = function () {
     }
   });
 
-  // 성적서 목록은 BigQuery/Drive를 단일 진실원본으로 사용한다. (로컬 SQLite 미사용)
+  const certListCache = new Map();
+  const CERT_LIST_CACHE_TTL = 60 * 1000; // 1분 캐시
 
   router.get('/api/certificates', async (req, res) => {
     try {
@@ -1392,6 +1425,16 @@ module.exports = function () {
       const requestedSiteName = String(req.query.siteName || '').trim();
       const userSiteName = resolveUserSiteName(req);
       const userName = resolveUserName(req);
+      const year = normalizeYear(req.query.year);
+      const month = normalizeMonth(req.query.month);
+
+      const cacheKey = `${year || 'all'}_${month || 'all'}_${requestedSiteName || 'all'}_${role}_${userSiteName}`;
+      const now = Date.now();
+      const cached = certListCache.get(cacheKey);
+      if (cached && (now - cached.timestamp < CERT_LIST_CACHE_TTL)) {
+        return res.json({ success: true, items: cached.items, cached: true });
+      }
+
       let siteNameFilters = requestedSiteName ? [requestedSiteName] : [];
       if (role === 'user') {
         const allowedFromHeader = await getDirectionalPairSiteNamesFromSheets(userSiteName);
@@ -1405,9 +1448,6 @@ module.exports = function () {
         }
         siteNameFilters = requestedSiteName ? [requestedSiteName] : allowedSites;
       }
-      const year = normalizeYear(req.query.year);
-      const month = normalizeMonth(req.query.month);
-      // 디버깅: 요청 파라미터 로깅
       console.log('[Certificates] Query params:', { year, month, requestedSiteName, siteNameFilters: siteNameFilters.length });
       const normalizedSiteFilterKeys = new Set(
         siteNameFilters.map((name) => normalizeSiteNameKey(name)).filter(Boolean)
@@ -1417,7 +1457,6 @@ module.exports = function () {
       // 사용자 의도: 성적서 JPG 목록은 Drive 기준으로 보여야 한다.
       if (drive && CERTIFICATE_ROOT_FOLDER_ID) {
         const folders = await resolveMonthFolders({ year, month });
-        // 디버깅: Drive 폴더 탐색 결과
         console.log('[Certificates] Drive folders found:', folders?.length || 0, folders?.map(f => `${f.year}/${f.month}`).join(', ') || 'none');
         const driveItems = [];
 
@@ -1425,7 +1464,6 @@ module.exports = function () {
           const files = await listFiles(folder.folderId);
           console.log(`[Certificates] Drive folder ${folder.year}/${folder.month}: ${files.length} files`);
           for (const file of files) {
-            // 성적서 목록은 결과 파일만 노출 (ZIP/기타 산출물 제외)
             if (!isAllowedManualMedia(file.name)) {
               continue;
             }
@@ -1475,9 +1513,7 @@ module.exports = function () {
           }
         }
 
-        console.log(`[Certificates] driveItems: ${driveItems.length}`);
         items = driveItems.filter((item) => isAllowedManualMedia(item.fileName || ''));
-        console.log(`[Certificates] After final filter: ${items.length}`);
       }
 
       items.sort((a, b) => {
@@ -1485,8 +1521,7 @@ module.exports = function () {
         return String(a.fileName).localeCompare(String(b.fileName), 'ko');
       });
 
-      // 디버깅: 최종 반환 결과
-      console.log('[Certificates] Total items returned:', items.length);
+      certListCache.set(cacheKey, { timestamp: Date.now(), items });
       res.json({ success: true, items });
     } catch (err) {
       console.error('[Certificates] Error:', err.message);
@@ -1705,6 +1740,20 @@ module.exports = function () {
             fileName: finalFileName,
             buffer: file.buffer,
             mimeType: file.mimetype || 'application/octet-stream',
+          });
+
+          logCertDiagnostic('MANUAL_UPLOAD_FILE', {
+            clientUser: req.headers['x-user-name'] || 'unknown',
+            sourcePdfName,
+            bodySiteName,
+            matchedSiteName: matched.site_name || siteNameRaw,
+            reportDate,
+            pageOrder: bodyPageOrder,
+            originalFileName: file.originalname,
+            finalFileName,
+            yearFolder: year,
+            monthFolder: month,
+            driveFileId: uploaded.id,
           });
 
           items.push({

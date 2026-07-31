@@ -26,7 +26,20 @@ const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 
 const router = express.Router();
 
-const TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'gyeonggi', '월운영보고서.xlsx');
+function getTemplatePath() {
+  const relPath = path.join('templates', 'gyeonggi', '월운영보고서.xlsx');
+  const candidates = [
+    path.join(__dirname, '..', '..', relPath),
+    process.resourcesPath ? path.join(process.resourcesPath, relPath) : '',
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', relPath) : '',
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo_Admin_App', relPath) : '',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(__dirname, '..', '..', relPath);
+}
 
 function resolveUserRole(req) {
   return decodeUserContextHeader(
@@ -69,7 +82,8 @@ router.post('/api/gyeonggi/monthly-report/export', async (req, res) => {
     return res.status(400).json({ success: false, message: 'year, month, sites 필요' });
   }
 
-  if (!fs.existsSync(TEMPLATE_PATH)) {
+  const templatePath = getTemplatePath();
+  if (!fs.existsSync(templatePath)) {
     return res.status(400).json({
       success: false,
       message: '월운영보고서 양식이 없습니다. 먼저 양식관리에서 월운영보고서.xlsx를 업로드해 주세요.',
@@ -90,7 +104,8 @@ router.post('/api/gyeonggi/monthly-report/export', async (req, res) => {
 });
 
 async function buildMonthlyReportWorkbook(year, month, sites) {
-  const templateBuffer = fs.readFileSync(TEMPLATE_PATH);
+  const templatePath = getTemplatePath();
+  const templateBuffer = fs.readFileSync(templatePath);
   const zip = await JSZip.loadAsync(templateBuffer);
   let workbookXml = await zip.file('xl/workbook.xml').async('string');
   let workbookRelsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');

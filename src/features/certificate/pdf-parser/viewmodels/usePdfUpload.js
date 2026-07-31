@@ -109,10 +109,25 @@ export function usePdfUpload() {
       for (let index = 0; index < targets.length; index += 1) {
         const result = targets[index];
         const extracted = result.extracted;
-        setUploadProgress((prev) => ({
-          ...prev,
-          currentFileName: `${extracted.basename}.jpg`,
-        }));
+        setUploadProgress((prev) => {
+          const done = (prev?.driveDone || 0) + 1;
+          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+          window.dispatchEvent(new CustomEvent('global-upload-progress', {
+            detail: {
+              active: done < total,
+              title: '성적서 드라이브 전송 중',
+              currentFile: `${extracted.basename}.jpg`,
+              done,
+              total,
+              percent,
+              workspaceId: 'pdf_parser',
+            }
+          }));
+          return {
+            ...prev,
+            currentFileName: `${extracted.basename}.jpg`,
+          };
+        });
 
         try {
           if (!result.imgBlob) {
@@ -161,6 +176,8 @@ export function usePdfUpload() {
           }));
         }
       }
+
+      window.dispatchEvent(new CustomEvent('global-upload-progress', { detail: { active: false } }));
 
       const finalStatus = {
         ...stats,

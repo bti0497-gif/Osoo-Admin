@@ -35,10 +35,10 @@ export function useAttendanceDashboard() {
       if (!res.ok) throw new Error('현장 목록 조회 실패');
       const result = await res.json();
       if (result.success) {
-        // 중복 site_id 제거
-        const uniqueSites = result.data.filter((site, index, self) =>
-          index === self.findIndex((s) => s.site_id === site.site_id)
-        );
+        // 중복 site_id 제거 및 가나다 한국어 사전순 정렬
+        const uniqueSites = result.data
+          .filter((site, index, self) => index === self.findIndex((s) => s.site_id === site.site_id))
+          .sort((a, b) => (a.site_name || '').localeCompare(b.site_name || '', 'ko'));
         setSites(uniqueSites);
       }
     } catch (err) {

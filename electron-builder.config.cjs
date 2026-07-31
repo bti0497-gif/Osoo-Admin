@@ -8,7 +8,7 @@ module.exports = {
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
-    output: 'release',
+    output: 'release/v1.0.12',
     buildResources: 'build',
   },
   files: [
@@ -26,11 +26,13 @@ module.exports = {
   extraResources: [
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
+    { from: 'server/config', to: 'server/config' },
     { from: '.env.local', to: '.env.local' },
   ],
   asarUnpack: [
     'server.cjs',
     'server/**/*',
+    'server/config/*',
     '.env.local'
   ],
   win: {

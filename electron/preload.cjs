@@ -14,6 +14,7 @@ const electronAPISchema = {
   openFile: (filePath) => ipcRenderer.invoke('shell:openFile', filePath),
   roiSave: (data) => ipcRenderer.invoke('roi:save', data),
   roiLoad: () => ipcRenderer.invoke('roi:load'),
+  showNotification: (title, body) => ipcRenderer.invoke('notification:show', { title, body }),
 
   // 웹뷰 프리로드 스크립트 경로 동적 제공
   getWebviewPreloadPath: () => ipcRenderer.invoke('webview:getPreloadPath'),

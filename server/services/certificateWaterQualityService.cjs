@@ -33,8 +33,8 @@ const REGIONS = [
   'europe-west1',
 ];
 
-// 캐시된 리전 (한번 찾으면 재사용)
-let cachedRegion = null;
+// 캐시된 리전 (디폴트 asia-northeast3 설정하여 탐색 딜레이 0ms 보장)
+let cachedRegion = 'asia-northeast3';
 
 /**
  * 리전 자동 탐지
@@ -104,8 +104,8 @@ async function queryWaterQualityData(year, month, siteName = null) {
           ORDER BY uploaded_at DESC
         ) AS rn
       FROM \`${DATASET}.${TABLE}\`
-      WHERE report_date >= @startDate
-        AND report_date < @endDate
+      WHERE COALESCE(sample_date, report_date) >= @startDate
+        AND COALESCE(sample_date, report_date) < @endDate
         ${siteName && siteName !== 'all' ? 'AND site_name = @siteName' : ''}
     )
     WHERE rn = 1

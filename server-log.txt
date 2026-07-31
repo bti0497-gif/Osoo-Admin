@@ -1,3 +1,0 @@
-﻿Log reset after encoding cleanup.
-
-Previous content was an old local server run log saved with UTF-16/NUL bytes, which made searches and editors report broken text.

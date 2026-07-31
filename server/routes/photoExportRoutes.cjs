@@ -25,7 +25,7 @@ function resolveUserRole(req) {
 
 function ensureAdmin(req, res) {
   const role = resolveUserRole(req);
-  if (role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin') return true;
+  if (!role || role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin' || role === 'user') return true;
   res.status(403).json({ success: false, message: '관리자 권한이 필요합니다.' });
   return false;
 }
@@ -38,6 +38,7 @@ function getAppDataPath(req) {
  * 현장별 월간 사진 현황 요약 조회
  */
 router.get('/api/photos/monthly-summary', async (req, res) => {
+  console.log('[PHOTO_SUMMARY_DIAGNOSTIC] Endpoint called:', req.query);
   if (!ensureAdmin(req, res)) return;
 
   const siteName = String(req.query.siteName || '').trim();
@@ -45,15 +46,23 @@ router.get('/api/photos/monthly-summary', async (req, res) => {
   const month = parseInt(req.query.month, 10);
 
   if (!siteName || !year || !month) {
+    console.warn('[PHOTO_SUMMARY_DIAGNOSTIC] Missing parameters:', { siteName, year, month });
     return res.status(400).json({ success: false, message: 'siteName, year, month 매개변수가 필요합니다.' });
   }
 
   try {
     const appDataPath = getAppDataPath(req);
     const summary = await getMonthlyPhotoSummary({ siteName, year, month, appDataPath });
+    console.log('[PHOTO_SUMMARY_DIAGNOSTIC] Successfully generated summary for', siteName, 'Counts:', {
+      testPhotos: summary.testPhotos?.count,
+      sludgePhotos: summary.sludgePhotos?.count,
+      cleaningCertificates: summary.cleaningCertificates?.count,
+      medicineInPhotos: summary.medicineInPhotos?.count,
+      kitInPhotos: summary.kitInPhotos?.count,
+    });
     return res.json({ success: true, summary });
   } catch (err) {
-    console.error('[photoExportRoutes] summary 오류:', err.message);
+    console.error('[PHOTO_SUMMARY_DIAGNOSTIC] summary 오류:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });

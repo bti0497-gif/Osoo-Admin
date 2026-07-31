@@ -17,6 +17,9 @@ const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/Temp
 const GyeonggiMonthlyReportView = lazy(() => import('../features/gyeonggi-reports/monthly-report/GyeonggiMonthlyReportView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
 const PeriodReportView = lazy(() => import('../features/period-report/PeriodReportView').then((m) => ({ default: m.PeriodReportView })));
+const SitePhotoExportView = lazy(() => import('../features/photo-export/SitePhotoExportView').then((m) => ({ default: m.SitePhotoExportView })));
+const TaxInvoiceManagerView = lazy(() => import('../features/settlement/TaxInvoiceManagerView').then((m) => ({ default: m.TaxInvoiceManagerView })));
+const DepositReceiptManagerView = lazy(() => import('../features/settlement/DepositReceiptManagerView').then((m) => ({ default: m.DepositReceiptManagerView })));
 
 // ============================================
 // 워크스페이스 레지스트리
@@ -27,8 +30,20 @@ export const WORKSPACE_REGISTRY = {
     helpText: '회원 및 현장 정보를 조회, 등록, 수정, 삭제합니다.'
   },
   data_admin: {
-    render: () => React.createElement('div', null, '데이터관리 워크스페이스'),
-    helpText: 'BigQuery 운영 테이블을 조회, 필터링, 수정, 삭제합니다.'
+    render: ({ currentUser }) => React.createElement(SitePhotoExportView, { currentUser }),
+    helpText: '현장별 월정산 사진(실험사진, 슬러지반출, 청소필증, 약품입고, 키트입고)을 바탕화면에 현장명 폴더로 일괄 다운로드합니다.'
+  },
+  settlement: {
+    render: () => React.createElement('div', null, '정산 관리 메뉴를 선택하세요.'),
+    helpText: '정산 관리 메뉴를 선택하세요.'
+  },
+  tax_invoice_mgr: {
+    render: () => React.createElement(TaxInvoiceManagerView),
+    helpText: '계산서(매입/매출) 파일의 공백을 자르고 현장별로 3열 고속 매칭합니다.'
+  },
+  deposit_receipt_mgr: {
+    render: () => React.createElement(DepositReceiptManagerView),
+    helpText: 'A4 1페이지 4분할 입금표 파일의 공백을 자르고 거래처 및 현장별로 3열 고속 매칭합니다.'
   },
   board: {
     render: ({ currentUser }) => React.createElement(BoardView, { currentUser }),

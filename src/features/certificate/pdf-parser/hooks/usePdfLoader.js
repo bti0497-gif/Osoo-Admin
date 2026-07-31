@@ -89,7 +89,7 @@ export function usePdfLoader() {
   /**
    * 썸네일 생성
    */
-  const generateThumbnail = useCallback(async (pageIndex, targetPages = null, scale = 0.5) => {
+  const generateThumbnail = useCallback(async (pageIndex, targetPages = null, scale = 0.5, options = {}) => {
     const pdf = pdfDocumentRef.current || pdfDocument;
     if (!pdf) {
       console.log('[usePdfLoader] pdfDocument가 없음');
@@ -120,7 +120,9 @@ export function usePdfLoader() {
 
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      const dataUrl = options.documentCrop
+        ? cropDocumentWithPadding(canvas, scale)
+        : canvas.toDataURL('image/jpeg', 0.7);
 
       page.cleanup();
       canvas.width = 0;
@@ -279,4 +281,53 @@ export function usePdfLoader() {
     generateAllThumbnails,
     reset,
   };
+}
+
+/**
+ * 흰 PDF 페이지 안에서 인쇄된 계산서 본문을 찾고, 외곽 3mm를 포함한 기준 이미지를 만든다.
+ * ROI의 (0,0)은 이 결과 이미지의 좌상단이며 PDF 페이지의 좌상단이 아니다.
+ */
+function cropDocumentWithPadding(sourceCanvas, renderScale) {
+  const context = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return sourceCanvas.toDataURL('image/jpeg', 0.9);
+  const { width, height } = sourceCanvas;
+  const pixels = context.getImageData(0, 0, width, height).data;
+
+  // 상단 4.5% 및 하단 4.5%의 웹 프린트 헤더/푸터(AI경리나라, 웹 URL)를 제외한 실물 서식 스캔 영역
+  const startY = Math.floor(height * 0.045);
+  const endY = Math.floor(height * 0.955);
+
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  const stride = Math.max(1, Math.floor(Math.min(width, height) / 1200));
+
+  for (let y = startY; y < endY; y += stride) {
+    for (let x = 0; x < width; x += stride) {
+      const offset = (y * width + x) * 4;
+      // 흰 배경(235 이상)과 투명 픽셀은 문서 외곽 판정에서 제외한다.
+      if (pixels[offset + 3] > 20 && (pixels[offset] < 235 || pixels[offset + 1] < 235 || pixels[offset + 2] < 235)) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return sourceCanvas.toDataURL('image/jpeg', 0.9);
+
+  // PDF는 72pt/inch이므로 3mm = 72 * 3 / 25.4 pt. 렌더 scale을 곱해 픽셀로 환산한다.
+  const padding = Math.round((72 * 3 / 25.4) * renderScale);
+  const left = Math.max(0, minX - padding);
+  const top = Math.max(0, minY - padding);
+  const right = Math.min(width, maxX + stride + padding);
+  const bottom = Math.min(height, maxY + stride + padding);
+
+  const cropped = document.createElement('canvas');
+  cropped.width = Math.max(1, right - left);
+  cropped.height = Math.max(1, bottom - top);
+  cropped.getContext('2d')?.drawImage(sourceCanvas, left, top, cropped.width, cropped.height, 0, 0, cropped.width, cropped.height);
+  const dataUrl = cropped.toDataURL('image/jpeg', 0.92);
+  cropped.width = 0;
+  cropped.height = 0;
+  return dataUrl;
 }

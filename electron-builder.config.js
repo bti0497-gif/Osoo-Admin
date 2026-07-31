@@ -24,6 +24,7 @@ module.exports = {
   extraResources: [
     { from: 'templates', to: 'templates' },
     { from: 'scripts', to: 'scripts' },
+    { from: 'server/config', to: 'server/config' },
   ],
   win: {
     target: [
