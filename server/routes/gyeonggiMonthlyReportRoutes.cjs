@@ -92,7 +92,13 @@ router.post('/api/gyeonggi/monthly-report/export', async (req, res) => {
 
   try {
     const buf = await buildMonthlyReportWorkbook(Number(year), Number(month), sites);
-    const fileName = `월운영보고서_${year}년${String(month).padStart(2, '0')}월.xlsx`;
+    const cleanSiteName = (name) => String(name || '').replace(/[\\/:*?"<>|]/g, '_').trim();
+    let fileName = '';
+    if (sites.length === 1) {
+      fileName = `${cleanSiteName(sites[0].siteName || sites[0].site_name)}_${year}년${String(month).padStart(2, '0')}월_월운영보고서.xlsx`;
+    } else {
+      fileName = `${cleanSiteName(sites[0].siteName || sites[0].site_name)}_외_${sites.length - 1}개소_${year}년${String(month).padStart(2, '0')}월_월운영보고서.xlsx`;
+    }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);

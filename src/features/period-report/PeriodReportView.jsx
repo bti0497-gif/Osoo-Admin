@@ -271,13 +271,15 @@ export function PeriodReportView() {
         fileName = buildExportFileName(selectedSites.map((site) => site.site_name), startDate, endDate, 'zip');
       }
 
-      if (window.electronAPI && window.electronAPI.saveFileToTemp && window.electronAPI.openFile) {
+      if (window.electronAPI && window.electronAPI.saveFileWithDialog) {
         const arrayBuffer = await blob.arrayBuffer();
-        const saveRes = await window.electronAPI.saveFileToTemp(fileName, arrayBuffer);
-        if (saveRes.success && saveRes.filePath) {
-          await window.electronAPI.openFile(saveRes.filePath);
-        } else {
-          throw new Error(saveRes.error || '임시 폴더 저장 실패');
+        const saveRes = await window.electronAPI.saveFileWithDialog(fileName, arrayBuffer);
+        if (saveRes.canceled) {
+          setActionMessage({ type: 'info', text: '엑셀 출력이 취소되었습니다.' });
+          return;
+        }
+        if (saveRes.error) {
+          throw new Error(saveRes.error);
         }
       } else {
         const url = URL.createObjectURL(blob);

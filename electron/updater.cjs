@@ -29,8 +29,13 @@ function setupAutoUpdater(mainWindow) {
     }
   });
 
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
     console.log('[Updater] App is up to date.');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:not-available', {
+        version: info?.version,
+      });
+    }
   });
 
   autoUpdater.on('download-progress', (progress) => {

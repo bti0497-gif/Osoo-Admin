@@ -7,6 +7,7 @@ const electronAPISchema = {
   downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
   quitAndInstall: () => ipcRenderer.invoke('app:quitAndInstall'),
   onUpdateAvailable: (callback) => ipcRenderer.on('update:available', (_event, info) => callback(info)),
+  onUpdateNotAvailable: (callback) => ipcRenderer.on('update:not-available', (_event, info) => callback(info)),
   onUpdateDownloaded: (callback) => ipcRenderer.on('update:downloaded', (_event, info) => callback(info)),
   onUpdateProgress: (callback) => ipcRenderer.on('update:progress', (_event, progress) => callback(progress)),
   onUpdateError: (callback) => ipcRenderer.on('update:error', (_event, err) => callback(err)),
@@ -27,6 +28,9 @@ const electronAPISchema = {
 
   // 바이너리 버퍼를 임시 폴더에 저장 (대화상자 없음, 자동 열기용)
   saveFileToTemp: (fileName, buffer) => ipcRenderer.invoke('file:saveBufferToTemp', { fileName, buffer }),
+
+  // 바이너리 버퍼를 원하는 폴더에 다른 이름으로 저장 다이얼로그 후 바로 열기용
+  saveFileWithDialog: (defaultFileName, buffer) => ipcRenderer.invoke('file:saveWithDialog', { defaultFileName, buffer }),
 
   // 저장할 대상 디렉토리(폴더) 선택 공통 다이얼로그
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),

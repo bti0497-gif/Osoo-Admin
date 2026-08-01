@@ -389,13 +389,29 @@ ipcMain.handle('file:download', async (_event, { url, fileName }) => {
 ipcMain.handle('file:saveBuffer', async (_event, { fileName, buffer }) => {
   try {
     const downloadsPath = app.getPath('downloads');
-    const filePath = path.join(downloadsPath, fileName);
-    
-    // Uint8Array를 Buffer로 변환
     const nodeBuffer = Buffer.from(buffer);
-    fs.writeFileSync(filePath, nodeBuffer);
-    
-    console.log('[file:saveBuffer] Saved:', filePath);
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+
+    let targetFileName = fileName;
+    let filePath = path.join(downloadsPath, targetFileName);
+    let count = 1;
+
+    while (count <= 100) {
+      try {
+        fs.writeFileSync(filePath, nodeBuffer);
+        console.log('[file:saveBuffer] Saved:', filePath);
+        return { success: true, filePath };
+      } catch (err) {
+        if ((err.code === 'EBUSY' || err.code === 'EPERM') && count < 100) {
+          targetFileName = `${base} (${count})${ext}`;
+          filePath = path.join(downloadsPath, targetFileName);
+          count += 1;
+        } else {
+          throw err;
+        }
+      }
+    }
     return { success: true, filePath };
   } catch (err) {
     console.error('[file:saveBuffer] Error:', err);
@@ -407,15 +423,69 @@ ipcMain.handle('file:saveBuffer', async (_event, { fileName, buffer }) => {
 ipcMain.handle('file:saveBufferToTemp', async (_event, { fileName, buffer }) => {
   try {
     const tempPath = app.getPath('temp');
-    const filePath = path.join(tempPath, fileName);
-    
     const nodeBuffer = Buffer.from(buffer);
-    fs.writeFileSync(filePath, nodeBuffer);
-    
-    console.log('[file:saveBufferToTemp] Saved:', filePath);
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+
+    let targetFileName = fileName;
+    let filePath = path.join(tempPath, targetFileName);
+    let count = 1;
+
+    while (count <= 100) {
+      try {
+        fs.writeFileSync(filePath, nodeBuffer);
+        console.log('[file:saveBufferToTemp] Saved:', filePath);
+        return { success: true, filePath };
+      } catch (err) {
+        if ((err.code === 'EBUSY' || err.code === 'EPERM') && count < 100) {
+          targetFileName = `${base} (${count})${ext}`;
+          filePath = path.join(tempPath, targetFileName);
+          count += 1;
+        } else {
+          throw err;
+        }
+      }
+    }
     return { success: true, filePath };
   } catch (err) {
     console.error('[file:saveBufferToTemp] Error:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// 바이너리 버퍼를 사용자 저장 다이얼로그(다른 이름으로 저장)로 원하는 위치에 저장 후 자동 열기용
+ipcMain.handle('file:saveWithDialog', async (_event, { defaultFileName, buffer }) => {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      throw new Error('메인 윈도우가 준비되지 않았습니다.');
+    }
+
+    const ext = path.extname(defaultFileName || 'report.xlsx').replace(/^\./, '') || 'xlsx';
+    const downloadsPath = app.getPath('downloads');
+    const defaultPath = path.join(downloadsPath, defaultFileName || `report.${ext}`);
+
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: '보고서 파일 저장 위치 선택 (다른 이름으로 저장)',
+      defaultPath,
+      filters: [
+        { name: 'Excel 통합 문서 (*.xlsx)', extensions: ['xlsx'] },
+        { name: '모든 파일 (*.*)', extensions: ['*'] },
+      ],
+    });
+
+    if (canceled || !filePath) {
+      return { canceled: true };
+    }
+
+    const nodeBuffer = Buffer.from(buffer);
+    fs.writeFileSync(filePath, nodeBuffer);
+    console.log('[file:saveWithDialog] Saved:', filePath);
+
+    // 저장한 위치의 파일로 엑셀 자동 오픈
+    await shell.openPath(filePath);
+    return { success: true, canceled: false, filePath };
+  } catch (err) {
+    console.error('[file:saveWithDialog] Error:', err);
     return { success: false, error: err.message };
   }
 });
