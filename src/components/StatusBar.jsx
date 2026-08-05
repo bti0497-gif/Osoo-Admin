@@ -37,6 +37,8 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
         return () => window.removeEventListener('global-upload-progress', handleProgress);
     }, []);
 
+    const isManualCheckRef = React.useRef(false);
+
     useEffect(() => {
         const api = window.electronAPI || window.electron;
         if (!api?.isElectron) return;
@@ -51,7 +53,10 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
             unAvailable = api.onUpdateAvailable((info) => {
                 setIsCheckingUpdate(false);
                 setUpdateProgressText('새 버전 발견!');
-                showAlert(`🎉 최신 버전(${info?.version || ''})이 발견되어 백그라운드 패치 다운로드를 시작합니다.`, '업데이트 발견');
+                if (isManualCheckRef.current) {
+                    showAlert(`🎉 최신 버전(${info?.version || ''})이 발견되어 백그라운드 패치 다운로드를 시작합니다.`, '업데이트 발견');
+                }
+                isManualCheckRef.current = false;
             });
         }
 
@@ -59,7 +64,10 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
             unNotAvailable = api.onUpdateNotAvailable(() => {
                 setIsCheckingUpdate(false);
                 setUpdateProgressText('');
-                showAlert(`현재 이미 최신 버전(${appVersion})을 사용 중입니다.`, '버전 검사 결과');
+                if (isManualCheckRef.current) {
+                    showAlert(`현재 이미 최신 버전(${appVersion})을 사용 중입니다.`, '버전 검사 결과');
+                }
+                isManualCheckRef.current = false;
             });
         }
 
@@ -74,6 +82,7 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
             unDownloaded = api.onUpdateDownloaded(async (info) => {
                 setIsCheckingUpdate(false);
                 setUpdateProgressText('');
+                isManualCheckRef.current = false;
                 await showAlert(
                     `최신 패치 버전(${info?.version || ''}) 다운로드가 완료되었습니다.\n[확인]을 누르면 앱이 재시작되며 즉시 업데이트가 적용됩니다.`,
                     '업데이트 완료'
@@ -88,7 +97,10 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
             unError = api.onUpdateError((err) => {
                 setIsCheckingUpdate(false);
                 setUpdateProgressText('');
-                showAlert(`업데이트 검사 중 오류가 발생했습니다: ${err}`, '업데이트 오류');
+                if (isManualCheckRef.current) {
+                    showAlert(`업데이트 검사 중 오류가 발생했습니다: ${err}`, '업데이트 오류');
+                }
+                isManualCheckRef.current = false;
             });
         }
 
@@ -109,6 +121,7 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
         }
 
         if (isCheckingUpdate) return;
+        isManualCheckRef.current = true;
         setIsCheckingUpdate(true);
         setUpdateProgressText('서버 버전 확인 중...');
 
@@ -121,6 +134,7 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
         } catch (err) {
             setIsCheckingUpdate(false);
             setUpdateProgressText('');
+            isManualCheckRef.current = false;
             showAlert(`버전 검사 실패: ${err.message}`, '오류');
         }
     }, [isCheckingUpdate, showAlert]);

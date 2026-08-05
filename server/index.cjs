@@ -85,6 +85,7 @@ app.use(require('./routes/siteMasterRoutes.cjs'));             // 현장 마스�
 app.use(require('./routes/vendorRoutes.cjs'));                 // 거래처 기준정보 (Google Sheets)
 app.use(require('./routes/monthlyReportRoutes.cjs'));          // 월운영일지 Excel 내보내기
 app.use(require('./routes/certificateWaterQualityRoutes.cjs')); // 수질 데이터
+app.use(require('./routes/waterQualityDailyRoutes.cjs'));          // 일일 수질 분석 (암모니아성질소, 질산성질소, 인산염인, 알칼리도)
 app.use(require('./routes/adminDataRoutes.cjs')());        // 데이터 관리
 app.use(require('./routes/aiRoutes.cjs')());               // AI 기능
 app.use(require('./routes/locationRoutes.cjs')(BASE_DIR)); // 위치 정보
