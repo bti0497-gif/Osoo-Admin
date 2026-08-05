@@ -18,10 +18,10 @@ const JSZip   = require('jszip');
 
 const { getFlowData, getWaterQualityData } = require('../services/periodReportService.cjs');
 const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
+const { resolveTemplatePath } = require('../services/templatePathService.cjs');
 
 const router = express.Router();
 
-const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates', 'gyeonggi');
 const TEMPLATE_NAME = '기간 데이타 조회.xlsx';
 
 function resolveUserRole(req) {
@@ -69,7 +69,7 @@ router.post('/api/gyeonggi/period-report/export', async (req, res) => {
     return res.status(400).json({ success: false, message: '출력할 현장명이 비어 있습니다.' });
   }
 
-  const templatePath = path.join(TEMPLATES_DIR, TEMPLATE_NAME);
+  const templatePath = resolveTemplatePath(TEMPLATE_NAME);
   if (!fs.existsSync(templatePath)) {
     return res.status(400).json({
       success: false,

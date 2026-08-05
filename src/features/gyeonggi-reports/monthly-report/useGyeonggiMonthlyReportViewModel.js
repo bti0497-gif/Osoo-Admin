@@ -81,16 +81,14 @@ export function useGyeonggiMonthlyReportViewModel() {
         fileName = `${cleanSiteName(selected[0].site_name)}_외_${selected.length - 1}개소_${year}년${String(month).padStart(2, '0')}월_월운영보고서.xlsx`;
       }
 
-      if (window.electronAPI && window.electronAPI.saveFileWithDialog) {
-        // 일렉트론 환경: 사용자가 원하는 위치로 '다른 이름으로 저장' 다이얼로그를 띄우고 지정 폴더 저장 후 엑셀 열기
+      if (window.electronAPI && window.electronAPI.saveFileToTemp && window.electronAPI.openFile) {
+        // 임시 폴더에 먼저 복사/생성하여 연 다음, 엑셀에서 확인 및 다른 이름으로 저장 유도
         const arrayBuffer = await blob.arrayBuffer();
-        const saveRes = await window.electronAPI.saveFileWithDialog(fileName, arrayBuffer);
-        if (saveRes.canceled) {
-          setSuccessMsg('보고서 출력이 취소되었습니다.');
-          return;
-        }
-        if (saveRes.error) {
-          throw new Error(saveRes.error);
+        const saveRes = await window.electronAPI.saveFileToTemp(fileName, arrayBuffer);
+        if (saveRes.success && saveRes.filePath) {
+          await window.electronAPI.openFile(saveRes.filePath);
+        } else {
+          throw new Error(saveRes.error || '임시 폴더 저장에 실패했습니다.');
         }
       } else {
         // 웹 브라우저 환경: 다운로드

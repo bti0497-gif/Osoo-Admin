@@ -20,6 +20,7 @@ function ensureAdmin(req, res) {
   return false;
 }
 const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
+const { getAppDataTemplatesDir, getBundleTemplatesDir, resolveTemplatePath } = require('../services/templatePathService.cjs');
 
 const router = express.Router();
 
@@ -41,25 +42,6 @@ const DEFAULT_REPORT_TEMPLATES = [
     category: '기본 출력 양식',
   },
 ];
-
-function getAppDataTemplatesDir() {
-  const appDataDir = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library', 'Preferences') : process.env.HOME || '');
-  return path.join(appDataDir, 'Osoo-Admin', 'templates', 'gyeonggi');
-}
-
-function getBundleTemplatesDir() {
-  const relPath = path.join('templates', 'gyeonggi');
-  const candidates = [
-    path.join(__dirname, '..', '..', relPath),
-    process.resourcesPath ? path.join(process.resourcesPath, relPath) : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', relPath) : '',
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (fsSync.existsSync(candidate)) return candidate;
-  }
-  return path.join(__dirname, '..', '..', relPath);
-}
 
 function getTemplatesDir() {
   return getAppDataTemplatesDir();
@@ -284,7 +266,7 @@ router.get('/api/gyeonggi/templates/:filename/download', async (req, res) => {
     
     const { filename } = req.params;
     const safeFilename = path.basename(filename);
-    const filePath = path.join(TEMPLATES_DIR, safeFilename);
+    const filePath = resolveTemplatePath(safeFilename);
     
     res.download(filePath, safeFilename);
   } catch (err) {

@@ -22,23 +22,12 @@ const {
   getMonthlyReportData,
   transformToReportData,
 } = require('../services/monthlyReportService.cjs');
-const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
+const { resolveTemplatePath } = require('../services/templatePathService.cjs');
 
 const router = express.Router();
 
 function getTemplatePath() {
-  const relPath = path.join('templates', 'gyeonggi', '월운영보고서.xlsx');
-  const candidates = [
-    path.join(__dirname, '..', '..', relPath),
-    process.resourcesPath ? path.join(process.resourcesPath, relPath) : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', relPath) : '',
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo_Admin_App', relPath) : '',
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return path.join(__dirname, '..', '..', relPath);
+  return resolveTemplatePath('월운영보고서.xlsx');
 }
 
 function resolveUserRole(req) {

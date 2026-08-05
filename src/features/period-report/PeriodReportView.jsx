@@ -271,15 +271,14 @@ export function PeriodReportView() {
         fileName = buildExportFileName(selectedSites.map((site) => site.site_name), startDate, endDate, 'zip');
       }
 
-      if (window.electronAPI && window.electronAPI.saveFileWithDialog) {
+      if (window.electronAPI && window.electronAPI.saveFileToTemp && window.electronAPI.openFile) {
+        // 임시 폴더에 먼저 복사/생성하여 연 다음, 엑셀에서 확인 및 다른 이름으로 저장 유도
         const arrayBuffer = await blob.arrayBuffer();
-        const saveRes = await window.electronAPI.saveFileWithDialog(fileName, arrayBuffer);
-        if (saveRes.canceled) {
-          setActionMessage({ type: 'info', text: '엑셀 출력이 취소되었습니다.' });
-          return;
-        }
-        if (saveRes.error) {
-          throw new Error(saveRes.error);
+        const saveRes = await window.electronAPI.saveFileToTemp(fileName, arrayBuffer);
+        if (saveRes.success && saveRes.filePath) {
+          await window.electronAPI.openFile(saveRes.filePath);
+        } else {
+          throw new Error(saveRes.error || '임시 폴더 저장 실패');
         }
       } else {
         const url = URL.createObjectURL(blob);
