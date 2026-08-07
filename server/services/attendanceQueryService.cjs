@@ -146,8 +146,102 @@ async function getSiteList() {
   return rows;
 }
 
+/**
+ * 일별 출결 현황 조회 (마스터 현장 목록 100% 아우터 조인)
+ * @param {string} date - YYYY-MM-DD 형식
+ * @param {string|null} siteId - 특정 현장 ID (null이면 전국)
+ * @returns {Promise<Array>}
+ */
+async function getDailyAttendanceWithMasterSites(date, siteId = null) {
+  const bqRows = await getDailyAttendance(date, siteId);
+  
+  let masterSites = [];
+  try {
+    const { getSites } = require('./sitesSheetsService.cjs');
+    masterSites = await getSites();
+  } catch (e) {
+    console.warn('[attendanceQueryService] getSites 불러오기 실패, BigQuery 데이터만 표시:', e.message);
+    return bqRows;
+  }
+
+  // 활성 현장만 추리기 ('오수처리장', '양북임시휴게소' 등 시스템 현장 제외)
+  const activeMasterSites = (masterSites || [])
+    .filter((s) => (s.is_active === 1 || s.is_active === '1' || s.is_active === true) && s.site_name !== '오수처리장' && s.site_name !== '양북임시휴게소')
+    .map((s) => ({
+      id: String(s.id || s.site_id || '').trim(),
+      site_name: String(s.site_name || '').trim(),
+      manager_name: String(s.manager_name || '').trim(),
+    }))
+    .filter((s) => s.site_name !== '');
+
+  // 특정 siteId 검색 시 마스터 현장 필터링
+  const targetMasterSites = siteId && siteId !== 'all'
+    ? activeMasterSites.filter((s) => s.id === String(siteId) || s.site_name === String(siteId))
+    : activeMasterSites;
+
+  // BigQuery 출결 기록 매핑
+  const bqBySiteMap = new Map();
+  for (const row of bqRows) {
+    const keyId = String(row.site_id || '').trim();
+    const keyName = String(row.site_name || '').trim();
+    if (keyId) {
+      if (!bqBySiteMap.has(keyId)) bqBySiteMap.set(keyId, []);
+      bqBySiteMap.get(keyId).push(row);
+    }
+    if (keyName && keyName !== keyId) {
+      if (!bqBySiteMap.has(keyName)) bqBySiteMap.set(keyName, []);
+      bqBySiteMap.get(keyName).push(row);
+    }
+  }
+
+  const result = [];
+  const processedBqKeys = new Set();
+
+  for (const master of targetMasterSites) {
+    const matchedRows = bqBySiteMap.get(master.id) || bqBySiteMap.get(master.site_name) || [];
+    if (matchedRows.length > 0) {
+      for (const row of matchedRows) {
+        result.push(row);
+      }
+      processedBqKeys.add(master.id);
+      processedBqKeys.add(master.site_name);
+    } else {
+      // 출결 기록 없음 -> 빈칸 / 기록없음 객체 생성
+      result.push({
+        id: `no-rec-${master.id}-${date}`,
+        site_id: master.id,
+        site_name: master.site_name,
+        member_id: null,
+        member_name: master.manager_name || '-',
+        date: date,
+        login_time: null,
+        logout_time: null,
+        location_matched: true,
+        remote_session_detected: false,
+        remote_session_type: null,
+        remote_session_evidence: null,
+        auto_logout: false,
+        status: 'no_record',
+      });
+    }
+  }
+
+  // 혹시 마스터 목록에는 없지만 BigQuery에 기록이 남은 현장도 추가
+  for (const row of bqRows) {
+    const keyId = String(row.site_id || '').trim();
+    const keyName = String(row.site_name || '').trim();
+    if (!processedBqKeys.has(keyId) && !processedBqKeys.has(keyName)) {
+      result.push(row);
+    }
+  }
+
+  // 가나다 한국어 사전순 정렬 (현장명 기준)
+  return result.sort((a, b) => (a.site_name || '').localeCompare(b.site_name || '', 'ko'));
+}
+
 module.exports = {
   getDailyAttendance,
+  getDailyAttendanceWithMasterSites,
   getWeeklyAttendance,
   getMonthlyAttendance,
   getSiteList,

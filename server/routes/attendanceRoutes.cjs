@@ -14,6 +14,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getDailyAttendance,
+  getDailyAttendanceWithMasterSites,
   getWeeklyAttendance,
   getMonthlyAttendance,
 } = require('../services/attendanceQueryService.cjs');
@@ -30,12 +31,18 @@ router.get('/api/attendance', async (req, res) => {
     }
 
     let data;
+    let requireSiteSelection = false;
 
     switch (period) {
       case 'daily':
-        data = await getDailyAttendance(date, siteId || null);
+        data = await getDailyAttendanceWithMasterSites(date, siteId || null);
         break;
       case 'weekly': {
+        if (!siteId || siteId === 'all') {
+          requireSiteSelection = true;
+          data = [];
+          break;
+        }
         // date를 기준으로 해당 주의 시작(월)과 끝(일) 계산
         const d = new Date(date);
         const day = d.getDay();
@@ -48,6 +55,11 @@ router.get('/api/attendance', async (req, res) => {
         break;
       }
       case 'monthly': {
+        if (!siteId || siteId === 'all') {
+          requireSiteSelection = true;
+          data = [];
+          break;
+        }
         const yearMonth = date.substring(0, 7); // YYYY-MM
         data = await getMonthlyAttendance(yearMonth, siteId || null);
         break;
@@ -61,6 +73,8 @@ router.get('/api/attendance', async (req, res) => {
       period,
       date,
       siteId: siteId || null,
+      requireSiteSelection,
+      message: requireSiteSelection ? '주간 및 월간 출결 현황은 특정 현장을 선택해야 조회가 가능합니다.' : undefined,
       count: data.length,
       data,
     });

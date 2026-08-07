@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getApiBase } from '../../../core/api/serverConfig.js';
 
 // 오늘 날짜 YYYY-MM-DD 반환
@@ -20,10 +20,12 @@ export function useAttendanceDashboard() {
   const [selectedDate, setSelectedDate] = useState(getTodayString());
   const [selectedSite, setSelectedSite] = useState('all');
   const [period, setPeriod] = useState('daily');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'working' | 'off' | 'no_record'
   const [sites, setSites] = useState([]);
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [requireSiteSelection, setRequireSiteSelection] = useState(false);
   const [selectedRowId, setSelectedRowId] = useState(null);
 
   // 현장 목록 조회
@@ -48,6 +50,16 @@ export function useAttendanceDashboard() {
 
   // 출결 데이터 조회
   const fetchAttendance = useCallback(async () => {
+    // 주간/월간 조회 시 '전국현황 (all)'이면 API 호출을 보류하고 특정 현장 선택 가이드 표시
+    if (period !== 'daily' && selectedSite === 'all') {
+      setRequireSiteSelection(true);
+      setAttendanceData([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setRequireSiteSelection(false);
     setLoading(true);
     setError(null);
     setSelectedRowId(null);
@@ -72,8 +84,15 @@ export function useAttendanceDashboard() {
 
       const result = await res.json();
       if (result.success) {
-        const formatted = result.data.map((row, index) => {
+        if (result.requireSiteSelection) {
+          setRequireSiteSelection(true);
+          setAttendanceData([]);
+          return;
+        }
+
+        const formatted = (result.data || []).map((row, index) => {
           const rawDate = row.date?.value || row.date;
+          const judgment = getJudgment(row);
           return {
             id: `${row.site_id || 'unknown'}-${row.member_id || 'unknown'}-${rawDate || 'nodate'}-${index}`,
             no: index + 1,
@@ -83,8 +102,9 @@ export function useAttendanceDashboard() {
             worker: row.member_name || '-',
             checkIn: row.login_time || '-',
             checkOut: row.logout_time ? row.logout_time : (row.login_time ? '근무중' : '-'),
-            judgment: getJudgment(row),
+            judgment,
             access: getAccess(row),
+            statusKey: judgment.key,
             remoteType: row.remote_session_type || null,
             remoteEvidence: row.remote_session_evidence || null,
             raw: row,
@@ -113,6 +133,32 @@ export function useAttendanceDashboard() {
     fetchAttendance();
   }, [fetchAttendance]);
 
+  // 상태별 통계 수치
+  const stats = useMemo(() => {
+    let working = 0;
+    let off = 0;
+    let noRecord = 0;
+
+    for (const r of attendanceData) {
+      if (r.statusKey === 'working') working++;
+      else if (r.statusKey === 'off') off++;
+      else if (r.statusKey === 'no_record') noRecord++;
+    }
+
+    return {
+      total: attendanceData.length,
+      working,
+      off,
+      noRecord,
+    };
+  }, [attendanceData]);
+
+  // 필터링된 출결 목록
+  const filteredAttendanceData = useMemo(() => {
+    if (statusFilter === 'all') return attendanceData;
+    return attendanceData.filter((r) => r.statusKey === statusFilter);
+  }, [attendanceData, statusFilter]);
+
   return {
     // 상태
     selectedDate,
@@ -121,10 +167,15 @@ export function useAttendanceDashboard() {
     setSelectedSite,
     period,
     setPeriod,
+    statusFilter,
+    setStatusFilter,
     sites,
-    attendanceData,
+    attendanceData: filteredAttendanceData,
+    rawAttendanceData: attendanceData,
+    stats,
     loading,
     error,
+    requireSiteSelection,
     selectedRowId,
     setSelectedRowId,
     // 액션
@@ -134,21 +185,25 @@ export function useAttendanceDashboard() {
 
 // 판정: 출근 여부
 function getJudgment(row) {
-  if (!row.login_time) return { label: '미출근', color: '#94a3b8' };
+  if (!row.login_time || row.status === 'no_record') {
+    return { label: '기록없음', color: '#94a3b8', bg: '#f1f5f9', key: 'no_record' };
+  }
   
   // auto_logout 플래그가 true이거나 퇴근시각이 20:00(저녁 8시) 정각인 경우 자동 로그아웃이므로 '비정상' 판정
   const isAutoLogout = Boolean(row.auto_logout) || (
     typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00')
   );
 
-  if (isAutoLogout) return { label: '비정상', color: '#f97316' };
-  if (row.logout_time) return { label: '정상', color: '#22c55e' };
-  return { label: '근무중', color: '#3b82f6' };
+  if (isAutoLogout) return { label: '비정상', color: '#ea580c', bg: '#ffedd5', key: 'off' };
+  if (row.logout_time) return { label: '퇴근완료', color: '#16a34a', bg: '#dcfce7', key: 'off' };
+  return { label: '근무중', color: '#2563eb', bg: '#dbeafe', key: 'working' };
 }
 
 // 접속: 원격 여부 및 접속 프로그램 정보
 function getAccess(row) {
-  if (!row.login_time) return { label: '-', color: '#94a3b8' };
+  if (!row.login_time || row.status === 'no_record') {
+    return { label: '-', color: '#94a3b8' };
+  }
   
   const program = (
     row.remote_session_type &&
