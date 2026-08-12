@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useWaterQualityList } from '../viewmodels/useWaterQualityList';
+import WaterQualityDataModal from './WaterQualityDataModal';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
@@ -29,6 +30,8 @@ export default function WaterQualityListView() {
     downloading, downloadSelectedAsPdf, downloadSelectedImages,
   } = useWaterQualityList();
 
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   useEffect(() => {
     fetchSites();
     fetchList(year, month, 'all');
@@ -43,7 +46,7 @@ export default function WaterQualityListView() {
   return (
     <div style={{ padding: '20px', fontFamily: 'system-ui, sans-serif', height: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-      {/* 헤더 */}
+      {/* 헤더 (1행: 필터 + 조회 + 선택삭제) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b' }}>성적서 보기</span>
@@ -57,7 +60,7 @@ export default function WaterQualityListView() {
           )}
         </div>
 
-        {/* 필터 + 버튼 */}
+        {/* 1행 우측: 필터 드롭다운 + 조회 + 선택삭제 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <select value={year} onChange={e => setYear(Number(e.target.value))} style={selectStyle}>
             {YEARS.map(y => <option key={y} value={y}>{y}년</option>)}
@@ -73,26 +76,6 @@ export default function WaterQualityListView() {
             조회
           </button>
           <button
-            onClick={downloadSelectedAsPdf}
-            disabled={!hasSelection || downloading}
-            style={btnStyle('#0891b2', !hasSelection || downloading)}
-          >
-            {downloading ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={spinnerStyle} />
-                PDF 생성 중...
-              </span>
-            ) : 'PDF 다운로드'}
-          </button>
-          <button
-            onClick={downloadSelectedImages}
-            disabled={!hasSelection || downloading}
-            style={btnStyle('#22c55e', !hasSelection || downloading)}
-            title="선택된 항목의 원본 이미지를 개별적으로 다운로드합니다"
-          >
-            {downloading ? '다운로드 중...' : '이미지 다운로드'}
-          </button>
-          <button
             onClick={() => {
               if (window.confirm(`선택된 ${selectedIds.size}건을 삭제하시겠습니까?`)) deleteSelected();
             }}
@@ -104,10 +87,38 @@ export default function WaterQualityListView() {
         </div>
       </div>
 
-      {/* 안내 메시지 */}
-      <div style={{ fontSize: '12px', color: '#64748b', background: '#fafafa', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '6px 12px' }}>
-        ※ 성적서 이미지는 Google Drive 폴더를 직접 조회해서 표시합니다.
-        <br />※ 다운로드와 삭제는 선택한 Drive 파일을 기준으로 처리됩니다.
+      {/* 2행: 기존 설명 박스 자리에 동작 버튼배치 ([PDF 다운로드] -> [이미지 다운로드] -> [데이터 보기]) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+        background: '#fafafa', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 12px'
+      }}>
+        <button
+          onClick={downloadSelectedAsPdf}
+          disabled={!hasSelection || downloading}
+          style={btnStyle('#0891b2', !hasSelection || downloading)}
+        >
+          {downloading ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={spinnerStyle} />
+              PDF 생성 중...
+            </span>
+          ) : 'PDF 다운로드'}
+        </button>
+        <button
+          onClick={downloadSelectedImages}
+          disabled={!hasSelection || downloading}
+          style={btnStyle('#22c55e', !hasSelection || downloading)}
+          title="선택된 항목의 원본 이미지를 개별적으로 다운로드합니다"
+        >
+          {downloading ? '다운로드 중...' : '이미지 다운로드'}
+        </button>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          style={btnStyle('#6366f1')}
+          title="선택된 월의 엑셀/BigQuery 성적서 수질 데이터를 그리드로 확인합니다"
+        >
+          📊 데이터 보기
+        </button>
       </div>
 
       {/* 결과 알림 */}
@@ -234,6 +245,14 @@ export default function WaterQualityListView() {
           </tbody>
         </table>
       </div>
+
+      <WaterQualityDataModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        year={year}
+        month={month}
+        selectedSite={selectedSite}
+      />
     </div>
   );
 }
