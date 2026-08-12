@@ -1,119 +1,85 @@
-const { google } = require('googleapis');
-const path = require('path');
+'use strict';
+
+/**
+ * driveService.cjs
+ * =====================================================================
+ * Google Drive API 통합 서비스
+ * (Service Account & OAuth2 인증 지원, 단일 월정산 루트 폴더 보장, 락 메커니즘 지원)
+ */
+
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '../../.env.local') });
-const { boardUploadsSegments } = require('./drivePathService.cjs');
+const path = require('path');
+const { google } = require('googleapis');
 
-const KEY_FILE = path.join(__dirname, '../config/google-key.json');
-const WORKSPACE_ROOT = path.join(__dirname, '../..');
-const OAUTH_SCOPES = [
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/spreadsheets',
-];
+const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive'];
 
-function findOAuthClientSecretFile() {
+function findOAuthClientKeyFile() {
   const candidates = [
     path.join(__dirname, '../config/client_secret.json'),
-    path.join(__dirname, '../config'),
-    WORKSPACE_ROOT,
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config') : '',
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo_Admin_App') : '',
-    process.resourcesPath ? process.resourcesPath : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config') : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', 'server', 'config') : '',
-  ].filter(Boolean);
-
-  for (const item of candidates) {
-    if (fs.existsSync(item)) {
-      try {
-        const stat = fs.statSync(item);
-        if (stat.isFile()) return item;
-        const files = fs.readdirSync(item);
-        const match = files.find((name) => /^client_secret.*\.json$/i.test(String(name || '').trim()));
-        if (match) return path.join(item, match);
-      } catch (_) {}
-    }
+    path.join(process.cwd(), 'server/config/client_secret.json'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
-  return '';
-}
-
-function loadOAuthClientConfig() {
-  const envClientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
-  const envClientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
-  const envRedirectUri = String(process.env.GOOGLE_REDIRECT_URI || '').trim();
-
-  if (envClientId && envClientSecret) {
-    return {
-      clientId: envClientId,
-      clientSecret: envClientSecret,
-      redirectUri: envRedirectUri || 'http://localhost'
-    };
-  }
-
-  const fallbackFile = findOAuthClientSecretFile();
-  if (!fallbackFile || !fs.existsSync(fallbackFile)) {
-    return null;
-  }
-
-  try {
-    const raw = JSON.parse(fs.readFileSync(fallbackFile, 'utf8'));
-    const installed = raw.installed || raw.web || {};
-    const redirectUris = Array.isArray(installed.redirect_uris) ? installed.redirect_uris : [];
-    const clientId = String(installed.client_id || '').trim();
-    const clientSecret = String(installed.client_secret || '').trim();
-    const redirectUri = String(envRedirectUri || redirectUris[0] || 'http://localhost').trim();
-    if (!clientId || !clientSecret) return null;
-    return { clientId, clientSecret, redirectUri };
-  } catch (_) {
-    return null;
-  }
+  return null;
 }
 
 function findServiceAccountKeyFile() {
   const candidates = [
     path.join(__dirname, '../config/google-key.json'),
-    path.join(__dirname, '../config/work-jindan-194620a46d59.json'),
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config', 'google-key.json') : '',
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo-Admin', 'config', 'work-jindan-194620a46d59.json') : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config', 'google-key.json') : '',
-    process.resourcesPath ? path.join(process.resourcesPath, 'server', 'config', 'work-jindan-194620a46d59.json') : '',
-  ].filter(Boolean);
+    path.join(process.cwd(), 'server/config/google-key.json'),
+  ];
 
-  for (const file of candidates) {
-    if (fs.existsSync(file)) return file;
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
-
-  // 폴백: server/config 내의 모든 json 파일 탐색
-  const configDir = path.join(__dirname, '../config');
-  if (fs.existsSync(configDir)) {
-    try {
-      const files = fs.readdirSync(configDir);
-      const match = files.find(f => /^(google-key|work-jindan).*\.json$/i.test(f));
-      if (match) return path.join(configDir, match);
-    } catch (_) {}
-  }
-  return '';
+  return null;
 }
 
 function createDriveAuth() {
-  const refreshToken = String(process.env.GOOGLE_REFRESH_TOKEN || '').trim();
-  const oauthClient = loadOAuthClientConfig();
-  if (oauthClient && refreshToken) {
-    const oauth2 = new google.auth.OAuth2(
-      oauthClient.clientId,
-      oauthClient.clientSecret,
-      oauthClient.redirectUri
-    );
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  let clientId = process.env.GOOGLE_CLIENT_ID;
+  let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  const oauthKeyFile = findOAuthClientKeyFile();
+  if (oauthKeyFile && fs.existsSync(oauthKeyFile)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(oauthKeyFile, 'utf8'));
+      const creds = raw.web || raw.installed;
+      if (creds) {
+        clientId = clientId || creds.client_id;
+        clientSecret = clientSecret || creds.client_secret;
+      }
+    } catch (e) {}
+  }
+
+  if (clientId && clientSecret && refreshToken) {
+    console.log('[DriveService] OAuth2 사용자 인증 모드 사용 (Quota 제한 없음)');
+    const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
     oauth2.setCredentials({ refresh_token: refreshToken });
     return { auth: oauth2, mode: 'oauth' };
   }
 
-  const keyFile = findServiceAccountKeyFile();
-  if (keyFile) {
-    console.log('[DriveService] Service Account 인증 키 발견:', keyFile);
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY
+    ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : null;
+
+  if (clientEmail && privateKey) {
+    const jwtAuth = new google.auth.JWT({
+      email: clientEmail,
+      key: privateKey,
+      scopes: DRIVE_SCOPES,
+    });
+    return { auth: jwtAuth, mode: 'env' };
+  }
+
+  const saKeyFile = findServiceAccountKeyFile();
+  if (saKeyFile && fs.existsSync(saKeyFile)) {
+    console.log('[DriveService] Service Account 키 사용:', saKeyFile);
     const saAuth = new google.auth.GoogleAuth({
-      keyFile,
-      scopes: OAUTH_SCOPES,
+      keyFile: saKeyFile,
+      scopes: DRIVE_SCOPES,
     });
     return { auth: saAuth, mode: 'service_account' };
   }
@@ -126,7 +92,7 @@ const { auth, mode: driveAuthMode } = createDriveAuth();
 const drive = auth ? google.drive({ version: 'v3', auth }) : null;
 
 function escapeDriveQueryValue(value) {
-  return String(value || '').replace(/'/g, "\\'");
+  return String(value || '').replace(/'/g, "\'");
 }
 
 function getDriveRootFolderId() {
@@ -134,48 +100,64 @@ function getDriveRootFolderId() {
 }
 
 function isDriveConfigured() {
-  return Boolean(
-    drive &&
-    getDriveRootFolderId()
-  );
+  return Boolean(drive && getDriveRootFolderId());
 }
+
+const folderCreationLocks = new Map();
 
 async function getOrCreateFolder(parentFolderId, folderName) {
   if (!drive) throw new Error('Google Drive 인증 정보가 설정되지 않았습니다.');
   const normalizedParentId = String(parentFolderId || '').trim();
   const normalizedName = String(folderName || '').trim();
-  if (!normalizedParentId) throw new Error('Google Drive parent folder ID가 비어 있습니다.');
+
+  if (!normalizedParentId) throw new Error('Google Drive parentFolderId가 비어 있습니다.');
   if (!normalizedName) throw new Error('Google Drive folder name이 비어 있습니다.');
 
-  const res = await drive.files.list({
-    q: [
-      "mimeType='application/vnd.google-apps.folder'",
-      `name='${escapeDriveQueryValue(normalizedName)}'`,
-      `'${normalizedParentId}' in parents`,
-      'trashed=false'
-    ].join(' and '),
-    fields: 'files(id, name, webViewLink)',
-    spaces: 'drive',
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    pageSize: 10
-  });
-
-  if ((res.data.files || []).length > 0) {
-    return res.data.files[0];
+  const lockKey = `${normalizedParentId}:${normalizedName}`;
+  if (folderCreationLocks.has(lockKey)) {
+    return await folderCreationLocks.get(lockKey);
   }
 
-  const folder = await drive.files.create({
-    resource: {
-      name: normalizedName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [normalizedParentId]
-    },
-    fields: 'id, name, webViewLink',
-    supportsAllDrives: true
-  });
+  const promise = (async () => {
+    try {
+      const res = await drive.files.list({
+        q: [
+          "mimeType='application/vnd.google-apps.folder'",
+          `name='${escapeDriveQueryValue(normalizedName)}'`,
+          `'${normalizedParentId}' in parents`,
+          'trashed=false'
+        ].join(' and '),
+        fields: 'files(id, name, webViewLink, createdTime)',
+        spaces: 'drive',
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+        pageSize: 10
+      });
 
-  return folder.data;
+      const files = res.data.files || [];
+      if (files.length > 0) {
+        files.sort((a, b) => new Date(a.createdTime || 0) - new Date(b.createdTime || 0));
+        return files[0];
+      }
+
+      const folder = await drive.files.create({
+        resource: {
+          name: normalizedName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [normalizedParentId]
+        },
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true
+      });
+
+      return folder.data;
+    } finally {
+      folderCreationLocks.delete(lockKey);
+    }
+  })();
+
+  folderCreationLocks.set(lockKey, promise);
+  return await promise;
 }
 
 async function findFolderInParent(parentFolderId, folderName) {
@@ -231,6 +213,12 @@ async function getOrCreateFolderPath(rootFolderId, segments = []) {
   return currentFolder;
 }
 
+async function getSingleSettlementRootFolder() {
+  const rootFolderId = getDriveRootFolderId();
+  if (!rootFolderId) throw new Error('Google Drive 루트 폴더 ID가 설정되어 있지 않습니다.');
+  return await getOrCreateFolder(rootFolderId, '월정산');
+}
+
 async function uploadBufferToFolder({ folderId, fileName, buffer, mimeType }) {
   if (!drive) throw new Error('Google Drive 인증 정보가 설정되지 않았습니다.');
   if (!folderId) throw new Error('Google Drive folder ID가 필요합니다.');
@@ -254,6 +242,10 @@ async function uploadBufferToFolder({ folderId, fileName, buffer, mimeType }) {
       });
 
   return response.data;
+}
+
+function boardUploadsSegments() {
+  return ['Board_Uploads'];
 }
 
 async function getOrCreateBoardUploadsFolder() {
@@ -303,6 +295,7 @@ module.exports = {
   findFolderInParent,
   findFileInFolder,
   getOrCreateFolderPath,
+  getSingleSettlementRootFolder,
   uploadBufferToFolder,
   getOrCreateBoardUploadsFolder,
   listFilesFolder,

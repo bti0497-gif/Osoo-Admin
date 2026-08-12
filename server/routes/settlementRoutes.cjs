@@ -7,6 +7,7 @@ const {
   isDriveConfigured,
   getDriveRootFolderId,
   getOrCreateFolderPath,
+  getSingleSettlementRootFolder,
   findFolderInParent,
   listFilesFolder,
   uploadBufferToFolder,
@@ -181,10 +182,8 @@ module.exports = function (db, baseDir, appDataPath) {
       if (!targetYm) return res.status(400).json({ success: false, error: '대상 연월은 YYYYMM 형식이어야 합니다.' });
       if (!isDriveConfigured()) return res.status(503).json({ success: false, error: 'Google Drive 연동 설정을 찾을 수 없습니다.' });
 
-      const documentType = req.query.documentType === 'deposit' ? 'deposit' : 'invoice';
-      const documentFolder = documentType === 'deposit' ? '입금표' : '계산서';
-      const monthlyFolder = await findSettlementMonthlyFolder(targetYm, documentType);
-      if (!monthlyFolder) return res.status(404).json({ success: false, error: `Drive에 월정산/${documentFolder}/${targetYm} 폴더가 없습니다.` });
+      const monthlyFolder = await findSettlementMonthlyFolder(targetYm);
+      if (!monthlyFolder) return res.status(404).json({ success: false, error: `Drive에 월정산/${targetYm} 폴더가 없습니다.` });
 
       const files = (await listFilesFolder(monthlyFolder.id))
         .filter((file) => file.mimeType !== 'application/vnd.google-apps.folder');
@@ -214,27 +213,54 @@ function normalizeTargetYm(value) {
   return /^\d{6}$/.test(targetYm) ? targetYm : '';
 }
 
-async function findSettlementMonthlyFolder(targetYm, documentType = 'invoice') {
-  const rootFolderId = getDriveRootFolderId();
-  const monthlyRoot = await findFolderInParent(rootFolderId, '월정산');
-  const documentFolder = documentType === 'deposit' ? '입금표' : '계산서';
-  const categoryFolder = monthlyRoot && await findFolderInParent(monthlyRoot.id, documentFolder);
-  return categoryFolder ? findFolderInParent(categoryFolder.id, targetYm) : null;
+async function findSettlementMonthlyFolder(targetYm) {
+  if (!isDriveConfigured()) return null;
+  const monthlyRoot = await getSingleSettlementRootFolder();
+  return monthlyRoot ? findFolderInParent(monthlyRoot.id, targetYm) : null;
 }
 
-async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames, documentType = 'invoice') {
+function extractSiteNameFromFileName(fileName) {
+  const nameWithoutExt = path.basename(fileName, path.extname(fileName));
+  const parts = nameWithoutExt.split('_');
+  for (const part of parts) {
+    if (
+      part.includes('현장') ||
+      part.includes('사업소') ||
+      part.includes('처리장') ||
+      part.includes('플랜트') ||
+      part.includes('휴게소') ||
+      part.includes('주유소') ||
+      part.includes('IC') ||
+      part.includes('JCT') ||
+      part.includes('공사')
+    ) {
+      return part.trim();
+    }
+  }
+  // If fallback, return the 3rd token if available
+  if (parts.length >= 3 && parts[2]) {
+    return parts[2].trim();
+  }
+  return '공통미지정';
+}
+
+async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {
   if (!isDriveConfigured()) return;
-  const documentFolder = documentType === 'deposit' ? '입금표' : '계산서';
-  const monthlyFolder = await getOrCreateFolderPath(getDriveRootFolderId(), ['월정산', documentFolder, targetYm]);
+  const monthlyRoot = await getSingleSettlementRootFolder();
+  if (!monthlyRoot) return;
+
   for (const fileName of fileNames) {
     const sourcePath = path.join(localFolder, fileName);
     if (!fs.existsSync(sourcePath)) continue;
+
+    const targetFolder = await getOrCreateFolderPath(getDriveRootFolderId(), ['월정산', targetYm]);
+
     await uploadBufferToFolder({
-      folderId: monthlyFolder.id,
+      folderId: targetFolder.id,
       fileName,
       buffer: fs.readFileSync(sourcePath),
       mimeType: 'image/jpeg',
     });
   }
-  console.log(`[settlementRoutes] Drive ${documentFolder} 전송 완료: 월정산/${documentFolder}/${targetYm} (${fileNames.length}개)`);
+  console.log(`[settlementRoutes] Drive 월정산 전송 완료: 월정산/${targetYm} (${fileNames.length}개 파일)`);
 }
