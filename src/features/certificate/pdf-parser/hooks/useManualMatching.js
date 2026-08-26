@@ -35,6 +35,7 @@ export function useManualMatching(siteMaster) {
   const [startFromFirstPage, setStartFromFirstPage] = useState(false);
 
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [currentSelection, setCurrentSelection] = useState(null);
   const [availableSites, setAvailableSites] = useState(new Set()); // 남은 현장
   const [usedSites, setUsedSites] = useState(new Set()); // 빠진 현장
   const [selectedDate, setSelectedDate] = useState(null);

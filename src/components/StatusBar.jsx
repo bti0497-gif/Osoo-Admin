@@ -5,9 +5,14 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
     const { showAlert } = useDialog();
     const [time, setTime] = useState(new Date().toLocaleTimeString());
     const [progress, setProgress] = useState(null);
-    const [appVersion, setAppVersion] = useState('v1.0.16');
+    const [appVersion, setAppVersion] = useState('v1.0.20');
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateProgressText, setUpdateProgressText] = useState('');
+
+    const appVersionRef = React.useRef(appVersion);
+    useEffect(() => {
+        appVersionRef.current = appVersion;
+    }, [appVersion]);
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -20,7 +25,10 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
         const api = window.electronAPI || window.electron;
         if (api?.getVersion) {
             api.getVersion().then((ver) => {
-                if (ver) setAppVersion(`v${ver}`);
+                if (ver) {
+                    setAppVersion(`v${ver}`);
+                    appVersionRef.current = `v${ver}`;
+                }
             }).catch(() => {});
         }
     }, []);
@@ -61,11 +69,12 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
         }
 
         if (typeof api.onUpdateNotAvailable === 'function') {
-            unNotAvailable = api.onUpdateNotAvailable(() => {
+            unNotAvailable = api.onUpdateNotAvailable((info) => {
                 setIsCheckingUpdate(false);
                 setUpdateProgressText('');
                 if (isManualCheckRef.current) {
-                    showAlert(`현재 이미 최신 버전(${appVersion})을 사용 중입니다.`, '버전 검사 결과');
+                    const verText = info?.version ? `v${info.version}` : appVersionRef.current;
+                    showAlert(`현재 이미 최신 버전(${verText})을 사용 중입니다.`, '버전 검사 결과');
                 }
                 isManualCheckRef.current = false;
             });

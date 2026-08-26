@@ -15,6 +15,16 @@ function setupAutoUpdater(mainWindow) {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  try {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'bti0497-gif',
+      repo: 'Osoo-Admin'
+    });
+  } catch (e) {
+    console.warn('[Updater] setFeedURL error:', e.message);
+  }
+
   autoUpdater.on('checking-for-update', () => {
     console.log('[Updater] Checking for updates...');
   });
