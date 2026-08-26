@@ -266,8 +266,9 @@ export function useManualMatching(siteMaster) {
         
         formData.append('files', blob, tempFileName);
         formData.append('report_date', selectedDate || new Date().toISOString().split('T')[0]);
-        const category = (pdfFile?.name || '').includes('폭기조') || (pdfFile?.name || '').includes('포기조') ? 'mlss' : 'certificate';
+        const category = selectedPrefix === 'mlss' ? 'mlss' : 'certificate';
         formData.append('category', category);
+        formData.append('category_b64', toBase64Utf8(category));
         formData.append('source_pdf_name_b64', toBase64Utf8(pdfFile?.name || ''));
         formData.append('site_name_b64', toBase64Utf8(siteName));
         formData.append('page_order', String(pageOrder));
@@ -368,7 +369,7 @@ export function useManualMatching(siteMaster) {
       setStep('matching');
       setUploadProgress({ percent: 0, message: '' });
     }
-  }, [selectedDate, customFileName]);
+  }, [selectedDate, selectedPrefix, customFileName]);
 
   /**
    * 초기화

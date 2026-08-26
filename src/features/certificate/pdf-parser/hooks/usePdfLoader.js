@@ -240,7 +240,10 @@ export function usePdfLoader() {
     }
 
     console.log('[usePdfLoader] generateAllThumbnails 완료, setPages 호출');
-    setPages(updatedPages);
+    setPages(prev => prev.map((p, idx) => ({
+      ...p,
+      thumbnail: updatedPages[idx]?.thumbnail || p.thumbnail
+    })));
     
     setPdfProgress({
       current: total,

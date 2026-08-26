@@ -8,7 +8,7 @@ import { CompletionSummary } from './CompletionSummary';
 import { useSiteMaster } from '../../hooks/useSiteMaster';
 import { usePdfLoader } from '../hooks/usePdfLoader';
 import { useManualMatching } from '../hooks/useManualMatching';
-import { extractDatesFromFileName, determinePrefix, generateFileName } from '../utils/namingRules';
+import { extractDatesFromFileName, generateFileName } from '../utils/namingRules';
 import { usePdfTemplate } from '../viewmodels/usePdfTemplate';
 
 export function ManualMatchingView() {
@@ -168,15 +168,21 @@ export function ManualMatchingView() {
 
 
       // 파일명에서 날짜 추출
+      let targetDate = 'YYYYMMDD';
       const dates = extractDatesFromFileName(file.name);
       if (dates.length > 0) {
-        matching.setSelectedDate(dates[0]);
+        targetDate = dates[0];
+        matching.setSelectedDate(targetDate);
       }
 
-      // 파일명 미리보기 생성
-      const prefix = determinePrefix(file.name);
-      const defaultFileName = generateFileName(prefix, matching.selectedDate || 'YYYYMMDD', '현장명');
+      // 파일명 미리보기 생성 (기본 라디오 선택값 매칭)
+      const prefix = matching.selectedPrefix || 'mlss';
+      const defaultFileName = generateFileName(prefix, targetDate, '현장명');
       matching.setCustomFileName(defaultFileName);
+
+      // 기본 시작 페이지 설정 (2페이지부터 시작이 디폴트이면 index: 1, 단 총 페이지가 1장이면 index: 0)
+      const initialPageIndex = matching.startFromFirstPage ? 0 : 1;
+      matching.goToPage(initialPageIndex < loadedPages.length ? initialPageIndex : 0);
 
       // 매칭 단계로 이동
       matching.setStep('matching');
@@ -251,6 +257,32 @@ export function ManualMatchingView() {
   const handleUndoMatch = () => {
     matching.undoMatch(selectedMatchedSiteId, pages, setPages);
     setSelectedMatchedSiteId(null);
+  };
+
+  // 날짜 변경 핸들러 (파일명 일괄 연동)
+  const handleDateChange = (newDate) => {
+    matching.setSelectedDate(newDate);
+
+    // 이미 생성된 파일명들의 날짜를 일괄 교체
+    setPages((prev) =>
+      prev.map((p) => {
+        if (!p.customFileName) return p;
+        const parts = p.customFileName.split('_');
+        if (parts.length >= 3) {
+          parts[1] = newDate;
+          return { ...p, customFileName: parts.join('_') };
+        }
+        return p;
+      })
+    );
+
+    if (matching.customFileName) {
+      const parts = matching.customFileName.split('_');
+      if (parts.length >= 3) {
+        parts[1] = newDate;
+        matching.setCustomFileName(parts.join('_'));
+      }
+    }
   };
 
   // 성적서 종류 (mlss vs 성적서(5개 항목)) 변경 핸들러
@@ -727,7 +759,7 @@ export function ManualMatchingView() {
               <DateSelector
                 extractedDates={extractDatesFromFileName(pdfFile?.name || '')}
                 selectedDate={matching.selectedDate}
-                onSelect={matching.setSelectedDate}
+                onSelect={handleDateChange}
               />
 
               <DocTypeSelector
