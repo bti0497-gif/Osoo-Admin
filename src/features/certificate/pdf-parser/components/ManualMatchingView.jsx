@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PdfDropZone } from './PdfDropZone';
 import { PageThumbnailPanel } from './PageThumbnailPanel';
 import { DateSelector } from './DateSelector';
+import { DocTypeSelector } from './DocTypeSelector';
 import { FileNameEditor } from './FileNameEditor';
 import { CompletionSummary } from './CompletionSummary';
 import { useSiteMaster } from '../../hooks/useSiteMaster';
@@ -252,6 +253,38 @@ export function ManualMatchingView() {
     setSelectedMatchedSiteId(null);
   };
 
+  // 성적서 종류 (mlss vs 성적서(5개 항목)) 변경 핸들러
+  const handleDocTypeChange = (newType) => {
+    matching.setSelectedPrefix(newType);
+
+    // 이미 생성된 파일명들의 접두어를 일괄 교체
+    const oldPrefixes = ['mlss', '성적서(5개 항목)', '성적서'];
+    setPages((prev) =>
+      prev.map((p) => {
+        if (!p.customFileName) return p;
+        let updatedName = p.customFileName;
+        for (const old of oldPrefixes) {
+          if (updatedName.startsWith(`${old}_`)) {
+            updatedName = `${newType}_${updatedName.slice(old.length + 1)}`;
+            break;
+          }
+        }
+        return { ...p, customFileName: updatedName };
+      })
+    );
+
+    if (matching.customFileName) {
+      let updatedCustomName = matching.customFileName;
+      for (const old of oldPrefixes) {
+        if (updatedCustomName.startsWith(`${old}_`)) {
+          updatedCustomName = `${newType}_${updatedCustomName.slice(old.length + 1)}`;
+          break;
+        }
+      }
+      matching.setCustomFileName(updatedCustomName);
+    }
+  };
+
   // 파일명 수정 핸들러
   const handleFileNameChange = (newVal) => {
     if (activePageForName) {
@@ -286,11 +319,55 @@ export function ManualMatchingView() {
     await matching.startUpload(pages, pdfDocument, pdfFile, setPages, globalBoxes);
   };
 
-
-
   return (
     <div style={{ padding: 24, height: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', gap: 16, overflow: 'hidden' }}>
-      <h1 style={{ fontSize: 20, fontWeight: 600, color: '#333', flexShrink: 0 }}>성적서 수동 매칭</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 600, color: '#333', margin: 0 }}>성적서 수동 매칭</h1>
+          {pdfFile && (
+            <button
+              onClick={() => {
+                if (window.confirm('현재 작업을 취소하고 다른 PDF 파일을 올릴 수 있도록 초기 화면으로 돌아가시겠습니까?')) {
+                  handleReset();
+                }
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid #d1d5db',
+                backgroundColor: '#ffffff',
+                color: '#4b5563',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                userSelect: 'none',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#fee2e2';
+                e.currentTarget.style.borderColor = '#fca5a5';
+                e.currentTarget.style.color = '#dc2626';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#ffffff';
+                e.currentTarget.style.borderColor = '#d1d5db';
+                e.currentTarget.style.color = '#4b5563';
+              }}
+              title="현재 마운트된 PDF를 해제하고 초기 화면으로 되돌립니다"
+            >
+              🔄 초기화
+            </button>
+          )}
+        </div>
+        {pdfFile && (
+          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>
+            현재 파일: <strong style={{ color: '#1f2937' }}>{pdfFile.name}</strong>
+          </span>
+        )}
+      </div>
 
       {/* 업로드 단계 */}
       {matching.step === 'upload' && (
@@ -651,6 +728,11 @@ export function ManualMatchingView() {
                 extractedDates={extractDatesFromFileName(pdfFile?.name || '')}
                 selectedDate={matching.selectedDate}
                 onSelect={matching.setSelectedDate}
+              />
+
+              <DocTypeSelector
+                selectedType={matching.selectedPrefix}
+                onSelect={handleDocTypeChange}
               />
 
               <FileNameEditor

@@ -28,6 +28,7 @@ export const MENU_REGISTRY = [
     children: [
       { id: 'tax_invoice_mgr', label: '계산서 관리', workspaceId: 'tax_invoice_mgr', appTarget: APP_TARGETS.ADMIN_APP },
       { id: 'deposit_receipt_mgr', label: '입금표 관리', workspaceId: 'deposit_receipt_mgr', appTarget: APP_TARGETS.ADMIN_APP },
+      { id: 'monthly_settlement_auto', label: '월정산 자동작성', workspaceId: 'monthly_settlement_auto', appTarget: APP_TARGETS.ADMIN_APP },
     ]
   },
   { id: 'gyeonggi_reports', label: '경기대 요구 자료 작성', icon: 'school', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'gyeonggi_reports', displayOrder: 50,

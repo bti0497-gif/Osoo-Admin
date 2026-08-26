@@ -2,111 +2,147 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const multer = require('multer');
 const JSZip = require('jszip');
 const {
   isDriveConfigured,
   getDriveRootFolderId,
   getOrCreateFolderPath,
+  uploadBufferToFolder,
+  listFilesFolder,
+  downloadDriveFileBuffer,
   getSingleSettlementRootFolder,
   findFolderInParent,
-  listFilesFolder,
-  uploadBufferToFolder,
-  downloadDriveFileBuffer,
 } = require('../services/driveService.cjs');
-const { seedSiteSettlementVendors, upsertSiteSettlementVendors } = require('../services/siteSettlementVendorsSheetsService.cjs');
-const { getSites } = require('../services/sitesSheetsService.cjs');
-const router = express.Router();
+const {
+  getSettlementSummary,
+  getTemplateList,
+  getTemplateFilePath,
+  saveTemplateFile,
+  deleteTemplateFile,
+  SETTLEMENT_TARGET_SITES,
+} = require('../services/settlementService.cjs');
 
-const DEFAULT_ROI_CONFIG = {
-  supplierX: 2,
-  supplierY: 3,    // 상호명 Y 시작 위치 (%)
-  supplierW: 96,
-  supplierH: 26,   // 상호명 영역 높이 (%)
-  itemX: 2,
-  itemY: 53,       // 품목명 Y 시작 위치 (%)
-  itemW: 96,
-  itemH: 24,       // 품목명 영역 높이 (%)
-  zoomScale: 2.4,  // 확대 배율
-};
+// 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 250 * 1024 * 1024 },
+});
 
-module.exports = function (db, baseDir, appDataPath) {
-  const roiConfigFilePath = path.join(appDataPath, 'osoo_settlement_roi_config.json');
+module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
+  const router = express.Router();
 
-  // ROI 설정 조회 API
-  router.get('/roi-config', (req, res) => {
+  /**
+   * GET /api/settlement/sites
+   * 정산 지원 대상 현장 목록
+   */
+  router.get('/sites', (req, res) => {
+    res.json({
+      success: true,
+      sites: SETTLEMENT_TARGET_SITES,
+    });
+  });
+
+  /**
+   * GET /api/settlement/templates
+   * 현장별 기본 빈 양식(Excel / HWP) 목록 및 상태 조회
+   */
+  router.get('/templates', (req, res) => {
     try {
-      if (fs.existsSync(roiConfigFilePath)) {
-        const raw = fs.readFileSync(roiConfigFilePath, 'utf8');
-        const parsed = JSON.parse(raw);
-        return res.json({ success: true, config: { ...DEFAULT_ROI_CONFIG, ...parsed } });
-      }
-      return res.json({ success: true, config: DEFAULT_ROI_CONFIG });
+      const templates = getTemplateList();
+      res.json({
+        success: true,
+        templates,
+      });
     } catch (err) {
-      console.error('[settlementRoutes] ROI 설정 읽기 오류:', err);
-      return res.json({ success: true, config: DEFAULT_ROI_CONFIG });
+      console.error('[settlementRoutes] 템플릿 목록 조회 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  // ROI 설정 저장 API (AppData JSON 영구 파일 저장)
-  router.post('/roi-config', (req, res) => {
+  /**
+   * GET /api/settlement/templates/:filename/download
+   * 템플릿 원본 파일 다운로드
+   */
+  router.get('/templates/:filename/download', (req, res) => {
     try {
-      const config = req.body || {};
-      const nextConfig = {
-        ...DEFAULT_ROI_CONFIG,
-        ...config,
-      };
-
-      if (!fs.existsSync(appDataPath)) {
-        fs.mkdirSync(appDataPath, { recursive: true });
+      const { filename } = req.params;
+      const filePath = getTemplateFilePath(filename);
+      if (!filePath) {
+        return res.status(404).json({ success: false, error: '해당 템플릿 파일을 찾을 수 없습니다.' });
       }
 
-      fs.writeFileSync(roiConfigFilePath, JSON.stringify(nextConfig, null, 2), 'utf8');
-      console.log('[settlementRoutes] AppData에 ROI 영구 설정 저장 성공:', roiConfigFilePath);
-      return res.json({ success: true, config: nextConfig });
+      res.download(filePath, path.basename(filePath));
     } catch (err) {
-      console.error('[settlementRoutes] ROI 설정 저장 오류:', err);
-      return res.status(500).json({ success: false, error: err.message });
+      console.error('[settlementRoutes] 템플릿 다운로드 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  let vendorMappingsCache = null;
-  let vendorMappingsCacheTime = 0;
-  const VENDOR_MAPPINGS_CACHE_TTL = 5 * 60 * 1000; // 5분 캐시
-
-  router.get('/site-vendor-mappings', async (_req, res) => {
+  /**
+   * POST /api/settlement/templates/:id/upload
+   * 특정 현장의 기본 빈 양식 신규 등록 / 파일 교체
+   */
+  router.post('/templates/:id/upload', upload.single('file'), (req, res) => {
     try {
-      const now = Date.now();
-      if (vendorMappingsCache && (now - vendorMappingsCacheTime < VENDOR_MAPPINGS_CACHE_TTL)) {
-        return res.json({ success: true, mappings: vendorMappingsCache, cached: true });
+      const { id } = req.params;
+      const isSub = req.body?.isSub === 'true' || req.body?.isSub === true;
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: '업로드할 파일이 없습니다.' });
       }
 
-      const { getSiteMaster } = require('../services/siteMasterCacheService.cjs');
-      let sites = getSiteMaster();
-      if (!sites || !sites.length) {
-        sites = await getSites();
-      }
-      const mappings = await seedSiteSettlementVendors(sites);
-      if (mappings && mappings.length > 0) {
-        vendorMappingsCache = mappings;
-        vendorMappingsCacheTime = Date.now();
-      }
-      return res.json({ success: true, mappings });
+      const result = saveTemplateFile(id, req.file.buffer, req.file.originalname, isSub);
+      res.json({
+        success: true,
+        message: '양식 파일이 성공적으로 등록/교체되었습니다.',
+        ...result,
+      });
     } catch (err) {
-      if (vendorMappingsCache) {
-        console.warn('[settlementRoutes] 구글시트 API 쿼터 초과/오류로 인하여 캐시된 현장 벤더 매핑 사용:', err.message);
-        return res.json({ success: true, mappings: vendorMappingsCache, cached: true });
-      }
-      return res.status(500).json({ success: false, error: err.message });
+      console.error('[settlementRoutes] 템플릿 업로드/교체 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  router.post('/site-vendor-mappings', async (req, res) => {
+  /**
+   * DELETE /api/settlement/templates/:id
+   * 특정 현장의 기본 빈 양식 삭제
+   */
+  router.delete('/templates/:id', (req, res) => {
     try {
-      const mapping = await upsertSiteSettlementVendors(req.body || {});
-      vendorMappingsCache = null;
-      return res.json({ success: true, mapping });
+      const { id } = req.params;
+      const isSub = req.query?.isSub === 'true' || req.query?.isSub === true;
+      const updatedSite = deleteTemplateFile(id, isSub);
+      res.json({
+        success: true,
+        message: '양식 파일이 삭제되었습니다.',
+        site: updatedSite,
+      });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message });
+      console.error('[settlementRoutes] 템플릿 삭제 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/summary
+   * 월정산 데이터 집계 요약 조회
+   * Query: year, month, siteId
+   */
+  router.get('/summary', async (req, res) => {
+    try {
+      const { year, month, siteId } = req.query;
+      if (!year || !month) {
+        return res.status(400).json({ success: false, error: 'year와 month 파라미터는 필수입니다.' });
+      }
+
+      const summary = await getSettlementSummary(year, month, siteId || 'all');
+      res.json({
+        success: true,
+        ...summary,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] summary 조회 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -187,15 +223,15 @@ module.exports = function (db, baseDir, appDataPath) {
 
       const files = (await listFilesFolder(monthlyFolder.id))
         .filter((file) => file.mimeType !== 'application/vnd.google-apps.folder');
-      if (!files.length) return res.status(404).json({ success: false, error: `Drive의 월정산/${documentFolder}/${targetYm} 폴더가 비어 있습니다.` });
+      if (!files.length) return res.status(404).json({ success: false, error: `Drive의 월정산/${targetYm} 폴더가 비어 있습니다.` });
 
       const zip = new JSZip();
-      const archiveFolderName = `${documentFolder}_${targetYm}`;
+      const archiveFolderName = `월정산_${targetYm}`;
       for (const file of files) {
         zip.file(`${archiveFolderName}/${file.name}`, await downloadDriveFileBuffer(file.id));
       }
       const archive = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-      const archiveName = `${documentFolder}_${targetYm}.zip`;
+      const archiveName = `월정산_${targetYm}.zip`;
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
       return res.send(archive);
@@ -217,31 +253,6 @@ async function findSettlementMonthlyFolder(targetYm) {
   if (!isDriveConfigured()) return null;
   const monthlyRoot = await getSingleSettlementRootFolder();
   return monthlyRoot ? findFolderInParent(monthlyRoot.id, targetYm) : null;
-}
-
-function extractSiteNameFromFileName(fileName) {
-  const nameWithoutExt = path.basename(fileName, path.extname(fileName));
-  const parts = nameWithoutExt.split('_');
-  for (const part of parts) {
-    if (
-      part.includes('현장') ||
-      part.includes('사업소') ||
-      part.includes('처리장') ||
-      part.includes('플랜트') ||
-      part.includes('휴게소') ||
-      part.includes('주유소') ||
-      part.includes('IC') ||
-      part.includes('JCT') ||
-      part.includes('공사')
-    ) {
-      return part.trim();
-    }
-  }
-  // If fallback, return the 3rd token if available
-  if (parts.length >= 3 && parts[2]) {
-    return parts[2].trim();
-  }
-  return '공통미지정';
 }
 
 async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {

@@ -20,6 +20,7 @@ const PeriodReportView = lazy(() => import('../features/period-report/PeriodRepo
 const SitePhotoExportView = lazy(() => import('../features/photo-export/SitePhotoExportView').then((m) => ({ default: m.SitePhotoExportView })));
 const TaxInvoiceManagerView = lazy(() => import('../features/settlement/TaxInvoiceManagerView').then((m) => ({ default: m.TaxInvoiceManagerView })));
 const DepositReceiptManagerView = lazy(() => import('../features/settlement/DepositReceiptManagerView').then((m) => ({ default: m.DepositReceiptManagerView })));
+const MonthlySettlementAutoView = lazy(() => import('../features/settlement/MonthlySettlementAutoView').then((m) => ({ default: m.MonthlySettlementAutoView })));
 
 // ============================================
 // 워크스페이스 레지스트리
@@ -44,6 +45,10 @@ export const WORKSPACE_REGISTRY = {
   deposit_receipt_mgr: {
     render: () => React.createElement(DepositReceiptManagerView),
     helpText: 'A4 1페이지 4분할 입금표 파일의 공백을 자르고 거래처 및 현장별로 3열 고속 매칭합니다.'
+  },
+  monthly_settlement_auto: {
+    render: () => React.createElement(MonthlySettlementAutoView),
+    helpText: '수집된 일일점검, QnTech 키트수질, 성적서 데이터를 기반으로 5대 현장별 월정산 엑셀 파일을 자동 작성합니다.'
   },
   board: {
     render: ({ currentUser }) => React.createElement(BoardView, { currentUser }),

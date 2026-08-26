@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { RotateCw } from 'lucide-react';
 import { useWaterQualityList } from '../viewmodels/useWaterQualityList';
 import WaterQualityDataModal from './WaterQualityDataModal';
 
@@ -53,6 +54,30 @@ export default function WaterQualityListView() {
           <span style={{ fontSize: '12px', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
             {rows.length}건
           </span>
+          <button
+            onClick={() => fetchList(year, month, selectedSite)}
+            disabled={loading}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              height: '26px',
+              padding: '0 9px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#334155',
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              userSelect: 'none',
+            }}
+            title="최신 성적서 목록을 다시 조회하여 새로고침합니다"
+          >
+            <RotateCw size={13} style={{ animation: loading ? 'spin 0.7s linear infinite' : 'none' }} />
+            {loading ? '새로고침 중...' : '새로고침'}
+          </button>
           {hasSelection && (
             <span style={{ fontSize: '12px', color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
               {selectedIds.size}건 선택
@@ -117,7 +142,7 @@ export default function WaterQualityListView() {
           style={btnStyle('#6366f1')}
           title="선택된 월의 엑셀/BigQuery 성적서 수질 데이터를 그리드로 확인합니다"
         >
-          📊 데이터 보기
+          📊 EXCEL 데이타보기
         </button>
       </div>
 

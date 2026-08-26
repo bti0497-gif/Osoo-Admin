@@ -37,8 +37,8 @@ export function useManualMatching(siteMaster) {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [availableSites, setAvailableSites] = useState(new Set()); // 남은 현장
   const [usedSites, setUsedSites] = useState(new Set()); // 빠진 현장
-  const [currentSelection, setCurrentSelection] = useState(null); // 현재 선택된 siteId
   const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedPrefix, setSelectedPrefix] = useState('mlss'); // 기본값 'mlss'
   const [customFileName, setCustomFileName] = useState('');
 
   const [uploadProgress, setUploadProgress] = useState({ percent: 0, message: '' });
@@ -136,7 +136,7 @@ export function useManualMatching(siteMaster) {
     const siteName = siteMaster.find(s => s.id === siteId)?.site_name || '';
     const index = currentPageIndex;
 
-    const prefix = determinePrefix(pdfFileName || '');
+    const prefix = selectedPrefix || (pdfFileName ? determinePrefix(pdfFileName) : 'mlss');
     const date = selectedDate || 'YYYYMMDD';
     const defaultName = generateFileName(prefix, date, siteName);
 
@@ -174,7 +174,7 @@ export function useManualMatching(siteMaster) {
         setCurrentPageIndex(firstUnmatchedIndex);
       }
     }
-  }, [currentPageIndex, selectedDate, siteMaster]);
+  }, [currentPageIndex, selectedDate, selectedPrefix, siteMaster]);
 
   /**
    * 지정 완료 현장 매칭 취소 및 해당 페이지 복원 (VM 비즈니스 로직)
@@ -380,6 +380,7 @@ export function useManualMatching(siteMaster) {
     setUsedSites(new Set());
     setCurrentSelection(null);
     setSelectedDate(null);
+    setSelectedPrefix('mlss');
     setCustomFileName('');
     setUploadProgress({ percent: 0, message: '' });
   }, [siteMaster]);
@@ -393,6 +394,7 @@ export function useManualMatching(siteMaster) {
     usedSites,
     currentSelection,
     selectedDate,
+    selectedPrefix,
     customFileName,
     uploadProgress,
 
@@ -409,6 +411,7 @@ export function useManualMatching(siteMaster) {
     goToNextPage,
     goToPage,
     setSelectedDate,
+    setSelectedPrefix,
     setCustomFileName,
     setAvailableSites,
     setUsedSites,

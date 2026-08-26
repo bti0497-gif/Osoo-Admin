@@ -27,7 +27,11 @@ export function useWaterQualityList() {
     setError(null);
     setSelectedIds(new Set());
     try {
-      const params = new URLSearchParams({ year: y ?? year, month: m ?? month });
+      const params = new URLSearchParams({
+        year: y ?? year,
+        month: m ?? month,
+        _t: Date.now(),
+      });
       const siteFilter = site ?? selectedSite;
       if (siteFilter && siteFilter !== 'all') params.set('siteName', siteFilter);
       const res = await fetch(`${getApiBase()}/api/certificates/water-quality-list?${params}`, {

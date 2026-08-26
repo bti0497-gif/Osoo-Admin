@@ -49,3 +49,7 @@ qntech-photo-test/
 
 # Firebase설정파일
 server/config/firebase-service-account.json
+
+# Settlement templates & scratch
+server/templates/
+scratch/
