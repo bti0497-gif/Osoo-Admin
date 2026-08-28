@@ -74,11 +74,12 @@ export function TaxInvoiceManagerView() {
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [vendorList, setVendorList] = useState(() => getVendorList());
   useEffect(() => { fetchVendorList().then(setVendorList).catch(console.error); }, []);
-  const [selectedVendorId, setSelectedVendorId] = useState(() => {
-    const list = getVendorList();
-    return list[0]?.id || '';
-  });
-  const [targetYm, setTargetYm] = useState('202607');
+  const getCurrentDefaultYm = () => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const [targetYm, setTargetYm] = useState(() => getCurrentDefaultYm());
   const [isDriveDownloading, setIsDriveDownloading] = useState(false);
 
   // ROI 미리보기 프리셋 및 영구 정밀 교정 도구 상태
@@ -554,6 +555,19 @@ export function TaxInvoiceManagerView() {
         setInvoiceType('sales');
       } else {
         setInvoiceType('purchase');
+      }
+
+      // 파일명에서 연월(YYYYMM) 스마트 자동 감지 및 적용
+      const ymMatch1 = file.name.match(/(20\d{2})[-_.]?([01]\d)/);
+      if (ymMatch1 && Number(ymMatch1[2]) >= 1 && Number(ymMatch1[2]) <= 12) {
+        setTargetYm(`${ymMatch1[1]}${ymMatch1[2]}`);
+      } else {
+        const ymMatch2 = file.name.match(/(\d{2,4})년\s*(\d{1,2})월/);
+        if (ymMatch2) {
+          const y = ymMatch2[1].length === 2 ? `20${ymMatch2[1]}` : ymMatch2[1];
+          const m = String(ymMatch2[2]).padStart(2, '0');
+          setTargetYm(`${y}${m}`);
+        }
       }
 
       // PDF 69페이지 전체 실제 로드 및 파싱 실행!

@@ -74,7 +74,10 @@ export function DepositReceiptManagerView() {
   const [siteVendorMappings, setSiteVendorMappings] = useState([]);
   const [vendorPicker, setVendorPicker] = useState(null);
   useEffect(() => { apiClient.get('/api/settlement/site-vendor-mappings').then((data) => setSiteVendorMappings(data.mappings || [])).catch(console.error); }, []);
-  const [targetYm, setTargetYm] = useState('202607');
+  const [targetYm, setTargetYm] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [isDriveDownloading, setIsDriveDownloading] = useState(false);
 
   // 현장 필터 및 매칭 상태

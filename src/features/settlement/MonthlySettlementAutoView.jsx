@@ -23,6 +23,7 @@ export function MonthlySettlementAutoView() {
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
+    checkDataReady,
   } = useMonthlySettlementAuto();
 
   // 파일 업로드 input 참조 및 상태
@@ -437,7 +438,13 @@ export function MonthlySettlementAutoView() {
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
+                            const checkResult = await checkDataReady(site.id, year, month);
+                            if (!checkResult?.ready) {
+                              alert(`⚠️ [${site.name}] ${year}년 ${month}월 정산에 필요한 데이터가 아직 로컬에 다운로드되지 않았습니다.\n\n먼저 [데이터관리] 메뉴에서 '${site.name}' 사진 데이터를 바탕화면에 다운로드해 주세요.`);
+                              return;
+                            }
+
                             if (site.id === 'cheongju_seoul') {
                               setIsCheongjuModalOpen(true);
                             } else {

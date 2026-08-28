@@ -197,6 +197,18 @@ export function useMonthlySettlementAuto() {
     }
   }, [year, month, showToast]);
 
+  // 데이터관리 다운로드 사전 검사
+  const checkDataReady = useCallback(async (siteId, targetYear = year, targetMonth = month) => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/settlement/check-data-ready?siteId=${encodeURIComponent(siteId)}&year=${targetYear}&month=${targetMonth}`);
+      if (!res.ok) return { ready: true }; // 네트워크 실패 시 작업 방해 방지용 fallback
+      const data = await res.json();
+      return data;
+    } catch (_) {
+      return { ready: true };
+    }
+  }, [year, month]);
+
   useEffect(() => {
     fetchSites();
     fetchTemplates();
@@ -223,5 +235,6 @@ export function useMonthlySettlementAuto() {
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
+    checkDataReady,
   };
 }

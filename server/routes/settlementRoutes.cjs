@@ -261,6 +261,67 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   });
 
   /**
+   * GET /api/settlement/check-data-ready
+   * 데이터관리에서 필요한 현장 사진/데이터가 다운로드되어 있는지 사전 검사
+   */
+  router.get('/check-data-ready', (req, res) => {
+    try {
+      const siteId = String(req.query.siteId || '');
+      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+
+      const targetYm = `${year}${String(month).padStart(2, '0')}`;
+      const mm = String(month).padStart(2, '0');
+      const desktopDirs = getDesktopDirectories();
+
+      // 현장별 대표 사진 폴더 키워드 검색
+      const siteObj = SETTLEMENT_TARGET_SITES.find(s => s.id === siteId);
+      const siteName = siteObj?.name || '청주휴게소';
+
+      let isReady = false;
+      let foundPath = null;
+
+      for (const desktopDir of desktopDirs) {
+        if (!fs.existsSync(desktopDir)) continue;
+
+        // 1. {현장명}_{YYYY}년{MM}월_사진모음 폴더 검사
+        const photoFolderCandidates = [
+          path.join(desktopDir, `${siteName}_${year}년${mm}월_사진모음`),
+          path.join(desktopDir, `${siteName}(서울방향)_${year}년${mm}월_사진모음`),
+          path.join(desktopDir, `${siteName}_${year}년${month}월_사진모음`),
+          path.join(desktopDir, '점검준비', '정산서', targetYm),
+          path.join(desktopDir, '점검준비', '계산서', targetYm),
+        ];
+
+        for (const candidate of photoFolderCandidates) {
+          if (fs.existsSync(candidate)) {
+            try {
+              const files = fs.readdirSync(candidate);
+              if (files.length > 0) {
+                isReady = true;
+                foundPath = candidate;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+        if (isReady) break;
+      }
+
+      return res.json({
+        success: true,
+        ready: isReady,
+        path: foundPath,
+        siteName,
+        targetYm,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] check-data-ready 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/settlement/generate/cheongju
    * 청주휴게소 정산서 한글(HWP) 파일 생성 및 전송
    */

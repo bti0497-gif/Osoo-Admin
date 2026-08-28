@@ -710,13 +710,11 @@ export function SitePhotoExportView({ currentUser }) {
             >
               <div
                 style={{
-                  width: vm.downloadProgress.total > 0
-                    ? `${Math.round((vm.downloadProgress.current / vm.downloadProgress.total) * 100)}%`
-                    : '0%',
+                  width: `${vm.downloadProgress.percent || (vm.downloadProgress.total > 0 ? Math.round((vm.downloadProgress.current / vm.downloadProgress.total) * 100) : 0)}%`,
                   height: '100%',
                   background: 'linear-gradient(90deg, #2563eb 0%, #0284c7 100%)',
                   borderRadius: '3px',
-                  transition: 'width 0.4s ease-out',
+                  transition: 'width 0.3s ease-out',
                 }}
               />
             </div>

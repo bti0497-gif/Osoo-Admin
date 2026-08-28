@@ -191,19 +191,48 @@ export function useSitePhotoExport(siteMaster = [], currentUser) {
 
     setIsDownloading(true);
     setDownloadComplete(null);
-    setDownloadProgress({ current: 0, total: selectedSitesList.length, siteName: '', message: '다운로드 준비 중...' });
+    setDownloadProgress({ current: 0, total: selectedSitesList.length, percent: 5, siteName: '', message: '다운로드 준비 중...' });
 
     let totalSavedAll = 0;
+    const totalSites = selectedSitesList.length;
 
-    for (let i = 0; i < selectedSitesList.length; i++) {
+    for (let i = 0; i < totalSites; i++) {
       const site = selectedSitesList[i];
-      // 진행 중: current = i (아직 완료 안 됨), 프로그래스 = i/total
+      const basePercent = Math.round((i / totalSites) * 100);
+      const stepWeight = 100 / totalSites;
+
       setDownloadProgress({
         current: i,
-        total: selectedSitesList.length,
+        total: totalSites,
+        percent: Math.max(5, basePercent + Math.round(stepWeight * 0.15)),
         siteName: site.site_name,
-        message: `${site.site_name} 사진 다운로드 중... (${i + 1}/${selectedSitesList.length})`,
+        message: `${site.site_name} 사진 탐색 및 다운로드 준비 중... (${i + 1}/${totalSites})`,
       });
+
+      // 다운로드 진행 피드백 시뮬레이션 인터벌 (백엔드 처리 시간 동안 프로그레스바가 부드럽게 상승)
+      let stage = 0;
+      const progressTimer = setInterval(() => {
+        stage++;
+        if (stage === 1) {
+          setDownloadProgress((prev) => ({
+            ...prev,
+            percent: Math.min(95, basePercent + Math.round(stepWeight * 0.4)),
+            message: `${site.site_name} Google Drive 사진 파일 수집 중...`,
+          }));
+        } else if (stage === 2) {
+          setDownloadProgress((prev) => ({
+            ...prev,
+            percent: Math.min(95, basePercent + Math.round(stepWeight * 0.7)),
+            message: `${site.site_name} 바탕화면 사진 폴더 생성 및 저장 중...`,
+          }));
+        } else if (stage >= 3) {
+          setDownloadProgress((prev) => ({
+            ...prev,
+            percent: Math.min(98, basePercent + Math.round(stepWeight * 0.9)),
+            message: `${site.site_name} 사진 파일 쓰기 마무리 중...`,
+          }));
+        }
+      }, 350);
 
       try {
         const res = await apiClient.post('/api/photos/batch-download', {
@@ -217,14 +246,23 @@ export function useSitePhotoExport(siteMaster = [], currentUser) {
         totalSavedAll += saved;
       } catch (err) {
         console.warn(`[useSitePhotoExport] ${site.site_name} 다운로드 실패:`, err.message);
+      } finally {
+        clearInterval(progressTimer);
       }
 
       // 이 현장 완료 → 프로그래스 bar = (i+1)/total
-      setDownloadProgress((prev) => ({ ...prev, current: i + 1 }));
+      const completedPercent = Math.round(((i + 1) / totalSites) * 100);
+      setDownloadProgress({
+        current: i + 1,
+        total: totalSites,
+        percent: completedPercent,
+        siteName: site.site_name,
+        message: `${site.site_name} 다운로드 완료 (${i + 1}/${totalSites})`,
+      });
     }
 
     setIsDownloading(false);
-    setDownloadProgress({ current: 0, total: 0, siteName: '', message: '' });
+    setDownloadProgress({ current: 0, total: 0, percent: 0, siteName: '', message: '' });
 
     // 선택 현장 초기화
     deselectAllSites();
