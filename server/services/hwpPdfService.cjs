@@ -103,14 +103,22 @@ function renderHwpxToPdf({ templatePath, outputPath, bindings = {}, imageBinding
     "}",
   ].join("\n");
 
-  const encoded = buildEncodedPowerShellCommand(script);
+  // 임시 .ps1 스크립트 파일 생성 (BOM UTF-8)
+  const tempScriptPath = path.join(os.tmpdir(), `osoo_hwpx_${Date.now()}_${Math.random().toString(36).substring(7)}.ps1`);
+  const bomBuffer = Buffer.from('\uFEFF', 'utf8');
+  const scriptBuffer = Buffer.from(script, 'utf8');
+  fs.writeFileSync(tempScriptPath, Buffer.concat([bomBuffer, scriptBuffer]));
 
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-      { timeout: 120000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tempScriptPath],
+      { timeout: 120000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 },
       (error, stdout, stderr) => {
+        try {
+          if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath);
+        } catch (_) {}
+
         if (error) {
           reject(new Error(parsePowerShellError(stderr || stdout || error.message)));
           return;

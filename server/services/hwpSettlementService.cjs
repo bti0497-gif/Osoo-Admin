@@ -293,14 +293,24 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "}",
   ].join("\n");
 
-  const encoded = buildEncodedPowerShellCommand(psScript);
+  // 임시 .ps1 스크립트 파일 생성 (BOM UTF-8)
+  const tempScriptPath = path.join(os.tmpdir(), `osoo_cheongju_${Date.now()}_${Math.random().toString(36).substring(7)}.ps1`);
+  // 한글 깨짐 방지 UTF-8 BOM
+  const bomBuffer = Buffer.from('\uFEFF', 'utf8');
+  const scriptBuffer = Buffer.from(psScript, 'utf8');
+  fs.writeFileSync(tempScriptPath, Buffer.concat([bomBuffer, scriptBuffer]));
 
   return new Promise((resolve, reject) => {
     execFile(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-      { windowsHide: true, maxBuffer: 10 * 1024 * 1024 },
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tempScriptPath],
+      { windowsHide: true, maxBuffer: 20 * 1024 * 1024 },
       (error, stdout, stderr) => {
+        // 임시 스크립트 삭제
+        try {
+          if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath);
+        } catch (_) {}
+
         if (error) {
           console.error('[hwpSettlementService] HWP 생성 오류 stdout:', stdout);
           console.error('[hwpSettlementService] HWP 생성 오류 stderr:', stderr);
