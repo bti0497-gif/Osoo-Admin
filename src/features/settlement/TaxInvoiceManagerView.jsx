@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { FileText, ArrowLeft, Building2, CheckCircle2, Upload, Loader2, Download } from 'lucide-react';
+import { FileText, ArrowLeft, Building2, CheckCircle2, Upload, Loader2, Download, RefreshCw } from 'lucide-react';
 import { useSiteMaster } from '../certificate/hooks/useSiteMaster';
 import { usePdfLoader } from '../certificate/pdf-parser/hooks/usePdfLoader';
 import { VendorManagerModal } from './components/VendorManagerModal';
+import { SiteVendorMappingModal } from './components/SiteVendorMappingModal';
 import { getVendorList, fetchVendorList } from './utils/vendorStorage';
 import RoiCalibrationModal from './components/RoiCalibrationModal';
 import { RoiCropPreview } from './components/RoiCropPreview';
@@ -10,7 +11,9 @@ import { DEFAULT_ROI_CONFIG, fetchSettlementRoiConfig, getSettlementRoiConfigSyn
 import { apiClient } from '../../core/api/apiClient.js';
 
 export function TaxInvoiceManagerView() {
-  const { siteMaster = [], loading: sitesLoading } = useSiteMaster();
+  const { siteMaster = [], loading: sitesLoading, invalidateCache: refreshSiteMaster } = useSiteMaster();
+  const [siteVendorMappingOpen, setSiteVendorMappingOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // 실제 PDF 파서 로더 훅 연동
   const {
@@ -591,6 +594,26 @@ export function TaxInvoiceManagerView() {
     handlePdfSelect(e);
   };
 
+  const handleSyncSheets = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      refreshSiteMaster?.();
+      const [vendors, mappingRes] = await Promise.all([
+        fetchVendorList().catch(() => getVendorList()),
+        apiClient.get('/api/settlement/site-vendor-mappings').catch(() => ({ mappings: [] })),
+      ]);
+      setVendorList(vendors || []);
+      if (mappingRes && mappingRes.success && Array.isArray(mappingRes.mappings)) {
+        setSiteVendorMappings(mappingRes.mappings);
+      }
+      alert('구글 시트의 최신 현장 및 거래처 매핑 정보를 성공적으로 동기화했습니다.');
+    } catch (err) {
+      alert(`시트 동기화 실패: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refreshSiteMaster]);
+
   return (
     <div style={containerStyle}>
       {/* ── 헤더 바 ── */}
@@ -609,12 +632,26 @@ export function TaxInvoiceManagerView() {
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button
+            onClick={handleSyncSheets}
+            disabled={isSyncing}
+            style={{ ...btnWebappStyle, background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' }}
+            title="구글 시트의 최신 거래처 및 현장 매핑 정보 다시 불러오기"
+          >
+            {isSyncing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 시트 새로고침
+          </button>
+          <button
             onClick={handleDownloadDriveFolder}
             style={btnWebappStyle}
             disabled={isDriveDownloading}
           >
             {isDriveDownloading ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
             Drive 계산서 {targetYm} 다운로드
+          </button>
+          <button
+            onClick={() => setSiteVendorMappingOpen(true)}
+            style={btnWebappStyle}
+          >
+            <Building2 size={14} /> 현장별 거래처 매칭
           </button>
           <button onClick={() => setVendorModalOpen(true)} style={btnVendorStyle}>
             <Building2 size={14} /> 거래처 관리
@@ -1291,6 +1328,20 @@ export function TaxInvoiceManagerView() {
         isOpen={vendorModalOpen}
         onClose={() => setVendorModalOpen(false)}
         onVendorChange={handleVendorChange}
+      />
+
+      {/* 현장별 거래처 매핑 모달 */}
+      <SiteVendorMappingModal
+        isOpen={siteVendorMappingOpen}
+        onClose={() => setSiteVendorMappingOpen(false)}
+        sites={sortedSites}
+        vendors={vendorList}
+        onSaved={(newMapping) => {
+          setSiteVendorMappings((prev) => {
+            const withoutCurrent = prev.filter((item) => item.site_id !== newMapping.site_id);
+            return [...withoutCurrent, newMapping];
+          });
+        }}
       />
 
       {/* 계산서 상호명/품목명 영구 영역(ROI) 정밀 지정 모달 */}

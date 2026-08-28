@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { FileCheck, ArrowLeft, Building2, ExternalLink, CheckCircle2, Grid, Upload, Download, Loader2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { FileCheck, ArrowLeft, Building2, ExternalLink, CheckCircle2, Grid, Upload, Download, Loader2, RefreshCw } from 'lucide-react';
 import { useSiteMaster } from '../certificate/hooks/useSiteMaster';
 import { usePdfLoader } from '../certificate/pdf-parser/hooks/usePdfLoader';
 import { VendorManagerModal } from './components/VendorManagerModal';
@@ -8,11 +8,12 @@ import { getVendorList, fetchVendorList } from './utils/vendorStorage';
 import { apiClient } from '../../core/api/apiClient.js';
 
 export function DepositReceiptManagerView() {
-  const { siteMaster = [], loading: sitesLoading } = useSiteMaster();
+  const { siteMaster = [], loading: sitesLoading, invalidateCache: refreshSiteMaster } = useSiteMaster();
   const { loadPdf, generateThumbnail } = usePdfLoader();
 
   const [pdfFile, setPdfFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // PDF 파일 선택 / 드롭 처리
   const handlePdfSelect = async (e) => {
@@ -107,7 +108,9 @@ export function DepositReceiptManagerView() {
           return candidate === token || candidate.includes(token) || token.includes(candidate);
         }))?.id;
       }).filter(Boolean);
-      const completed = requiredVendorIds.length > 0 && requiredVendorIds.every((vendorId) => Object.values(matchedItems).some((item) => item.siteId === sId && item.vendorId === vendorId));
+      const completed = requiredVendorIds.length > 0
+        ? requiredVendorIds.every((vendorId) => Object.values(matchedItems).some((item) => item.siteId === sId && item.vendorId === vendorId))
+        : Object.values(matchedItems).some((item) => item.siteId === sId);
       return !completed && (s.site_name || '').toLowerCase().includes(siteSearch.toLowerCase());
     });
   }, [sortedSites, siteSearch, siteVendorMappings, vendorList, matchedItems]);
@@ -168,8 +171,22 @@ export function DepositReceiptManagerView() {
       });
     };
     const vendors = [...new Map(mappedIds.map((value) => [value, findVendor(value)]).filter(([, vendor]) => vendor)).values()];
-    if (!vendors.length) return alert(`${site.site_name}의 거래처 정보를 찾지 못했습니다. 시트의 업체명 또는 거래처 ID를 확인해 주세요.`);
-    setVendorPicker({ site, vendors, x: Math.min(event.clientX + 18, window.innerWidth - 280), y: Math.min(event.clientY - 18, window.innerHeight - 240) });
+
+    // 매핑된 거래처가 2개 이상이면 팝업 선택창 노출
+    if (vendors.length >= 2) {
+      setVendorPicker({ site, vendors, x: Math.min(event.clientX + 18, window.innerWidth - 280), y: Math.min(event.clientY - 18, window.innerHeight - 240) });
+      return;
+    }
+
+    // 매핑된 거래처가 1개이면 해당 거래처로 즉시 매칭
+    if (vendors.length === 1) {
+      handleSelectSite(site, vendors[0]);
+      return;
+    }
+
+    // 매핑 정보가 시트에 없거나 등록되지 않은 경우: 우측 패널에서 선택된 기본 거래처(selectedVendorId)로 즉시 원클릭 지정
+    const activeVendor = vendorList.find(v => v.id === selectedVendorId) || vendorList[0];
+    handleSelectSite(site, activeVendor);
   };
 
   // 되돌리기
@@ -228,6 +245,24 @@ export function DepositReceiptManagerView() {
     } catch (error) { alert(error.message); } finally { setIsDriveDownloading(false); }
   };
 
+  const handleSyncSheets = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      refreshSiteMaster?.();
+      const [vendors, mappingRes] = await Promise.all([
+        fetchVendorList().catch(() => getVendorList()),
+        apiClient.get('/api/settlement/site-vendor-mappings').catch(() => ({ mappings: [] })),
+      ]);
+      setVendorList(vendors || []);
+      setSiteVendorMappings(mappingRes?.mappings || []);
+      alert('구글 시트의 최신 현장 및 거래처 매핑 정보를 성공적으로 동기화했습니다.');
+    } catch (err) {
+      alert(`시트 동기화 실패: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refreshSiteMaster]);
+
   return (
     <div style={containerStyle}>
       {/* ── 헤더 바 ── */}
@@ -245,6 +280,14 @@ export function DepositReceiptManagerView() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={handleSyncSheets}
+            disabled={isSyncing}
+            style={{ ...btnWebappStyle, background: '#f0fdf4', color: '#16a34a', borderColor: '#bbf7d0' }}
+            title="구글 시트의 최신 거래처 및 현장 매핑 정보 다시 불러오기"
+          >
+            {isSyncing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 시트 새로고침
+          </button>
           <button onClick={handleDriveDownload} disabled={isDriveDownloading} style={btnWebappStyle}>
             {isDriveDownloading ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Drive 입금표 {targetYm} 다운로드
           </button>

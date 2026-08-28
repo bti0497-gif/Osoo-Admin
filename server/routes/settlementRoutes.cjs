@@ -22,6 +22,11 @@ const {
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
+const {
+  getSiteSettlementVendors,
+  seedSiteSettlementVendors,
+  upsertSiteSettlementVendors,
+} = require('../services/siteSettlementVendorsSheetsService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
 const upload = multer({
@@ -31,6 +36,48 @@ const upload = multer({
 
 module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   const router = express.Router();
+
+  /**
+   * GET /api/settlement/site-vendor-mappings
+   * 현장별 정산 거래처(슬러지, 약품, 수질, 키트) 구글 시트 매핑 조회
+   */
+  router.get('/site-vendor-mappings', async (req, res) => {
+    try {
+      const mappings = await getSiteSettlementVendors();
+      res.json({ success: true, mappings });
+    } catch (err) {
+      console.error('[settlementRoutes] 현장별 거래처 매핑 조회 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/site-vendor-mappings
+   * 현장별 정산 거래처 매핑 수정/등록
+   */
+  router.post('/site-vendor-mappings', async (req, res) => {
+    try {
+      const mapping = await upsertSiteSettlementVendors(req.body);
+      res.json({ success: true, mapping });
+    } catch (err) {
+      console.error('[settlementRoutes] 현장별 거래처 매핑 등록 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/site-vendor-mappings/seed
+   * 현장별 정산 거래처 시트 초기 행 생성
+   */
+  router.post('/site-vendor-mappings/seed', async (req, res) => {
+    try {
+      const mappings = await seedSiteSettlementVendors(req.body?.sites || []);
+      res.json({ success: true, mappings });
+    } catch (err) {
+      console.error('[settlementRoutes] 현장별 거래처 시트 시딩 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   /**
    * GET /api/settlement/sites
