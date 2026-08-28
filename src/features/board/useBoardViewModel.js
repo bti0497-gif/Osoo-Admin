@@ -113,23 +113,23 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             }
         });
 
-        // 공지글 스레드 정렬: 등록순 (생성일 오름차순)
+        // 공지글 스레드 정렬: 최신 등록일 내림차순 (최신 공지가 상단)
         const sortedNoticePosts = [];
         const sortedNoticeThreadList = Object.values(noticeThreads)
-            .sort((a, b) => a.rootCreatedAt - b.rootCreatedAt);
+            .sort((a, b) => b.rootCreatedAt - a.rootCreatedAt);
 
         sortedNoticeThreadList.forEach(thread => {
             // 공지글 먼저
             const rootPost = thread.items.find(p => !p.parent_id);
             if (rootPost) sortedNoticePosts.push(rootPost);
 
-            // 답글들은 생성일순
+            // 답글들은 생성일 오름차순
             const replies = thread.items.filter(p => p.parent_id)
                 .sort((a, b) => toTimestampMs(a.created_at) - toTimestampMs(b.created_at));
             sortedNoticePosts.push(...replies);
         });
 
-        // 일반 스레드 정렬: 등록순 (ASCENDING: 오래된 글이 상단, 최근 글이 맨 아래에 오도록 정렬)
+        // 일반 스레드 정렬: 최신 등록일 내림차순 (DESCENDING: 최신 글이 상단에 위치)
         const sortedRegularPosts = [];
         const regularThreadList = Object.keys(regularThreads).map(rootId => {
             const thread = regularThreads[rootId];
@@ -141,8 +141,8 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             return { rootId, items: thread.items, rootCreatedAt };
         });
 
-        // 등록순 오름차순 정렬 (a - b: 최근 글이 맨 아래에 위치)
-        regularThreadList.sort((a, b) => a.rootCreatedAt - b.rootCreatedAt);
+        // 최신순 내림차순 정렬 (b - a: 최근 글이 맨 위에 위치)
+        regularThreadList.sort((a, b) => b.rootCreatedAt - a.rootCreatedAt);
 
         regularThreadList.forEach(t => {
             const flatten = (parentId = null) => {
@@ -160,11 +160,12 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
             flatten();
         });
 
-        // 일반 게시글 등록 순서대로 고유 번호(postNo) 연속 부여 (1, 2, 3, 4...)
-        let regularPostNumber = 1;
+        // 일반 게시글 역순 번호 부여 (최신 글이 가장 큰 번호로 맨 위에 오고, 과거 글이 1번)
+        const totalRegularRoots = sortedRegularPosts.filter(p => !p.parent_id).length;
+        let currentPostNo = totalRegularRoots;
         sortedRegularPosts.forEach(p => {
             if (!p.parent_id) {
-                p.postNo = regularPostNumber++;
+                p.postNo = currentPostNo--;
             }
         });
 

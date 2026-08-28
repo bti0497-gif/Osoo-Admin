@@ -322,6 +322,74 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   });
 
   /**
+   * GET /api/settlement/cheongju-statements-status
+   * 청주 3대 거래명세서(수질분석-대신, 키트-케이엠, 약품-에이치디이앤씨) 기존 등록 여부 조회
+   */
+  router.get('/cheongju-statements-status', (req, res) => {
+    try {
+      const targetYm = normalizeTargetYm(req.query.targetYm) || `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      const year = parseInt(targetYm.substring(0, 4), 10);
+      const month = parseInt(targetYm.substring(4, 6), 10);
+      const mm = String(month).padStart(2, '0');
+
+      const home = os.homedir();
+      const desktopDirs = [
+        path.join(home, 'OneDrive', '바탕 화면'),
+        path.join(home, 'OneDrive', 'Desktop'),
+        path.join(home, '바탕 화면'),
+        path.join(home, 'Desktop'),
+      ].filter(d => fs.existsSync(d));
+
+      const searchDirs = [];
+      desktopDirs.forEach(desktop => {
+        searchDirs.push(path.join(desktop, '점검준비', '명세서', targetYm));
+        searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${mm}월_사진모음`));
+        searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${month}월_사진모음`));
+      });
+
+      const findFile = (keyword) => {
+        for (const dir of searchDirs) {
+          if (fs.existsSync(dir)) {
+            try {
+              const files = fs.readdirSync(dir);
+              const matched = files.find(f => {
+                const lower = f.toLowerCase();
+                return (lower.includes('명세서') || lower.includes('거래명세서') || lower.includes('거래명세표')) &&
+                       f.includes(keyword) &&
+                       (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png'));
+              });
+              if (matched) return path.join(dir, matched);
+            } catch (_) {}
+          }
+        }
+        return null;
+      };
+
+      const waterQualityPath = findFile('대신');
+      const kitPath = findFile('케이엠');
+      const chemicalPath = findFile('에이치');
+
+      const statements = {
+        waterQuality: waterQualityPath ? { exists: true, fileName: path.basename(waterQualityPath), path: waterQualityPath } : { exists: false },
+        kit: kitPath ? { exists: true, fileName: path.basename(kitPath), path: kitPath } : { exists: false },
+        chemical: chemicalPath ? { exists: true, fileName: path.basename(chemicalPath), path: chemicalPath } : { exists: false },
+      };
+
+      const allReady = Boolean(statements.waterQuality.exists && statements.kit.exists && statements.chemical.exists);
+
+      return res.json({
+        success: true,
+        targetYm,
+        allReady,
+        statements,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] cheongju-statements-status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * POST /api/settlement/generate/cheongju
    * 청주휴게소 정산서 한글(HWP) 파일 생성 및 전송
    */
@@ -336,6 +404,8 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       try {
         const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
         const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+        const targetYm = `${year}${String(month).padStart(2, '0')}`;
+        const mm = String(month).padStart(2, '0');
 
         const tempDir = path.join(os.tmpdir(), `osoo_cheongju_stmt_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
@@ -366,7 +436,45 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
           statementFiles.chemical = p;
         }
 
-        console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작`);
+        // 업로드 파일이 없는 항목은 로컬 명세서 폴더에서 자동 탐색/연결
+        const home = os.homedir();
+        const desktopDirs = [
+          path.join(home, 'OneDrive', '바탕 화면'),
+          path.join(home, 'OneDrive', 'Desktop'),
+          path.join(home, '바탕 화면'),
+          path.join(home, 'Desktop'),
+        ].filter(d => fs.existsSync(d));
+
+        const searchDirs = [];
+        desktopDirs.forEach(desktop => {
+          searchDirs.push(path.join(desktop, '점검준비', '명세서', targetYm));
+          searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${mm}월_사진모음`));
+          searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${month}월_사진모음`));
+        });
+
+        const findFallback = (keyword) => {
+          for (const dir of searchDirs) {
+            if (fs.existsSync(dir)) {
+              try {
+                const files = fs.readdirSync(dir);
+                const matched = files.find(f => {
+                  const lower = f.toLowerCase();
+                  return (lower.includes('명세서') || lower.includes('거래명세서') || lower.includes('거래명세표')) &&
+                         f.includes(keyword) &&
+                         (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png'));
+                });
+                if (matched) return path.join(dir, matched);
+              } catch (_) {}
+            }
+          }
+          return null;
+        };
+
+        if (!statementFiles.waterQuality) statementFiles.waterQuality = findFallback('대신');
+        if (!statementFiles.kit) statementFiles.kit = findFallback('케이엠');
+        if (!statementFiles.chemical) statementFiles.chemical = findFallback('에이치');
+
+        console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작:`, statementFiles);
         const generatedPath = await generateCheongjuHwpReport({
           year,
           month,
@@ -381,7 +489,6 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         fileStream.pipe(res);
 
         fileStream.on('end', () => {
-          // 임시 명세서 파일 정리
           try {
             fs.rmSync(tempDir, { recursive: true, force: true });
           } catch (_) {}

@@ -19,6 +19,39 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
     chemical: useRef(null),
   };
 
+  // 모달 오픈 시 로컬 폴더에 이미 저장된 명세서 3종 자동 감지 및 프리필
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const fetchExisting = async () => {
+      try {
+        const targetYm = `${year}${String(month).padStart(2, '0')}`;
+        const res = await fetch(`/api/settlement/cheongju-statements-status?targetYm=${targetYm}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && data.statements) {
+          setStatements((prev) => ({
+            waterQuality: prev.waterQuality || (data.statements.waterQuality?.exists ? {
+              name: data.statements.waterQuality.fileName,
+              path: data.statements.waterQuality.path,
+              isExisting: true,
+            } : null),
+            kit: prev.kit || (data.statements.kit?.exists ? {
+              name: data.statements.kit.fileName,
+              path: data.statements.kit.path,
+              isExisting: true,
+            } : null),
+            chemical: prev.chemical || (data.statements.chemical?.exists ? {
+              name: data.statements.chemical.fileName,
+              path: data.statements.chemical.path,
+              isExisting: true,
+            } : null),
+          }));
+        }
+      } catch (_) {}
+    };
+    fetchExisting();
+  }, [isOpen, year, month]);
+
   if (!isOpen) return null;
 
   const SLOTS = [
@@ -183,28 +216,37 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
                 {/* 업로드 상태 뷰 */}
                 {uploaded ? (
                   <div style={previewBoxStyle}>
-                    <div style={{ position: 'relative', width: '100%', height: '140px', background: '#ffffff', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <img
-                        src={uploaded.previewUrl}
-                        alt={slot.title}
-                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                      />
+                    <div style={{ position: 'relative', width: '100%', height: '140px', background: '#ffffff', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      {uploaded.previewUrl ? (
+                        <img
+                          src={uploaded.previewUrl}
+                          alt={slot.title}
+                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                        />
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', color: slot.color }}>
+                          <FileText size={42} />
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px', border: '1px solid #a7f3d0' }}>
+                            💾 기존 명세서 자동 연동됨
+                          </span>
+                        </div>
+                      )}
                       <button
                         onClick={() => handleRemove(slot.key)}
                         disabled={isGenerating}
                         style={removeImgBtnStyle}
-                        title="이미지 삭제"
+                        title="이미지 삭제 또는 교체"
                       >
                         <X size={14} />
                       </button>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: '#334155' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px', fontWeight: 500 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px', fontWeight: 500 }} title={uploaded.name}>
                         📄 {uploaded.name}
                       </span>
                       <span style={{ color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <CheckCircle size={12} /> 등록완료
+                        <CheckCircle size={12} /> 준비완료
                       </span>
                     </div>
                   </div>

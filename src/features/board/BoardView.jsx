@@ -387,12 +387,68 @@ const BoardView = ({ currentUser }) => {
                         backgroundColor: '#fff',
                         display: 'flex', alignItems: 'center', gap: '0.75rem'
                     }}>
+                            {/* 페이지네이션 버튼 네비게이션 */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
-                                    style={{ width: '28px', height: '28px', border: 'none', background: 'none', cursor: currentPage === 1 ? 'default' : 'pointer', color: currentPage === 1 ? '#cbd5e1' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.875rem' }}>‹</button>
-                                <span style={{ minWidth: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1e293b', color: 'white', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>{currentPage}</span>
-                                <button onClick={() => setCurrentPage(p => Math.min(totalPages || 1, p + 1))} disabled={currentPage >= totalPages}
-                                    style={{ width: '28px', height: '28px', border: 'none', background: 'none', cursor: currentPage >= totalPages ? 'default' : 'pointer', color: currentPage >= totalPages ? '#cbd5e1' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.875rem' }}>›</button>
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                    disabled={currentPage === 1}
+                                    title="이전 페이지"
+                                    style={{
+                                        minWidth: '28px', height: '28px', padding: '0 6px',
+                                        border: '1px solid #e2e8f0', borderRadius: '6px',
+                                        backgroundColor: '#fff',
+                                        cursor: currentPage === 1 ? 'default' : 'pointer',
+                                        color: currentPage === 1 ? '#cbd5e1' : '#475569',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: '0.875rem', fontWeight: 700,
+                                        transition: 'all 0.15s'
+                                    }}
+                                >‹</button>
+
+                                {Array.from({ length: Math.max(1, totalPages || 1) }, (_, i) => i + 1).map(pageNum => {
+                                    const isCurrent = pageNum === currentPage;
+                                    return (
+                                        <button
+                                            key={pageNum}
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            style={{
+                                                minWidth: '28px', height: '28px', padding: '0 8px',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                backgroundColor: isCurrent ? '#1e293b' : '#fff',
+                                                color: isCurrent ? '#ffffff' : '#475569',
+                                                border: isCurrent ? '1px solid #1e293b' : '1px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                fontSize: '0.75rem', fontWeight: isCurrent ? 800 : 600,
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s'
+                                            }}
+                                            onMouseEnter={e => {
+                                                if (!isCurrent) e.currentTarget.style.backgroundColor = '#f1f5f9';
+                                            }}
+                                            onMouseLeave={e => {
+                                                if (!isCurrent) e.currentTarget.style.backgroundColor = '#fff';
+                                            }}
+                                        >
+                                            {pageNum}
+                                        </button>
+                                    );
+                                })}
+
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages || 1, p + 1))}
+                                    disabled={currentPage >= (totalPages || 1)}
+                                    title="다음 페이지"
+                                    style={{
+                                        minWidth: '28px', height: '28px', padding: '0 6px',
+                                        border: '1px solid #e2e8f0', borderRadius: '6px',
+                                        backgroundColor: '#fff',
+                                        cursor: currentPage >= (totalPages || 1) ? 'default' : 'pointer',
+                                        color: currentPage >= (totalPages || 1) ? '#cbd5e1' : '#475569',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: '0.875rem', fontWeight: 700,
+                                        transition: 'all 0.15s'
+                                    }}
+                                >›</button>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flex: 1, maxWidth: '240px' }}>
                                 <span className="material-icons" style={{ fontSize: '16px', color: '#94a3b8' }}>search</span>

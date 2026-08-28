@@ -165,16 +165,20 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     '슬러지월': `${month}월`,
   };
 
+  // 템플릿 복사본을 임시 폴더에 생성하여 작업 (Program Files 권한 문제 및 원본 오염 원천 차단)
+  const tempWorkingPath = path.join(os.tmpdir(), `osoo_cheongju_template_${Date.now()}_${Math.random().toString(36).substring(7)}.hwp`);
+  fs.copyFileSync(templatePath, tempWorkingPath);
+
   const serializedImageSpecs = JSON.stringify(imageSpecs);
   const serializedTextBindings = JSON.stringify(textBindings);
 
   const psScript = [
     "$ErrorActionPreference = 'Stop'",
-    `$templatePath = ${toPowerShellLiteral(templatePath)}`,
+    `$tempWorkingPath = ${toPowerShellLiteral(tempWorkingPath)}`,
     `$outputPath = ${toPowerShellLiteral(outputFilePath)}`,
     `$specsJson = ${toPowerShellLiteral(serializedImageSpecs)}`,
     `$textsJson = ${toPowerShellLiteral(serializedTextBindings)}`,
-    "if (-not (Test-Path -LiteralPath $templatePath)) { throw \"HWP template not found: $templatePath\" }",
+    "if (-not (Test-Path -LiteralPath $tempWorkingPath)) { throw \"HWP working template not found: $tempWorkingPath\" }",
     "if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force }",
     "$specs = ConvertFrom-Json $specsJson",
     "$texts = ConvertFrom-Json $textsJson",
@@ -183,8 +187,8 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "  $hwp = New-Object -ComObject HWPFrame.HwpObject",
     "  try { $hwp.RegisterModule('FilePathCheckDLL', 'FilePathChecker') | Out-Null } catch {}",
     "  $hwp.SetMessageBoxMode(65535)",
-    "  $openResult = $hwp.Open($templatePath, 'HWP', 0)",
-    "  if (-not $openResult) { throw \"HWP 파일을 열 수 없습니다: $templatePath\" }",
+    "  $openResult = $hwp.Open($tempWorkingPath, 'HWP', 'lock:false')",
+    "  if (-not $openResult) { throw \"HWP 파일을 열 수 없습니다: $tempWorkingPath\" }",
     "",
     "  # 1. 문서 전체의 연도/월 텍스트 일괄 찾아바꾸기 (AllReplace)",
     "  $replacePairs = @(",
@@ -220,17 +224,21 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 2. 텍스트 책갈피 주입",
+    "  # 2. 텍스트 누름틀/필드 주입 (PutFieldText 및 MoveToField)",
     "  foreach ($prop in $texts.PSObject.Properties) {",
     "    $bName = [string]$prop.Name",
     "    $bVal = [string]$prop.Value",
-    "    if ($hwp.MoveToBookmark($bName)) {",
-    "      $hwp.Run('SelectAll') | Out-Null",
-    "      $hwp.InsertText($bVal) | Out-Null",
+    "    try {",
+    "      $hwp.PutFieldText($bName, $bVal) | Out-Null",
+    "    } catch {",
+    "      if ($hwp.MoveToField($bName, $true, $true, $true)) {",
+    "        $hwp.Run('SelectAll') | Out-Null",
+    "        $hwp.InsertText($bVal) | Out-Null",
+    "      }",
     "    }",
     "  }",
     "",
-    "  # 3. 이미지 책갈피 주입 (지정 규격 적용)",
+    "  # 3. 이미지 누름틀/필드 주입 (지정 규격 적용)",
     "  foreach ($prop in $specs.PSObject.Properties) {",
     "    $bName = [string]$prop.Name",
     "    $specObj = $prop.Value",
@@ -243,7 +251,12 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    $wUnit = [int]($wMm * 283.464567)",
     "    $hUnit = [int]($hMm * 283.464567)",
     "",
-    "    if ($hwp.MoveToBookmark($bName)) {",
+    "    $moved = $false",
+    "    try {",
+    "      $moved = $hwp.MoveToField($bName, $true, $true, $true)",
+    "    } catch {}",
+    "",
+    "    if ($moved) {",
     "      $hwp.Run('SelectAll') | Out-Null",
     "      $hwp.Run('Delete') | Out-Null",
     "",
@@ -281,10 +294,11 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 3. 완성된 HWP 저장",
-    "  $hwp.SaveAs($outputPath, 'HWP')",
+    "  # 4. 완성된 HWP 저장",
+    "  $hwp.SaveAs($outputPath, 'HWP', '') | Out-Null",
     "} finally {",
     "  if ($hwp -ne $null) {",
+    "    try { $hwp.Clear(1) } catch {}",
     "    try { $hwp.Quit() } catch {}",
     "    [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($hwp)",
     "  }",
@@ -306,9 +320,10 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tempScriptPath],
       { windowsHide: true, maxBuffer: 20 * 1024 * 1024 },
       (error, stdout, stderr) => {
-        // 임시 스크립트 삭제
+        // 임시 스크립트 및 작업 템플릿 삭제
         try {
           if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath);
+          if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath);
         } catch (_) {}
 
         if (error) {
