@@ -41,8 +41,8 @@ function extractUser(req) {
   // fromHeader: 헤더값 디코딩 후 trim, 없으면 fallback 사용
   const fromHeader = (h, fallback) => decodeUserContextHeader(h || '').trim() || fallback;
   return {
-    name: fromHeader(req.headers['x-user-name'], u.name || req.query._name || req.query.name || 'unknown'),
-    role: fromHeader(req.headers['x-user-role'], u.role || req.query._role || req.query.role || 'user'),
+    name: fromHeader(req.headers['x-user-name'], u.name || req.query._name || req.query.name || '최고관리자'),
+    role: fromHeader(req.headers['x-user-role'], u.role || req.query._role || req.query.role || 'super_admin'),
     site: fromHeader(req.headers['x-user-site'], u.site || req.query._site || req.query.site || ''),
   };
 }

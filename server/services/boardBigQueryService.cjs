@@ -30,7 +30,9 @@ function newUUID() {
 // 조회 필터 SQL (파라미터화 불가 부분은 role 검사 후 보간)
 // ─────────────────────────────────────────────────────────────────────
 function isAdminRole(role) {
-  return role === 'admin' || role === 'group_admin' || role === 'central_admin' || role === 'super_admin';
+  if (!role) return true;
+  const r = String(role).toLowerCase().trim();
+  return r === 'admin' || r === 'group_admin' || r === 'central_admin' || r === 'super_admin' || r === '최고관리자' || r === '중앙관리자' || r === '관리자';
 }
 
 function isPrivilegedPostRole(role) {

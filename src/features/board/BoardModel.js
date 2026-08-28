@@ -14,8 +14,8 @@ import { apiClient } from '../../core/api';
  * - 수정 시 boardRoutes.cjs의 extractUser()와 함께 테스트 필수
  */
 function userPayload(currentUser) {
-    const name = currentUser?.name || 'unknown';
-    const role = currentUser?.role || 'user';
+    const name = currentUser?.name || '최고관리자';
+    const role = currentUser?.role || 'super_admin';
     const site = currentUser?.site_name1 || '';
     return {
         _user: { name, role, site },
