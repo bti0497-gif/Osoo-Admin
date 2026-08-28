@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, CheckCircle, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { getApiBase } from '../../../core/api/serverConfig';
 
 /**
  * 청주휴게소 3대 거래명세서(수질분석, 키트, 약품) 업로드 전용 모달
@@ -25,7 +26,7 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
     const fetchExisting = async () => {
       try {
         const targetYm = `${year}${String(month).padStart(2, '0')}`;
-        const res = await fetch(`/api/settlement/cheongju-statements-status?targetYm=${targetYm}`);
+        const res = await fetch(`${getApiBase()}/api/settlement/cheongju-statements-status?targetYm=${targetYm}`);
         if (!res.ok) return;
         const data = await res.json();
         if (data.success && data.statements) {

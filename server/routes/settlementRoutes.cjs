@@ -354,9 +354,12 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
               const files = fs.readdirSync(dir);
               const matched = files.find(f => {
                 const lower = f.toLowerCase();
-                return (lower.includes('명세서') || lower.includes('거래명세서') || lower.includes('거래명세표')) &&
-                       f.includes(keyword) &&
-                       (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png'));
+                const isExt = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png');
+                if (!isExt) return false;
+                if (keyword === '대신' && lower.includes('대신')) return true;
+                if (keyword === '케이엠' && (lower.includes('케이엠') || lower.includes('kmsc') || lower.includes('km'))) return true;
+                if (keyword === '에이치' && (lower.includes('에이치') || lower.includes('hde'))) return true;
+                return false;
               });
               if (matched) return path.join(dir, matched);
             } catch (_) {}
@@ -459,9 +462,12 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
                 const files = fs.readdirSync(dir);
                 const matched = files.find(f => {
                   const lower = f.toLowerCase();
-                  return (lower.includes('명세서') || lower.includes('거래명세서') || lower.includes('거래명세표')) &&
-                         f.includes(keyword) &&
-                         (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png'));
+                  const isExt = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png');
+                  if (!isExt) return false;
+                  if (keyword === '대신' && lower.includes('대신')) return true;
+                  if (keyword === '케이엠' && (lower.includes('케이엠') || lower.includes('kmsc') || lower.includes('km'))) return true;
+                  if (keyword === '에이치' && (lower.includes('에이치') || lower.includes('hde'))) return true;
+                  return false;
                 });
                 if (matched) return path.join(dir, matched);
               } catch (_) {}

@@ -119,69 +119,67 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     }
   });
 
-  // 로컬 매칭 이미지 탐색 (바탕화면 점검준비/계산서/YYYYMM 및 점검준비/입금표/YYYYMM)
+  // 로컬 매칭 이미지 탐색 (바탕화면 점검준비/계산서/YYYYMM, 점검준비/입금표/YYYYMM, 청주 사진모음 폴더)
   const invoiceDir = path.join(desktopDirs[0], '점검준비', '계산서', targetYm);
   const depositDir = path.join(desktopDirs[0], '점검준비', '입금표', targetYm);
+  const photoDir = path.join(desktopDirs[0], `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`);
 
-  // 규격별 이미지 바인딩 정보 구성
-  // HWP 규격 (가로 mm, 세로 mm)
-  const imageSpecs = {
-    // 계산서 및 명세서류 (85x50)
-    '관리비계산서': { width: 85, height: 50, files: findMatchingImages(invoiceDir, '용역비') },
-    '수질검사명세서': { width: 85, height: 50, files: statementFiles.waterQuality ? [statementFiles.waterQuality] : [] },
-    '수질검사계산서': { width: 85, height: 50, files: findMatchingImages(invoiceDir, '대신') },
-    '키트명세서': { width: 85, height: 50, files: statementFiles.kit ? [statementFiles.kit] : [] },
-    '키트계산서': { width: 85, height: 50, files: findMatchingImages(invoiceDir, '케이엠') },
-    '약품명세서': { width: 85, height: 50, files: statementFiles.chemical ? [statementFiles.chemical] : [] },
-    '약품계산서': { width: 85, height: 50, files: findMatchingImages(invoiceDir, '에이치') },
-    '슬러지계산서': { width: 85, height: 50, files: findMatchingImages(invoiceDir, '국민환경') },
+  // HWP 템플릿 내의 각 표 칸에 실제 인쇄된 텍스트 플레이스홀더 목록 및 규격 (가로 mm, 세로 mm)
+  const imagePlaceholders = [
+    // 1. 위탁관리비 계산서 및 입금증
+    { findText: '위탁관리비(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '용역비') },
+    { findText: '위탁관리비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '용역비').concat(findMatchingImages(depositDir, '관리비')) },
 
-    // 입금표류 (85x30)
-    '수질검사입금표': { width: 85, height: 30, files: findMatchingImages(depositDir, '대신') },
-    '키트입금표': { width: 85, height: 30, files: findMatchingImages(depositDir, '케이엠') },
-    '약품입금표': { width: 85, height: 30, files: findMatchingImages(depositDir, '에이치') },
-    '슬러지입금표': { width: 85, height: 30, files: findMatchingImages(depositDir, '국민환경') },
+    // 2. 수질검사 명세서, 계산서, 입금증, 시험성적서
+    { findText: '수질검사(거래명세서)', width: 85, height: 50, files: statementFiles.waterQuality ? [statementFiles.waterQuality] : [] },
+    { findText: '수질검사(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '대신') },
+    { findText: '수질검사(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '대신') },
+    { findText: '수질검사 시험성적서', width: 27, height: 42, isCertGrid: true, files: findMatchingImages(photoDir, '성적서').concat(findMatchingImages(depositDir, '성적서')) },
 
-    // 성적서 (27x42, 6개 - 3개 후 줄바꿈 3개)
-    '성적서': { width: 27, height: 42, isCertGrid: true, files: [] },
+    // 3. 수질분석 키트 명세서, 계산서, 입금증, 사진
+    { findText: '수질분석 키트 구입(거래명세서)', width: 85, height: 50, files: statementFiles.kit ? [statementFiles.kit] : [] },
+    { findText: '수질분석 키트 구입(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '케이엠') },
+    { findText: '수질분석 키트 구입(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '케이엠') },
+    { findText: '수질분석 키트 구입 사진', width: 68, height: 93, isVerticalStack: true, files: findMatchingImages(photoDir, '키트') },
 
-    // 사진류
-    '약품사진': { width: 68, height: 93, isVerticalStack: true, files: [] },
-    '청소필증사진': { width: 32, height: 73, isDual: true, files: [] },
-    '슬러지반출사진': { width: 60, height: 90, isVerticalStack: true, files: [] },
-  };
+    // 4. 약품비 명세서, 계산서, 입금증, 사진
+    { findText: '약품비(거래명세서)', width: 85, height: 50, files: statementFiles.chemical ? [statementFiles.chemical] : [] },
+    { findText: '약품비(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '에이치') },
+    { findText: '약품비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '에이치') },
+    { findText: '약품 구입사진', width: 68, height: 93, isVerticalStack: true, files: findMatchingImages(photoDir, '약품') },
 
-  // 표 제목 텍스트 바인딩
-  const textBindings = {
-    '증빙표제목': titleText,
-    '증빙표제목0': titleText,
-    '증빙표제목1': titleText,
-    '증빙표제목2': titleText,
-    '증빙표제목3': titleText,
-    '증빙표제목4': titleText,
-    '증빙표제목6': titleText,
-    '증빙표제목7': titleText,
-    '슬러지년도': `${year}년`,
-    '슬러지월': `${month}월`,
-  };
+    // 5. 슬러지 계량증명서, 계산서, 입금증, 사진
+    { findText: '슬러지 수거 계량증명서', width: 32, height: 73, isDual: true, files: findMatchingImages(photoDir, '필증').concat(findMatchingImages(photoDir, '계량')) },
+    { findText: '슬러지처리비(계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '국민환경') },
+    { findText: '슬러지처리비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '국민환경') },
+    { findText: '슬러지 처리 사진', width: 60, height: 90, isVerticalStack: true, files: findMatchingImages(photoDir, '슬러지') },
+  ];
 
   // 템플릿 복사본을 임시 폴더에 생성하여 작업 (Program Files 권한 문제 및 원본 오염 원천 차단)
   const tempWorkingPath = path.join(os.tmpdir(), `osoo_cheongju_template_${Date.now()}_${Math.random().toString(36).substring(7)}.hwp`);
   fs.copyFileSync(templatePath, tempWorkingPath);
 
-  const serializedImageSpecs = JSON.stringify(imageSpecs);
-  const serializedTextBindings = JSON.stringify(textBindings);
+  const serializedImagePlaceholders = JSON.stringify(imagePlaceholders);
+
+  // 약품/키트 연간 누계 계산
+  const glucoseAnnual = (950 * month).toLocaleString();
+  const sodaAnnual = (750 * month).toLocaleString();
+  const pacAnnual = (750 * month).toLocaleString();
+  const aluAnnual = (600 * month).toLocaleString();
+  const polyAnnual = (10 * month).toLocaleString();
+  const nh3Annual = (1061 + 156 * (month - 7)).toLocaleString();
+  const no3Annual = (1061 + 156 * (month - 7)).toLocaleString();
+  const po4Annual = (558 + 78 * (month - 7)).toLocaleString();
+  const alkAnnual = (1061 + 154 * (month - 7)).toLocaleString();
 
   const psScript = [
     "$ErrorActionPreference = 'Stop'",
     `$tempWorkingPath = ${toPowerShellLiteral(tempWorkingPath)}`,
     `$outputPath = ${toPowerShellLiteral(outputFilePath)}`,
-    `$specsJson = ${toPowerShellLiteral(serializedImageSpecs)}`,
-    `$textsJson = ${toPowerShellLiteral(serializedTextBindings)}`,
+    `$placeholdersJson = ${toPowerShellLiteral(serializedImagePlaceholders)}`,
     "if (-not (Test-Path -LiteralPath $tempWorkingPath)) { throw \"HWP working template not found: $tempWorkingPath\" }",
     "if (Test-Path -LiteralPath $outputPath) { Remove-Item -LiteralPath $outputPath -Force }",
-    "$specs = ConvertFrom-Json $specsJson",
-    "$texts = ConvertFrom-Json $textsJson",
+    "$imageItems = ConvertFrom-Json $placeholdersJson",
     "$hwp = $null",
     "try {",
     "  $hwp = New-Object -ComObject HWPFrame.HwpObject",
@@ -190,7 +188,7 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "  $openResult = $hwp.Open($tempWorkingPath, 'HWP', 'lock:false')",
     "  if (-not $openResult) { throw \"HWP 파일을 열 수 없습니다: $tempWorkingPath\" }",
     "",
-    "  # 1. 문서 전체의 연도/월 텍스트 일괄 찾아바꾸기 (AllReplace)",
+    "  # 1. 문서 전체의 연도/월/누계 텍스트 일괄 찾아바꾸기 (AllReplace)",
     "  $replacePairs = @(",
     `    @{ Find = '25년 7월분'; Replace = '${shortYear}년 ${month}월분' },`,
     `    @{ Find = '25년 7월';   Replace = '${shortYear}년 ${month}월' },`,
@@ -198,7 +196,13 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     `    @{ Find = '2025년 7월'; Replace = '${year}년 ${month}월' },`,
     `    @{ Find = '2026년 7월'; Replace = '${year}년 ${month}월' },`,
     `    @{ Find = '(7월)';      Replace = '(${month}월)' },`,
-    `    @{ Find = '7월분';      Replace = '${month}월분' }`,
+    `    @{ Find = '7월분';      Replace = '${month}월분' },`,
+    `    @{ Find = '25년 7월 증빙'; Replace = '${shortYear}년 ${month}월 증빙' },`,
+    `    @{ Find = '6,600';     Replace = '${glucoseAnnual}' },`,
+    `    @{ Find = '5,200';     Replace = '${sodaAnnual}' },`,
+    `    @{ Find = '4,200';     Replace = '${aluAnnual}' },`,
+    `    @{ Find = '1,061';     Replace = '${nh3Annual}' },`,
+    `    @{ Find = '558';       Replace = '${po4Annual}' }`,
     "  )",
     "",
     "  # 슬러지 대장 일자 치환 (7월 1일 ~ 7월 31일 -> ${month}월 1일 ~ ${month}월 31일)",
@@ -224,58 +228,40 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 2. 텍스트 누름틀/필드 주입 (PutFieldText 및 MoveToField)",
-    "  foreach ($prop in $texts.PSObject.Properties) {",
-    "    $bName = [string]$prop.Name",
-    "    $bVal = [string]$prop.Value",
-    "    try {",
-    "      $hwp.PutFieldText($bName, $bVal) | Out-Null",
-    "    } catch {",
-    "      if ($hwp.MoveToField($bName, $true, $true, $true)) {",
-    "        $hwp.Run('SelectAll') | Out-Null",
-    "        $hwp.InsertText($bVal) | Out-Null",
-    "      }",
-    "    }",
-    "  }",
-    "",
-    "  # 3. 이미지 누름틀/필드 주입 (지정 규격 적용)",
-    "  foreach ($prop in $specs.PSObject.Properties) {",
-    "    $bName = [string]$prop.Name",
-    "    $specObj = $prop.Value",
-    "    $fileList = @($specObj.files)",
+    "  # 2. 이미지 텍스트 플레이스홀더 탐색 후 이미지 삽입",
+    "  foreach ($item in $imageItems) {",
+    "    $fText = [string]$item.findText",
+    "    $fileList = @($item.files)",
     "    if ($fileList.Count -eq 0) { continue }",
     "",
-    "    $wMm = [double]$specObj.width",
-    "    $hMm = [double]$specObj.height",
-    "    # 1mm = 283.465 hwpunit",
-    "    $wUnit = [int]($wMm * 283.464567)",
-    "    $hUnit = [int]($hMm * 283.464567)",
+    "    $wUnit = [int]([double]$item.width * 283.464567)",
+    "    $hUnit = [int]([double]$item.height * 283.464567)",
     "",
-    "    $moved = $false",
-    "    try {",
-    "      $moved = $hwp.MoveToField($bName, $true, $true, $true)",
-    "    } catch {}",
+    "    # 문서 처음으로 이동",
+    "    $hwp.Run('MoveDocBegin') | Out-Null",
     "",
-    "    if ($moved) {",
-    "      $hwp.Run('SelectAll') | Out-Null",
+    "    $param = $hwp.HParameterSet.HFindReplace",
+    "    $hwp.HAction.GetDefault('Find', $param.HSet) | Out-Null",
+    "    $param.FindString = $fText",
+    "    $param.Direction = 0",
+    "    $param.MatchCase = 0",
+    "    $param.WholeWordOnly = 0",
+    "    $param.IgnoreMessage = 1",
+    "    $found = $hwp.HAction.Execute('Find', $param.HSet)",
+    "",
+    "    if ($found) {",
     "      $hwp.Run('Delete') | Out-Null",
     "",
-    "      if ($specObj.isCertGrid) {",
-    "        # 성적서 6장: 3장 나열 후 줄바꿈 + 3장",
+    "      if ($item.isCertGrid) {",
     "        $idx = 0",
     "        foreach ($f in $fileList) {",
     "          if (Test-Path -LiteralPath $f) {",
     "            $hwp.InsertPicture($f, $true, 1, $false, $false, 0, $wUnit, $hUnit) | Out-Null",
     "            $idx++",
-    "            if ($idx -eq 3) {",
-    "              $hwp.Run('BreakPara') | Out-Null",
-    "            } else {",
-    "              $hwp.InsertText(' ') | Out-Null",
-    "            }",
+    "            if ($idx -eq 3) { $hwp.Run('BreakPara') | Out-Null } else { $hwp.InsertText(' ') | Out-Null }",
     "          }",
     "        }",
-    "      } elseif ($specObj.isVerticalStack) {",
-    "        # 세로 묶음",
+    "      } elseif ($item.isVerticalStack) {",
     "        foreach ($f in $fileList) {",
     "          if (Test-Path -LiteralPath $f) {",
     "            $hwp.InsertPicture($f, $true, 1, $false, $false, 0, $wUnit, $hUnit) | Out-Null",
@@ -283,7 +269,6 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "          }",
     "        }",
     "      } else {",
-    "        # 단일 또는 일반 나열",
     "        foreach ($f in $fileList) {",
     "          if (Test-Path -LiteralPath $f) {",
     "            $hwp.InsertPicture($f, $true, 1, $false, $false, 0, $wUnit, $hUnit) | Out-Null",
@@ -294,7 +279,7 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 4. 완성된 HWP 저장",
+    "  # 3. 완성된 HWP 저장",
     "  $hwp.SaveAs($outputPath, 'HWP', '') | Out-Null",
     "} finally {",
     "  if ($hwp -ne $null) {",
