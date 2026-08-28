@@ -201,6 +201,12 @@ export function DepositReceiptManagerView() {
       return next;
     });
 
+    // 되돌리기 된 해당 분할 항목으로 포커스 자동 이동
+    const targetIndex = splitItems.findIndex(s => s.id === item.itemId || s.id === selectedMatchedId);
+    if (targetIndex !== -1) {
+      setSelectedIndex(targetIndex);
+    }
+
     setSelectedMatchedId(null);
   };
 

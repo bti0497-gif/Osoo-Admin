@@ -27,6 +27,7 @@ const {
   seedSiteSettlementVendors,
   upsertSiteSettlementVendors,
 } = require('../services/siteSettlementVendorsSheetsService.cjs');
+const { generateCheongjuHwpReport } = require('../services/hwpSettlementService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
 const upload = multer({
@@ -258,6 +259,78 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       return res.status(500).json({ success: false, error: err.message });
     }
   });
+
+  /**
+   * POST /api/settlement/generate/cheongju
+   * 청주휴게소 정산서 한글(HWP) 파일 생성 및 전송
+   */
+  router.post(
+    '/generate/cheongju',
+    upload.fields([
+      { name: 'statementWaterQuality', maxCount: 1 },
+      { name: 'statementKit', maxCount: 1 },
+      { name: 'statementChemical', maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+        const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+
+        const tempDir = path.join(os.tmpdir(), `osoo_cheongju_stmt_${Date.now()}`);
+        fs.mkdirSync(tempDir, { recursive: true });
+
+        const statementFiles = {};
+
+        if (req.files?.statementWaterQuality?.[0]) {
+          const file = req.files.statementWaterQuality[0];
+          const ext = path.extname(file.originalname) || '.jpg';
+          const p = path.join(tempDir, `stmt_water_quality${ext}`);
+          fs.writeFileSync(p, file.buffer);
+          statementFiles.waterQuality = p;
+        }
+
+        if (req.files?.statementKit?.[0]) {
+          const file = req.files.statementKit[0];
+          const ext = path.extname(file.originalname) || '.jpg';
+          const p = path.join(tempDir, `stmt_kit${ext}`);
+          fs.writeFileSync(p, file.buffer);
+          statementFiles.kit = p;
+        }
+
+        if (req.files?.statementChemical?.[0]) {
+          const file = req.files.statementChemical[0];
+          const ext = path.extname(file.originalname) || '.jpg';
+          const p = path.join(tempDir, `stmt_chemical${ext}`);
+          fs.writeFileSync(p, file.buffer);
+          statementFiles.chemical = p;
+        }
+
+        console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작`);
+        const generatedPath = await generateCheongjuHwpReport({
+          year,
+          month,
+          statementFiles,
+        });
+
+        const fileName = path.basename(generatedPath);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+
+        const fileStream = fs.createReadStream(generatedPath);
+        fileStream.pipe(res);
+
+        fileStream.on('end', () => {
+          // 임시 명세서 파일 정리
+          try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+          } catch (_) {}
+        });
+      } catch (err) {
+        console.error('[settlementRoutes] 청주 정산서 생성 오류:', err);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    }
+  );
 
   router.get('/drive-folder-download', async (req, res) => {
     try {

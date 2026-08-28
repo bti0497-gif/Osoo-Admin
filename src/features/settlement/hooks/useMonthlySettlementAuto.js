@@ -142,6 +142,59 @@ export function useMonthlySettlementAuto() {
     }
   }, [fetchTemplates, showToast]);
 
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // 청주휴게소 정산서 한글 파일 생성 및 다운로드
+  const generateCheongjuReport = useCallback(async (statements, targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('year', String(targetYear));
+      formData.append('month', String(targetMonth));
+
+      if (statements.waterQuality?.file) {
+        formData.append('statementWaterQuality', statements.waterQuality.file);
+      }
+      if (statements.kit?.file) {
+        formData.append('statementKit', statements.kit.file);
+      }
+      if (statements.chemical?.file) {
+        formData.append('statementChemical', statements.chemical.file);
+      }
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/cheongju`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `정산서 작성 실패 (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const filename = `청주휴게소(서울)_정산보고서_${targetYear}${String(targetMonth).padStart(2, '0')}.hwp`;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      showToast(`🎉 [${filename}] 정산서 한글 파일이 성공적으로 작성되어 다운로드되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 청주 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
   useEffect(() => {
     fetchSites();
     fetchTemplates();
@@ -161,10 +214,12 @@ export function useMonthlySettlementAuto() {
     error,
     toastMessage,
     uploadingSiteId,
+    isGenerating,
     fetchSummary,
     fetchTemplates,
     downloadTemplate,
     uploadTemplate,
     deleteTemplate,
+    generateCheongjuReport,
   };
 }

@@ -8,7 +8,7 @@ module.exports = {
   npmRebuild: false,
   nodeGypRebuild: false,
   directories: {
-    output: 'release/v1.0.22',
+    output: 'release/v1.0.23',
     buildResources: 'build',
   },
   files: [

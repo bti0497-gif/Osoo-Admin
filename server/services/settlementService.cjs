@@ -14,13 +14,57 @@ const getBigQueryClient = () => {
 };
 
 const DATASET = 'daily_log_system';
-const TEMPLATE_DIR = path.join(__dirname, '../templates/settlement');
-if (!fs.existsSync(TEMPLATE_DIR)) {
-  fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
+
+/**
+ * 템플릿 저장용 쓰기 가능 디렉토리 (AppData) 및 번들 디렉토리 계산
+ */
+function getWritableTemplateDir() {
+  const appDataRoot = process.env.APP_DATA_PATH || 
+    (process.env.APPDATA ? path.join(process.env.APPDATA, 'Osoo_Admin_App') : path.join(__dirname, '../templates/settlement'));
+  const targetDir = path.join(appDataRoot, 'templates', 'settlement');
+  if (!fs.existsSync(targetDir)) {
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (e) {
+      console.warn('[settlementService] AppData 템플릿 폴더 생성 실패:', e.message);
+    }
+  }
+  return targetDir;
 }
 
-// 템플릿 메타 설정 파일 (사용자가 업로드/교체한 파일명 유지)
-const CONFIG_FILE = path.join(TEMPLATE_DIR, 'template_config.json');
+function getBundleTemplateDir() {
+  const relPath = path.join('server', 'templates', 'settlement');
+  const candidates = [
+    path.join(__dirname, '../templates/settlement'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked', relPath) : '',
+    process.resourcesPath ? path.join(process.resourcesPath, relPath) : '',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(__dirname, '../templates/settlement');
+}
+
+/**
+ * 특정 템플릿 파일의 실제 존재하는 최우선 경로 탐색 (AppData > 번들)
+ */
+function resolveTemplateFilePath(fileName) {
+  if (!fileName) return null;
+  const safeName = path.basename(fileName);
+  const writableDir = getWritableTemplateDir();
+  const bundleDir = getBundleTemplateDir();
+
+  const candidates = [
+    path.join(writableDir, safeName),
+    path.join(bundleDir, safeName),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 /**
  * 5대 지원 현장 기본 정의
@@ -83,9 +127,16 @@ const DEFAULT_SITES = [
  * 템플릿 메타 로드/저장
  */
 function loadTemplateConfig() {
+  const appDataConfigFile = path.join(getWritableTemplateDir(), 'template_config.json');
+  const bundleConfigFile = path.join(getBundleTemplateDir(), 'template_config.json');
+
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
+    if (fs.existsSync(appDataConfigFile)) {
+      const raw = fs.readFileSync(appDataConfigFile, 'utf8');
+      return JSON.parse(raw);
+    }
+    if (fs.existsSync(bundleConfigFile)) {
+      const raw = fs.readFileSync(bundleConfigFile, 'utf8');
       return JSON.parse(raw);
     }
   } catch (err) {
@@ -96,7 +147,8 @@ function loadTemplateConfig() {
 
 function saveTemplateConfig(sites) {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(sites, null, 2), 'utf8');
+    const configFile = path.join(getWritableTemplateDir(), 'template_config.json');
+    fs.writeFileSync(configFile, JSON.stringify(sites, null, 2), 'utf8');
   } catch (err) {
     console.error('[settlementService] config 파일 저장 실패:', err);
   }
@@ -108,8 +160,8 @@ function saveTemplateConfig(sites) {
 function getTemplateList() {
   const sites = loadTemplateConfig();
   return sites.map((site) => {
-    const mainFilePath = site.template ? path.join(TEMPLATE_DIR, site.template) : null;
-    const exists = mainFilePath ? fs.existsSync(mainFilePath) : false;
+    const mainFilePath = resolveTemplateFilePath(site.template);
+    const exists = !!mainFilePath;
     const size = exists ? fs.statSync(mainFilePath).size : 0;
     const updatedAt = exists ? fs.statSync(mainFilePath).mtime : null;
 
@@ -117,8 +169,8 @@ function getTemplateList() {
     let subExists = false;
     let subUpdatedAt = null;
     if (site.subTemplate) {
-      const subFilePath = path.join(TEMPLATE_DIR, site.subTemplate);
-      subExists = fs.existsSync(subFilePath);
+      const subFilePath = resolveTemplateFilePath(site.subTemplate);
+      subExists = !!subFilePath;
       subSize = subExists ? fs.statSync(subFilePath).size : 0;
       subUpdatedAt = subExists ? fs.statSync(subFilePath).mtime : null;
     }
@@ -139,14 +191,11 @@ function getTemplateList() {
  * 템플릿 파일 경로 조회
  */
 function getTemplateFilePath(templateFileName) {
-  if (!templateFileName) return null;
-  const safeName = path.basename(templateFileName);
-  const fullPath = path.join(TEMPLATE_DIR, safeName);
-  return fs.existsSync(fullPath) ? fullPath : null;
+  return resolveTemplateFilePath(templateFileName);
 }
 
 /**
- * 현장 템플릿 파일 교체 및 신규 저장
+ * 현장 템플릿 파일 교체 및 신규 저장 (항상 쓰기 가능한 AppData 폴더에 저장)
  */
 function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
   const sites = loadTemplateConfig();
@@ -157,18 +206,19 @@ function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
 
   const ext = path.extname(originalName).toLowerCase();
   const safeBaseName = `template_${siteId}${isSub ? '_sub' : ''}${ext}`;
-  const targetPath = path.join(TEMPLATE_DIR, safeBaseName);
+  const targetDir = getWritableTemplateDir();
+  const targetPath = path.join(targetDir, safeBaseName);
 
-  // 기존 파일 삭제
+  // 기존 사용자 파일 삭제 (AppData 내)
   const oldTemplate = isSub ? targetSite.subTemplate : targetSite.template;
   if (oldTemplate && oldTemplate !== safeBaseName) {
-    const oldPath = path.join(TEMPLATE_DIR, oldTemplate);
+    const oldPath = path.join(targetDir, oldTemplate);
     if (fs.existsSync(oldPath)) {
       try { fs.unlinkSync(oldPath); } catch (e) { console.warn('이전 템플릿 삭제 실패:', e.message); }
     }
   }
 
-  // 새 파일 쓰기
+  // 새 파일 쓰기 (AppData)
   fs.writeFileSync(targetPath, fileBuffer);
 
   // 메타 정보 갱신
@@ -200,9 +250,13 @@ function deleteTemplateFile(siteId, isSub = false) {
 
   const targetFileName = isSub ? targetSite.subTemplate : targetSite.template;
   if (targetFileName) {
-    const filePath = path.join(TEMPLATE_DIR, targetFileName);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const appDataPath = path.join(getWritableTemplateDir(), targetFileName);
+    if (fs.existsSync(appDataPath)) {
+      try {
+        fs.unlinkSync(appDataPath);
+      } catch (e) {
+        console.warn('템플릿 파일 삭제 실패:', e.message);
+      }
     }
     if (isSub) {
       targetSite.subTemplate = null;

@@ -53,6 +53,7 @@ export function usePdfLoader() {
         const viewport = page.getViewport({ scale: 1.0 });
 
         pageData.push({
+          id: i,
           pageIndex: i - 1,
           pageNum: i,
           viewport,

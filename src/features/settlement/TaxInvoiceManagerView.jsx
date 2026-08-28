@@ -393,6 +393,12 @@ export function TaxInvoiceManagerView() {
       return next;
     });
 
+    // 되돌리기 된 해당 페이지로 포커스 자동 이동
+    const targetIndex = pages.findIndex(p => (p.id || p.pageNum) === item.pageId || p.pageNum === item.pageNum);
+    if (targetIndex !== -1) {
+      setSelectedPageIndex(targetIndex);
+    }
+
     setSelectedMatchedId(null);
   };
 
@@ -736,11 +742,12 @@ export function TaxInvoiceManagerView() {
             )}
 
             {pages.map((page, idx) => {
+              const pageKey = page.id || page.pageNum;
               const isSelected = idx === selectedPageIndex;
-              const isMatched = Boolean(matchedPages[page.id]);
+              const isMatched = Boolean(matchedPages[pageKey]);
               return (
                 <div
-                  key={page.id}
+                  key={pageKey}
                   onClick={() => setSelectedPageIndex(idx)}
                   style={{
                     padding: '8px 10px',

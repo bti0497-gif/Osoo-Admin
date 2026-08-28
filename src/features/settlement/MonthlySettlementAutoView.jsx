@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useMonthlySettlementAuto } from './hooks/useMonthlySettlementAuto';
+import { CheongjuStatementUploadModal } from './components/CheongjuStatementUploadModal';
 
 export function MonthlySettlementAutoView() {
   const {
@@ -15,17 +16,20 @@ export function MonthlySettlementAutoView() {
     error,
     toastMessage,
     uploadingSiteId,
+    isGenerating,
     fetchSummary,
     fetchTemplates,
     downloadTemplate,
     uploadTemplate,
     deleteTemplate,
+    generateCheongjuReport,
   } = useMonthlySettlementAuto();
 
   // 파일 업로드 input 참조 및 상태
   const fileInputRef = useRef(null);
   const [targetUploadSite, setTargetUploadSite] = useState(null); // { siteId, isSub }
   const [dragOverSiteId, setDragOverSiteId] = useState(null);
+  const [isCheongjuModalOpen, setIsCheongjuModalOpen] = useState(false);
 
   const handleOpenFileDialog = (siteId, isSub = false) => {
     setTargetUploadSite({ siteId, isSub });
@@ -250,33 +254,58 @@ export function MonthlySettlementAutoView() {
                               ⏳ 파일 교체 업로드 중...
                             </span>
                           ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                              {tpl.exists && (
-                                <button
-                                  onClick={() => downloadTemplate(tpl.template)}
-                                  style={actionBtnStyle('#0284c7')}
-                                  title="현재 등록된 양식 파일을 다운로드합니다"
-                                >
-                                  ⬇️ 다운로드
-                                </button>
-                              )}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+                              {/* 기본 양식 작업 버튼 그룹 */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                {tpl.exists && (
+                                  <button
+                                    onClick={() => downloadTemplate(tpl.template)}
+                                    style={actionBtnStyle('#0284c7')}
+                                    title="현재 등록된 기본 양식 파일을 다운로드합니다"
+                                  >
+                                    ⬇️ 다운로드
+                                  </button>
+                                )}
 
-                              <button
-                                onClick={() => handleOpenFileDialog(tpl.id, false)}
-                                style={actionBtnStyle('#4f46e5')}
-                                title="새 양식 파일(엑셀/한글)을 선택하여 기존 파일을 교체합니다"
-                              >
-                                🔄 새 파일로 교체
-                              </button>
-
-                              {tpl.exists && (
                                 <button
-                                  onClick={() => deleteTemplate(tpl.id, false)}
-                                  style={actionBtnStyle('#dc2626')}
-                                  title="현재 양식 파일을 삭제합니다"
+                                  onClick={() => handleOpenFileDialog(tpl.id, false)}
+                                  style={actionBtnStyle('#4f46e5')}
+                                  title="새 기본 양식 파일(한글/엑셀)을 선택하여 교체합니다"
                                 >
-                                  🗑️ 삭제
+                                  🔄 새 양식으로 교체
                                 </button>
+
+                                {tpl.exists && (
+                                  <button
+                                    onClick={() => deleteTemplate(tpl.id, false)}
+                                    style={actionBtnStyle('#dc2626')}
+                                    title="현재 기본 양식 파일을 삭제합니다"
+                                  >
+                                    🗑️ 삭제
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* 보조 양식(subTemplate)이 있는 경우 전용 교체/다운로드 버튼 그룹 */}
+                              {tpl.subTemplate && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                                  {tpl.subExists && (
+                                    <button
+                                      onClick={() => downloadTemplate(tpl.subTemplate)}
+                                      style={{ ...actionBtnStyle('#059669'), fontSize: '11px', padding: '3px 7px' }}
+                                      title="현재 등록된 보조 양식(운영일지)을 다운로드합니다"
+                                    >
+                                      ⬇️ 보조(운영일지) 다운
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleOpenFileDialog(tpl.id, true)}
+                                    style={{ ...actionBtnStyle('#0d9488'), fontSize: '11px', padding: '3px 7px' }}
+                                    title="보조 양식 파일(운영일지 엑셀 등)을 선택하여 교체합니다"
+                                  >
+                                    🔄 보조 양식 교체
+                                  </button>
+                                </div>
                               )}
                             </div>
                           )}
@@ -408,10 +437,17 @@ export function MonthlySettlementAutoView() {
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <button
-                          onClick={() => alert(`[${site.name}] ${year}년 ${month}월 정산 엑셀 파일 자동 빌더 엔진이 곧 연결됩니다.`)}
+                          onClick={() => {
+                            if (site.id === 'cheongju_seoul') {
+                              setIsCheongjuModalOpen(true);
+                            } else {
+                              alert(`[${site.name}] ${year}년 ${month}월 정산 엑셀 파일 자동 빌더 엔진이 곧 연결됩니다.`);
+                            }
+                          }}
                           style={{
                             padding: '5px 12px', background: '#4f46e5', color: '#ffffff', border: 'none',
-                            borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
+                            borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
                           }}
                         >
                           📥 정산서 작성
@@ -425,6 +461,21 @@ export function MonthlySettlementAutoView() {
           </div>
         </>
       )}
+
+      {/* 청주휴게소 3대 명세서 업로드 및 정산서 작성 모달 */}
+      <CheongjuStatementUploadModal
+        isOpen={isCheongjuModalOpen}
+        onClose={() => setIsCheongjuModalOpen(false)}
+        year={year}
+        month={month}
+        isGenerating={isGenerating}
+        onGenerate={async (statements) => {
+          const success = await generateCheongjuReport(statements, year, month);
+          if (success) {
+            setIsCheongjuModalOpen(false);
+          }
+        }}
+      />
 
     </div>
   );
