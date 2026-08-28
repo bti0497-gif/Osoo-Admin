@@ -5,7 +5,7 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
     const { showAlert } = useDialog();
     const [time, setTime] = useState(new Date().toLocaleTimeString());
     const [progress, setProgress] = useState(null);
-    const [appVersion, setAppVersion] = useState('v1.0.23');
+    const [appVersion, setAppVersion] = useState('v1.0.24');
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateProgressText, setUpdateProgressText] = useState('');
 

@@ -89,11 +89,37 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     fs.mkdirSync(targetOutputDir, { recursive: true });
   }
 
-  const outputFileName = `청주휴게소(서울)_정산보고서_${targetYm}.hwp`;
+  const outputFileName = `${shortYear}년 ${String(month).padStart(2, '0')}월분 오수처리시설 외 임대료 정산 보고건 - 청주(서울)휴게소.hwp`;
   const outputFilePath = path.join(targetOutputDir, outputFileName);
 
-  // 로컬 매칭 이미지 탐색 (바탕화면 점검준비/계산서/YYYYMM 및 점검준비/입금표/YYYYMM)
+  // 받아들인 명세서 이미지들을 데이터관리 경로(점검준비/명세서 및 청주 사진모음 폴더)에 자동 보관
   const desktopDirs = getDesktopDirectories();
+  const statementSaveDirs = [
+    path.join(desktopDirs[0], '점검준비', '명세서', targetYm),
+    path.join(desktopDirs[0], `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`),
+  ];
+
+  statementSaveDirs.forEach((dir) => {
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      if (statementFiles.waterQuality && fs.existsSync(statementFiles.waterQuality)) {
+        const ext = path.extname(statementFiles.waterQuality) || '.jpg';
+        fs.copyFileSync(statementFiles.waterQuality, path.join(dir, `명세서_${targetYm}_청주휴게소(서울방향) 대신${ext}`));
+      }
+      if (statementFiles.kit && fs.existsSync(statementFiles.kit)) {
+        const ext = path.extname(statementFiles.kit) || '.jpg';
+        fs.copyFileSync(statementFiles.kit, path.join(dir, `명세서_${targetYm}_청주휴게소(서울방향) 케이엠${ext}`));
+      }
+      if (statementFiles.chemical && fs.existsSync(statementFiles.chemical)) {
+        const ext = path.extname(statementFiles.chemical) || '.jpg';
+        fs.copyFileSync(statementFiles.chemical, path.join(dir, `명세서_${targetYm}_청주휴게소(서울방향) 에이치디이앤씨${ext}`));
+      }
+    } catch (e) {
+      console.warn('[hwpSettlementService] 명세서 데이터관리 폴더 복사 중 경고:', e.message);
+    }
+  });
+
+  // 로컬 매칭 이미지 탐색 (바탕화면 점검준비/계산서/YYYYMM 및 점검준비/입금표/YYYYMM)
   const invoiceDir = path.join(desktopDirs[0], '점검준비', '계산서', targetYm);
   const depositDir = path.join(desktopDirs[0], '점검준비', '입금표', targetYm);
 
@@ -160,7 +186,41 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "  $openResult = $hwp.Open($templatePath, 'HWP', 0)",
     "  if (-not $openResult) { throw \"HWP 파일을 열 수 없습니다: $templatePath\" }",
     "",
-    "  # 1. 텍스트 책갈피 주입",
+    "  # 1. 문서 전체의 연도/월 텍스트 일괄 찾아바꾸기 (AllReplace)",
+    "  $replacePairs = @(",
+    `    @{ Find = '25년 7월분'; Replace = '${shortYear}년 ${month}월분' },`,
+    `    @{ Find = '25년 7월';   Replace = '${shortYear}년 ${month}월' },`,
+    `    @{ Find = '25년 07월';  Replace = '${shortYear}년 ${String(month).padStart(2, '0')}월' },`,
+    `    @{ Find = '2025년 7월'; Replace = '${year}년 ${month}월' },`,
+    `    @{ Find = '2026년 7월'; Replace = '${year}년 ${month}월' },`,
+    `    @{ Find = '(7월)';      Replace = '(${month}월)' },`,
+    `    @{ Find = '7월분';      Replace = '${month}월분' }`,
+    "  )",
+    "",
+    "  # 슬러지 대장 일자 치환 (7월 1일 ~ 7월 31일 -> ${month}월 1일 ~ ${month}월 31일)",
+    "  for ($d = 1; $d -le 31; $d++) {",
+    "    $findDay = '7월 ' + $d + '일'",
+    `    $replaceDay = '${month}월 ' + $d + '일'`,
+    "    $replacePairs += @{ Find = $findDay; Replace = $replaceDay }",
+    "  }",
+    "",
+    "  foreach ($rp in $replacePairs) {",
+    "    $fStr = [string]$rp.Find",
+    "    $rStr = [string]$rp.Replace",
+    "    if ($fStr -and $rStr -and $fStr -ne $rStr) {",
+    "      $param = $hwp.HParameterSet.HFindReplace",
+    "      $hwp.HAction.GetDefault('AllReplace', $param.HSet) | Out-Null",
+    "      $param.FindString = $fStr",
+    "      $param.ReplaceString = $rStr",
+    "      $param.IgnoreMessage = 1",
+    "      $param.Direction = 0",
+    "      $param.MatchCase = 0",
+    "      $param.WholeWordOnly = 0",
+    "      $hwp.HAction.Execute('AllReplace', $param.HSet) | Out-Null",
+    "    }",
+    "  }",
+    "",
+    "  # 2. 텍스트 책갈피 주입",
     "  foreach ($prop in $texts.PSObject.Properties) {",
     "    $bName = [string]$prop.Name",
     "    $bVal = [string]$prop.Value",
@@ -170,7 +230,7 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 2. 이미지 책갈피 주입 (지정 규격 적용)",
+    "  # 3. 이미지 책갈피 주입 (지정 규격 적용)",
     "  foreach ($prop in $specs.PSObject.Properties) {",
     "    $bName = [string]$prop.Name",
     "    $specObj = $prop.Value",

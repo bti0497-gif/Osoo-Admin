@@ -174,7 +174,9 @@ export function useMonthlySettlementAuto() {
       }
 
       const blob = await res.blob();
-      const filename = `청주휴게소(서울)_정산보고서_${targetYear}${String(targetMonth).padStart(2, '0')}.hwp`;
+      const shortY = String(targetYear).slice(-2);
+      const mm = String(targetMonth).padStart(2, '0');
+      const filename = `${shortY}년 ${mm}월분 오수처리시설 외 임대료 정산 보고건 - 청주(서울)휴게소.hwp`;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -184,7 +186,7 @@ export function useMonthlySettlementAuto() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
-      showToast(`🎉 [${filename}] 정산서 한글 파일이 성공적으로 작성되어 다운로드되었습니다!`);
+      showToast(`🎉 [${filename}] 정산서 한글 파일이 성공적으로 작성되어 저장되었습니다!`);
       return true;
     } catch (err) {
       console.error('[useMonthlySettlementAuto] 청주 정산서 생성 오류:', err);
