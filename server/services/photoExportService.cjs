@@ -22,8 +22,19 @@ const {
   sludgePhotoSegments,
 } = require('./drivePathService.cjs');
 
-const BASE_MEDICINES = ['포도당', '중탄산나트륨', '팩(PAC)'];
-const BASE_KITS = ['암모니아성질소', 'NH3-N', '질산성질소', 'NO3-N', '인산염인', 'PO4-P', '알칼리도', 'ALK'];
+const BASE_MEDICINES = [
+  '포도당', '중탄산나트륨', '팩(PAC)', 'PAC', '팩', '폴리머', '알민산나트륨',
+  '가성소다', 'NaOH', '소석회', '차염', 'NaOCl', '차아염소산', '황산',
+  '염화제2철', '응집제', '소포제', '영양제', '메탄올', '황산알루미늄', '약품'
+];
+
+const BASE_KITS = [
+  '암모니아성질소', 'NH3-N', 'NH3_N', 'NH3',
+  '질산성질소', 'NO3-N', 'NO3_N', 'NO3',
+  '인산염인', 'PO4-P', 'PO4_P', 'PO4',
+  '알칼리도', 'ALK', '총질소', 'TN', '총인', 'TP', '키트'
+];
+
 const TARGET_TEST_ITEMS = ['암모니아성 질소', '질산성 질소', '오르토 인산염', '알칼리도'];
 
 function sanitizeName(name) {
@@ -35,6 +46,44 @@ function normalizeDateStr(dateValue) {
   const m = s.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   return '';
+}
+
+/**
+ * 파일명 기반 카테고리 판별 (현장관리사진-Drive-연동규칙 준수)
+ */
+function classifyPhotoCategory(fileName) {
+  const rawName = String(fileName || '');
+  const lowerName = rawName.toLowerCase();
+
+  // 1. 슬러지 반출 사진
+  if (rawName.includes('슬러지')) {
+    return 'sludge';
+  }
+
+  // 2. 청소 필증 사진
+  if (rawName.includes('청소필증') || rawName.includes('필증')) {
+    return 'cleaningCertificate';
+  }
+
+  // 3. 수질 분석/실험 사진 (파일명에 명시적으로 '수질분석' 또는 '실험' 또는 '측정' 포함)
+  if (rawName.includes('수질분석') || rawName.includes('실험') || rawName.includes('수질측정')) {
+    return 'testPhoto';
+  }
+
+  // 4. 키트 입고 사진 (키트명, 시약 약어 포함)
+  const isKitMatched = BASE_KITS.some((k) => rawName.includes(k) || lowerName.includes(k.toLowerCase()));
+  if (isKitMatched || rawName.includes('키트')) {
+    return 'kitIn';
+  }
+
+  // 5. 약품 입고 사진 (약품명, 거래명세서 등)
+  const isMedMatched = BASE_MEDICINES.some((m) => rawName.includes(m) || lowerName.includes(m.toLowerCase()));
+  if (isMedMatched || rawName.includes('약품') || rawName.includes('거래명세서') || rawName.includes('명세서')) {
+    return 'medicineIn';
+  }
+
+  // 6. 기타 현장 입고/자재 사진은 기본적으로 약품입고로 취급 (실험사진으로 오분류 방지)
+  return 'medicineIn';
 }
 
 /**
@@ -292,18 +341,7 @@ async function scanGoogleDrive(siteName, yyyy, mm, addFile) {
       const dateMatch = f.name.match(/(\d{4}-\d{2}-\d{2})/);
       const dateStr = dateMatch ? dateMatch[1] : `${yyyy}-${mm}-01`;
 
-      let category = 'testPhoto';
-      if (f.name.includes('수질분석') || f.name.includes('실험')) {
-        category = 'testPhoto';
-      } else if (f.name.includes('슬러지')) {
-        category = 'sludge';
-      } else if (f.name.includes('청소필증')) {
-        category = 'cleaningCertificate';
-      } else if (f.name.includes('키트입고') || f.name.includes('키트사진') || (f.name.includes('키트') && !f.name.includes('수질분석'))) {
-        category = 'kitIn';
-      } else if (f.name.includes('약품') || f.name.includes('거래명세서') || (BASE_MEDICINES.some((m) => f.name.includes(m)) && !f.name.includes('수질분석'))) {
-        category = 'medicineIn';
-      }
+      const category = classifyPhotoCategory(f.name);
 
       addFile(category, {
         category,
@@ -325,23 +363,6 @@ function getDesktopPath() {
   const candidates = [
     path.join(home, 'OneDrive', '바탕 화면'),
     path.join(home, 'OneDrive', 'Desktop'),
-    path.join(home, '바탕 화면'),
-    path.join(home, 'Desktop'),
-  ];
-  for (const cand of candidates) {
-    if (fs.existsSync(cand)) return cand;
-  }
-  return path.join(home, 'Desktop');
-}
-
-/**
- * 일괄 다운로드 실행 (지정된 targetDirectory 또는 바탕화면 내에 서브 폴더 구성 및 저장)
- */
-function getDesktopPath() {
-  const home = require('os').homedir();
-  const candidates = [
-    path.join(home, 'OneDrive', '바탕 화면'),
-    path.join(home, 'OneDrive', 'Desktop'),
     path.join(home, 'OneDrive - Personal', '바탕 화면'),
     path.join(home, 'OneDrive - Personal', 'Desktop'),
     path.join(home, '바탕 화면'),
@@ -353,35 +374,62 @@ function getDesktopPath() {
   return path.join(home, 'Desktop');
 }
 
-async function executeBatchDownload({ siteName, year, month, selectedCategories = [], targetDirectory, appDataPath }) {
-  const saveTargetDir = targetDirectory && fs.existsSync(targetDirectory)
-    ? targetDirectory
-    : getDesktopPath();
-
-  if (!fs.existsSync(saveTargetDir)) {
-    fs.mkdirSync(saveTargetDir, { recursive: true });
+/**
+ * 바탕화면의 '월정산' 폴더 내 현장별 마감 폴더 경로 탐색 및 생성
+ * (예: 바탕 화면 > 월정산 > 청주마감자료, 죽암마감자료, 천안마감자료 등)
+ */
+function resolveSettlementSiteDir(desktopPath, siteName) {
+  const settlementRoot = path.join(desktopPath, '월정산');
+  if (!fs.existsSync(settlementRoot)) {
+    fs.mkdirSync(settlementRoot, { recursive: true });
   }
 
+  const match = String(siteName || '').match(/^([^(]+)(?:\(([^)]+)\))?/);
+  const baseName = match && match[1] ? match[1].replace(/휴게소|처리장|사업소|하수|정수/g, '').trim() : siteName;
+
+  try {
+    const entries = fs.readdirSync(settlementRoot, { withFileTypes: true });
+    // 1) baseName(예: '청주', '죽암', '천안', '홍천')이 포함된 기존 디렉토리 우선 매칭
+    const matched = entries.find((e) => e.isDirectory() && baseName && e.name.includes(baseName));
+    if (matched) {
+      return path.join(settlementRoot, matched.name);
+    }
+  } catch (_) {}
+
+  // 2) 일치하는 기존 폴더가 없으면 기본 현장명 폴더 생성 (예: 죽암휴게소, 청주휴게소)
+  const defaultDirName = match && match[1] ? match[1].trim() : sanitizeName(siteName);
+  const newDir = path.join(settlementRoot, defaultDirName);
+  if (!fs.existsSync(newDir)) {
+    fs.mkdirSync(newDir, { recursive: true });
+  }
+  return newDir;
+}
+
+/**
+ * 일괄 다운로드 실행: 바탕화면 > 월정산 > {현장마감폴더} > {YYYYMM} / 서브폴더 구조 저장
+ */
+async function executeBatchDownload({ siteName, year, month, selectedCategories = [], targetDirectory, appDataPath }) {
   const yyyy = String(year);
   const mm = String(month).padStart(2, '0');
+  const yyyymm = `${yyyy}${mm}`;
 
   // 1. 전체 데이터 수집
   const summary = await getMonthlyPhotoSummary({ siteName, year, month, appDataPath });
 
-  // 2. 최상위 수집 폴더 생성: {saveTargetDir}/{siteName}_{YYYY}년{MM}월_사진모음/
-  //    같은 폴더가 이미 존재하면 (1), (2) ... 번호를 붙여 새 폴더를 생성하여
-  //    기존 폴더의 중요 파일이 손실되지 않도록 보호
-  const baseNameRaw = `${sanitizeName(siteName)}_${yyyy}년${mm}월_사진모음`;
-  let baseFolderName = baseNameRaw;
-  let baseFolderPath = path.join(saveTargetDir, baseFolderName);
-  let suffix = 1;
-  while (fs.existsSync(baseFolderPath)) {
-    baseFolderName = `${baseNameRaw}(${suffix})`;
-    baseFolderPath = path.join(saveTargetDir, baseFolderName);
-    suffix += 1;
+  // 2. 저장 최상위 폴더 경로 결정: 바탕화면 > 월정산 > {현장마감폴더} > {YYYYMM}
+  let baseFolderPath;
+  if (targetDirectory && fs.existsSync(targetDirectory)) {
+    baseFolderPath = path.join(targetDirectory, yyyymm);
+  } else {
+    const desktopPath = getDesktopPath();
+    const siteDir = resolveSettlementSiteDir(desktopPath, siteName);
+    baseFolderPath = path.join(siteDir, yyyymm);
   }
-  fs.mkdirSync(baseFolderPath, { recursive: true });
-  console.log(`[photoExportService] 저장 폴더 생성: ${baseFolderPath}`);
+
+  if (!fs.existsSync(baseFolderPath)) {
+    fs.mkdirSync(baseFolderPath, { recursive: true });
+  }
+  console.log(`[photoExportService] 저장 대상 폴더: ${baseFolderPath}`);
 
   let totalSaved = 0;
   const categoryDirMap = {

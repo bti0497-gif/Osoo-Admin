@@ -119,40 +119,55 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     }
   });
 
-  // 로컬 매칭 이미지 탐색 (바탕화면 점검준비/계산서/YYYYMM, 점검준비/입금표/YYYYMM, 청주 사진모음 폴더)
-  const invoiceDir = path.join(desktopDirs[0], '점검준비', '계산서', targetYm);
-  const depositDir = path.join(desktopDirs[0], '점검준비', '입금표', targetYm);
-  const photoDir = path.join(desktopDirs[0], `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`);
+  // 특정 현장(청주) 및 거래처별 이미지 검색 헬퍼
+  const findCheongjuImages = (dir, vendorKeyword, isStrict = false) => {
+    if (!fs.existsSync(dir)) return [];
+    try {
+      const files = fs.readdirSync(dir);
+      return files
+        .filter(f => {
+          const lower = f.toLowerCase();
+          const isExt = /\.(jpg|jpeg|png|bmp)$/i.test(f);
+          if (!isExt) return false;
+          const siteMatch = lower.includes('청주');
+          const vendorMatch = lower.includes(vendorKeyword.toLowerCase());
+          return isStrict ? (siteMatch && vendorMatch) : (vendorMatch);
+        })
+        .map(f => path.join(dir, f));
+    } catch (_) {
+      return [];
+    }
+  };
 
   // HWP 템플릿 내의 각 표 칸에 실제 인쇄된 텍스트 플레이스홀더 목록 및 규격 (가로 mm, 세로 mm)
   const imagePlaceholders = [
     // 1. 위탁관리비 계산서 및 입금증
-    { findText: '위탁관리비(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '용역비') },
-    { findText: '위탁관리비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '용역비').concat(findMatchingImages(depositDir, '관리비')) },
+    { marker: '[[관리비계산서]]', findText: '위탁관리비(세금계산서)', width: 85, height: 50, files: findCheongjuImages(invoiceDir, '용역비') },
+    { marker: '[[관리비입금증]]', findText: '위탁관리비(입금증)', width: 85, height: 30, files: findCheongjuImages(depositDir, '용역비').concat(findCheongjuImages(depositDir, '관리비')) },
 
     // 2. 수질검사 명세서, 계산서, 입금증, 시험성적서
-    { findText: '수질검사(거래명세서)', width: 85, height: 50, files: statementFiles.waterQuality ? [statementFiles.waterQuality] : [] },
-    { findText: '수질검사(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '대신') },
-    { findText: '수질검사(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '대신') },
-    { findText: '수질검사 시험성적서', width: 27, height: 42, isCertGrid: true, files: findMatchingImages(photoDir, '성적서').concat(findMatchingImages(depositDir, '성적서')) },
+    { marker: '[[수질명세서]]', findText: '수질검사(거래명세서)', width: 85, height: 50, files: statementFiles.waterQuality ? [statementFiles.waterQuality] : findCheongjuImages(stmtDir, '대신') },
+    { marker: '[[수질계산서]]', findText: '수질검사(세금계산서)', width: 85, height: 50, files: findCheongjuImages(invoiceDir, '대신') },
+    { marker: '[[수질입금증]]', findText: '수질검사(입금증)', width: 85, height: 30, files: findCheongjuImages(depositDir, '대신') },
+    { marker: '[[수질성적서]]', findText: '수질검사 시험성적서', width: 27, height: 42, isCertGrid: true, files: findCheongjuImages(photoDir, '성적서').concat(findCheongjuImages(depositDir, '성적서')) },
 
     // 3. 수질분석 키트 명세서, 계산서, 입금증, 사진
-    { findText: '수질분석 키트 구입(거래명세서)', width: 85, height: 50, files: statementFiles.kit ? [statementFiles.kit] : [] },
-    { findText: '수질분석 키트 구입(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '케이엠') },
-    { findText: '수질분석 키트 구입(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '케이엠') },
-    { findText: '수질분석 키트 구입 사진', width: 68, height: 93, isVerticalStack: true, files: findMatchingImages(photoDir, '키트') },
+    { marker: '[[키트명세서]]', findText: '수질분석 키트 구입(거래명세서)', width: 85, height: 50, files: statementFiles.kit ? [statementFiles.kit] : findCheongjuImages(stmtDir, '케이엠') },
+    { marker: '[[키트계산서]]', findText: '수질분석 키트 구입(세금계산서)', width: 85, height: 50, files: findCheongjuImages(invoiceDir, '케이엠') },
+    { marker: '[[키트입금증]]', findText: '수질분석 키트 구입(입금증)', width: 85, height: 30, files: findCheongjuImages(depositDir, '케이엠') },
+    { marker: '[[키트사진]]', findText: '수질분석 키트 구입 사진', width: 68, height: 93, isVerticalStack: true, files: findCheongjuImages(photoDir, '키트') },
 
     // 4. 약품비 명세서, 계산서, 입금증, 사진
-    { findText: '약품비(거래명세서)', width: 85, height: 50, files: statementFiles.chemical ? [statementFiles.chemical] : [] },
-    { findText: '약품비(세금계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '에이치') },
-    { findText: '약품비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '에이치') },
-    { findText: '약품 구입사진', width: 68, height: 93, isVerticalStack: true, files: findMatchingImages(photoDir, '약품') },
+    { marker: '[[약품명세서]]', findText: '약품비(거래명세서)', width: 85, height: 50, files: statementFiles.chemical ? [statementFiles.chemical] : findCheongjuImages(stmtDir, '에이치') },
+    { marker: '[[약품계산서]]', findText: '약품비(세금계산서)', width: 85, height: 50, files: findCheongjuImages(invoiceDir, '에이치') },
+    { marker: '[[약품입금증]]', findText: '약품비(입금증)', width: 85, height: 30, files: findCheongjuImages(depositDir, '에이치') },
+    { marker: '[[약품사진]]', findText: '약품 구입사진', width: 68, height: 93, isVerticalStack: true, files: findCheongjuImages(photoDir, '약품') },
 
     // 5. 슬러지 계량증명서, 계산서, 입금증, 사진
-    { findText: '슬러지 수거 계량증명서', width: 32, height: 73, isDual: true, files: findMatchingImages(photoDir, '필증').concat(findMatchingImages(photoDir, '계량')) },
-    { findText: '슬러지처리비(계산서)', width: 85, height: 50, files: findMatchingImages(invoiceDir, '국민환경') },
-    { findText: '슬러지처리비(입금증)', width: 85, height: 30, files: findMatchingImages(depositDir, '국민환경') },
-    { findText: '슬러지 처리 사진', width: 60, height: 90, isVerticalStack: true, files: findMatchingImages(photoDir, '슬러지') },
+    { marker: '[[슬러지계량]]', findText: '슬러지 수거 계량증명서', width: 32, height: 73, isDual: true, files: findCheongjuImages(photoDir, '필증').concat(findCheongjuImages(photoDir, '계량')) },
+    { marker: '[[슬러지계산서]]', findText: '슬러지처리비(계산서)', width: 85, height: 50, files: findCheongjuImages(invoiceDir, '국민환경') },
+    { marker: '[[슬러지입금증]]', findText: '슬러지처리비(입금증)', width: 85, height: 30, files: findCheongjuImages(depositDir, '국민환경') },
+    { marker: '[[슬러지사진]]', findText: '슬러지 처리 사진', width: 60, height: 90, isVerticalStack: true, files: findCheongjuImages(photoDir, '슬러지') },
   ];
 
   // 템플릿 복사본을 임시 폴더에 생성하여 작업 (Program Files 권한 문제 및 원본 오염 원천 차단)
@@ -184,7 +199,7 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "try {",
     "  $hwp = New-Object -ComObject HWPFrame.HwpObject",
     "  try { $hwp.RegisterModule('FilePathCheckDLL', 'FilePathChecker') | Out-Null } catch {}",
-    "  $hwp.SetMessageBoxMode(65535)",
+    "  $hwp.SetMessageBoxMode(0x00010000)",
     "  $openResult = $hwp.Open($tempWorkingPath, 'HWP', 'lock:false')",
     "  if (-not $openResult) { throw \"HWP 파일을 열 수 없습니다: $tempWorkingPath\" }",
     "",
@@ -212,6 +227,13 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    $replacePairs += @{ Find = $findDay; Replace = $replaceDay }",
     "  }",
     "",
+    "  # 이미지 표 칸 텍스트를 고유 마커로 치환",
+    "  foreach ($item in $imageItems) {",
+    "    if (@($item.files).Count -gt 0) {",
+    "      $replacePairs += @{ Find = [string]$item.findText; Replace = [string]$item.marker }",
+    "    }",
+    "  }",
+    "",
     "  foreach ($rp in $replacePairs) {",
     "    $fStr = [string]$rp.Find",
     "    $rStr = [string]$rp.Replace",
@@ -228,26 +250,26 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     "    }",
     "  }",
     "",
-    "  # 2. 이미지 텍스트 플레이스홀더 탐색 후 이미지 삽입",
+    "  # 2. 고유 마커 위치를 찾아 이미지 삽입",
     "  foreach ($item in $imageItems) {",
-    "    $fText = [string]$item.findText",
+    "    $marker = [string]$item.marker",
     "    $fileList = @($item.files)",
     "    if ($fileList.Count -eq 0) { continue }",
     "",
     "    $wUnit = [int]([double]$item.width * 283.464567)",
     "    $hUnit = [int]([double]$item.height * 283.464567)",
     "",
-    "    # 문서 처음으로 이동",
     "    $hwp.Run('MoveDocBegin') | Out-Null",
-    "",
     "    $param = $hwp.HParameterSet.HFindReplace",
-    "    $hwp.HAction.GetDefault('Find', $param.HSet) | Out-Null",
-    "    $param.FindString = $fText",
+    "    $hwp.HAction.GetDefault('FindReplace', $param.HSet) | Out-Null",
+    "    $param.FindString = $marker",
     "    $param.Direction = 0",
     "    $param.MatchCase = 0",
+    "    $param.SeveralWords = 0",
     "    $param.WholeWordOnly = 0",
-    "    $param.IgnoreMessage = 1",
-    "    $found = $hwp.HAction.Execute('Find', $param.HSet)",
+    "    $param.FindRegExp = 0",
+    "    $param.Scan = 0",
+    "    $found = $hwp.HAction.Execute('FindReplace', $param.HSet)",
     "",
     "    if ($found) {",
     "      $hwp.Run('Delete') | Out-Null",
