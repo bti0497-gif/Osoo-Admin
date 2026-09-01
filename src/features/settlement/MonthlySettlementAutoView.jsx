@@ -23,6 +23,7 @@ export function MonthlySettlementAutoView() {
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
+    generateJukamBusanReport,
     checkDataReady,
   } = useMonthlySettlementAuto();
 
@@ -438,6 +439,7 @@ export function MonthlySettlementAutoView() {
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <button
+                          disabled={isGenerating}
                           onClick={async () => {
                             const checkResult = await checkDataReady(site.id, year, month);
                             if (!checkResult?.ready) {
@@ -447,17 +449,19 @@ export function MonthlySettlementAutoView() {
 
                             if (site.id === 'cheongju_seoul') {
                               setIsCheongjuModalOpen(true);
+                            } else if (site.id === 'jukam_busan') {
+                              await generateJukamBusanReport({ targetYear: year, targetMonth: month });
                             } else {
                               alert(`[${site.name}] ${year}년 ${month}월 정산 엑셀 파일 자동 빌더 엔진이 곧 연결됩니다.`);
                             }
                           }}
                           style={{
-                            padding: '5px 12px', background: '#4f46e5', color: '#ffffff', border: 'none',
-                            borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                            padding: '5px 12px', background: isGenerating ? '#94a3b8' : '#4f46e5', color: '#ffffff', border: 'none',
+                            borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: isGenerating ? 'not-allowed' : 'pointer',
                             display: 'inline-flex', alignItems: 'center', gap: '4px',
                           }}
                         >
-                          📥 정산서 작성
+                          {isGenerating ? '⏳ 작성 중...' : '📥 정산서 작성'}
                         </button>
                       </td>
                     </tr>

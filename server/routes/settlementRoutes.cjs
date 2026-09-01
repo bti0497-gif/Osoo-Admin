@@ -28,6 +28,7 @@ const {
   upsertSiteSettlementVendors,
 } = require('../services/siteSettlementVendorsSheetsService.cjs');
 const { generateCheongjuHwpReport } = require('../services/hwpSettlementService.cjs');
+const { generateJukamBusanExcelReport } = require('../services/jukamSettlementService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
 const upload = multer({
@@ -495,17 +496,21 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         if (!statementFiles.chemical) statementFiles.chemical = findFallback('에이치');
 
         console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작:`, statementFiles);
-        const generatedPath = await generateCheongjuHwpReport({
+        const generatedResult = await generateCheongjuHwpReport({
           year,
           month,
           statementFiles,
         });
 
-        const fileName = path.basename(generatedPath);
+        const finalFilePath = typeof generatedResult === 'string' ? generatedResult : generatedResult.filePath;
+        const fileName = (typeof generatedResult === 'object' && generatedResult.fileName)
+          ? generatedResult.fileName
+          : path.basename(finalFilePath);
+
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
 
-        const fileStream = fs.createReadStream(generatedPath);
+        const fileStream = fs.createReadStream(finalFilePath);
         fileStream.pipe(res);
 
         fileStream.on('end', () => {
@@ -519,6 +524,34 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       }
     }
   );
+
+  /**
+   * POST /api/settlement/generate/jukam-busan
+   * 죽암휴게소(부산방향) 정산서 엑셀(XLS) 파일 자동 생성
+   */
+  router.post('/generate/jukam-busan', async (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      console.log(`[settlementRoutes] 죽암(부산) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
+      const result = await generateJukamBusanExcelReport({
+        year,
+        month,
+      });
+
+      return res.json({
+        success: true,
+        filePath: result.filePath,
+        fileName: result.fileName,
+        targetYm: result.targetYm,
+        message: `[죽암(부산방향)] ${year}년 ${month}월 정산 엑셀 파일 생성이 완료되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 죽암(부산) 정산서 생성 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   router.get('/drive-folder-download', async (req, res) => {
     try {

@@ -201,6 +201,35 @@ export function useMonthlySettlementAuto() {
     }
   }, [year, month, showToast]);
 
+  // 죽암휴게소(부산방향) 엑셀 정산서 자동 생성
+  const generateJukamBusanReport = useCallback(async ({ targetYear = year, targetMonth = month } = {}) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [죽암휴게소(부산방향)] ${targetYear}년 ${targetMonth}월 엑셀 정산서 자동 생성을 시작합니다...`);
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/jukam-busan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '죽암(부산방향) 정산서 엑셀 생성 실패');
+      }
+
+      showToast(`🎉 [${data.fileName}] 죽암(부산방향) 엑셀 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 죽암(부산) 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
   // 데이터관리 다운로드 사전 검사
   const checkDataReady = useCallback(async (siteId, targetYear = year, targetMonth = month) => {
     try {
@@ -239,6 +268,7 @@ export function useMonthlySettlementAuto() {
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
+    generateJukamBusanReport,
     checkDataReady,
   };
 }
