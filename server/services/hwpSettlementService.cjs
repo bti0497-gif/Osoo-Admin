@@ -119,18 +119,24 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     }
   });
 
-  // 로컬 점검준비 폴더 (계산서, 입금표, 명세서, 성적서)
-  const primaryDesktop = desktopDirs[0];
-  const invoiceDir = path.join(primaryDesktop, '점검준비', '계산서', targetYm);
-  const depositDir = path.join(primaryDesktop, '점검준비', '입금표', targetYm);
-  const stmtDir = path.join(primaryDesktop, '점검준비', '명세서', targetYm);
-  const certDir = path.join(primaryDesktop, '점검준비', '성적서', targetYm);
-  const certFallbackDir = path.join(primaryDesktop, '점검준비', '성적서');
+  // 로컬 점검준비 및 월정산 폴더들 (모든 Desktop 경로 탐색)
+  const invoiceDirs = desktopDirs.map(d => path.join(d, '점검준비', '계산서', targetYm));
+  const depositDirs = desktopDirs.map(d => path.join(d, '점검준비', '입금표', targetYm));
+  const stmtDirs = desktopDirs.map(d => path.join(d, '점검준비', '명세서', targetYm));
+  const certDirs = desktopDirs.flatMap(d => [
+    path.join(d, '점검준비', '성적서', targetYm),
+    path.join(d, '점검준비', '성적서')
+  ]);
 
-  // 현장 관리 사진 폴더들 (월정산 > 청주마감자료 > YYYYMM 및 이전 사진모음 폴더 지원)
-  const settlementPhotoDir = path.join(primaryDesktop, '월정산', '청주마감자료', targetYm);
-  const oldPhotoDir1 = path.join(primaryDesktop, '월정산', '청주마감자료', `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`);
-  const oldPhotoDir2 = path.join(primaryDesktop, `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`);
+  // 현장 관리 사진 폴더들 (월정산 > 청주마감자료 > YYYYMM, 월정산 > 청주휴게소 > YYYYMM, 사진모음 폴더 등)
+  const settlementPhotoDirs = desktopDirs.flatMap(d => [
+    path.join(d, '월정산', '청주마감자료', targetYm),
+    path.join(d, '월정산', '청주휴게소', targetYm),
+    path.join(d, '월정산', '청주휴게소(서울방향)', targetYm),
+    path.join(d, '월정산', '청주마감자료', `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`),
+    path.join(d, `청주휴게소(서울방향)_${year}년${String(month).padStart(2, '0')}월_사진모음`),
+    path.join(d, `청주휴게소_${year}년${String(month).padStart(2, '0')}월_사진모음`),
+  ]);
 
   // 특정 디렉토리 목록들에서 이미지 검색하는 헬퍼
   const findCheongjuImages = (dirs, vendorKeyword = '', isStrict = false) => {
@@ -162,37 +168,30 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
   };
 
   // 사진 서브폴더들
-  const expPhotoDirs = [
-    path.join(settlementPhotoDir, '1_실험사진'),
-    path.join(oldPhotoDir1, '1_실험사진'),
-    path.join(oldPhotoDir2, '1_실험사진'),
-    certDir,
-    certFallbackDir,
-  ];
+  const expPhotoDirs = settlementPhotoDirs.flatMap(dir => [
+    path.join(dir, '1_실험사진'),
+    dir
+  ]).concat(certDirs);
 
-  const sludgePhotoDirs = [
-    path.join(settlementPhotoDir, '2_슬러지사진'),
-    path.join(oldPhotoDir1, '2_슬러지사진'),
-    path.join(oldPhotoDir2, '2_슬러지사진'),
-  ];
+  const sludgePhotoDirs = settlementPhotoDirs.flatMap(dir => [
+    path.join(dir, '2_슬러지사진'),
+    dir
+  ]);
 
-  const cleanCertPhotoDirs = [
-    path.join(settlementPhotoDir, '3_청소필증'),
-    path.join(oldPhotoDir1, '3_청소필증'),
-    path.join(oldPhotoDir2, '3_청소필증'),
-  ];
+  const cleanCertPhotoDirs = settlementPhotoDirs.flatMap(dir => [
+    path.join(dir, '3_청소필증'),
+    dir
+  ]);
 
-  const chemPhotoDirs = [
-    path.join(settlementPhotoDir, '4_약품입고'),
-    path.join(oldPhotoDir1, '4_약품입고'),
-    path.join(oldPhotoDir2, '4_약품입고'),
-  ];
+  const chemPhotoDirs = settlementPhotoDirs.flatMap(dir => [
+    path.join(dir, '4_약품입고'),
+    dir
+  ]);
 
-  const kitPhotoDirs = [
-    path.join(settlementPhotoDir, '5_키트입고'),
-    path.join(oldPhotoDir1, '5_키트입고'),
-    path.join(oldPhotoDir2, '5_키트입고'),
-  ];
+  const kitPhotoDirs = settlementPhotoDirs.flatMap(dir => [
+    path.join(dir, '5_키트입고'),
+    dir
+  ]);
 
   // HWP 템플릿 내의 각 항목별 다중 검색 키워드 및 규격 바인딩 정보 구성 (가로 mm, 세로 mm)
   const imageSpecs = {
@@ -200,29 +199,29 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     '관리비계산서': {
       findKeywords: ['위탁관리계약서', '위탁관리비(세금계산서)', '위탁관리비'],
       width: 85, height: 50,
-      files: findCheongjuImages(invoiceDir, '용역비').concat(findCheongjuImages(invoiceDir, '관리비'))
+      files: findCheongjuImages(invoiceDirs, '용역비').concat(findCheongjuImages(invoiceDirs, '관리비'))
     },
     '관리비입금표': {
       findKeywords: ['위탁관리비(입금증)', '위탁관리비 (입금증)', '관리비(입금증)'],
       width: 85, height: 30,
-      files: findCheongjuImages(depositDir, '용역비').concat(findCheongjuImages(depositDir, '관리비'))
+      files: findCheongjuImages(depositDirs, '용역비').concat(findCheongjuImages(depositDirs, '관리비'))
     },
 
     // 2. 수질검사 명세서, 계산서, 입금증, 시험성적서
     '수질검사명세서': {
       findKeywords: ['수질검사(거래명세서)', '수질검사명세서', '수질(거래명세서)'],
       width: 85, height: 50,
-      files: statementFiles.waterQuality ? [statementFiles.waterQuality] : findCheongjuImages(stmtDir, '대신')
+      files: statementFiles.waterQuality ? [statementFiles.waterQuality] : findCheongjuImages(stmtDirs, '대신')
     },
     '수질검사계산서': {
       findKeywords: ['수질검사(세금계산서)', '수질(세금계산서)'],
       width: 85, height: 50,
-      files: findCheongjuImages(invoiceDir, '대신')
+      files: findCheongjuImages(invoiceDirs, '대신')
     },
     '수질검사입금표': {
       findKeywords: ['수질검사입금표', '수질검사(입금증)', '수질(입금증)'],
       width: 85, height: 30,
-      files: findCheongjuImages(depositDir, '대신')
+      files: findCheongjuImages(depositDirs, '대신')
     },
     '성적서': {
       findKeywords: ['수질검사 시험성적서', '시험성적서', '수질성적서'],
@@ -234,17 +233,17 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     '키트명세서': {
       findKeywords: ['수질분석 키트 구입(거래명세서)', '키트(거래명세서)'],
       width: 85, height: 50,
-      files: statementFiles.kit ? [statementFiles.kit] : findCheongjuImages(stmtDir, '케이엠')
+      files: statementFiles.kit ? [statementFiles.kit] : findCheongjuImages(stmtDirs, '케이엠')
     },
     '키트계산서': {
       findKeywords: ['수질분석 키트 구입(세금계산서)', '키트계산서', '키트(세금계산서)'],
       width: 85, height: 50,
-      files: findCheongjuImages(invoiceDir, '케이엠')
+      files: findCheongjuImages(invoiceDirs, '케이엠')
     },
     '키트입금표': {
       findKeywords: ['수질분석 키트 구입(입금증)', '키트(입금증)'],
       width: 85, height: 30,
-      files: findCheongjuImages(depositDir, '케이엠')
+      files: findCheongjuImages(depositDirs, '케이엠')
     },
     '키트사진': {
       findKeywords: ['수질분석 키트 구입 사진', '키트 구입 사진', '키트사진'],
@@ -256,17 +255,17 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     '약품명세서': {
       findKeywords: ['약품비(거래명세서)', '약품명세서', '약품(거래명세서)'],
       width: 85, height: 50,
-      files: statementFiles.chemical ? [statementFiles.chemical] : findCheongjuImages(stmtDir, '에이치')
+      files: statementFiles.chemical ? [statementFiles.chemical] : findCheongjuImages(stmtDirs, '에이치')
     },
     '약품계산서': {
       findKeywords: ['약품비(세금계산서)', '약품(세금계산서)'],
       width: 85, height: 50,
-      files: findCheongjuImages(invoiceDir, '에이치')
+      files: findCheongjuImages(invoiceDirs, '에이치')
     },
     '약품입금표': {
       findKeywords: ['약품비(입금증)', '약품입금표', '약품(입금증)'],
       width: 85, height: 30,
-      files: findCheongjuImages(depositDir, '에이치')
+      files: findCheongjuImages(depositDirs, '에이치')
     },
     '약품사진': {
       findKeywords: ['약품 구입사진', '약품 구입 사진', '약품사진'],
@@ -283,12 +282,12 @@ async function generateCheongjuHwpReport({ year, month, statementFiles = {}, out
     '슬러지계산서': {
       findKeywords: ['슬러지처리비(계산서)', '슬러지계산서', '슬러지(계산서)'],
       width: 85, height: 50,
-      files: findCheongjuImages(invoiceDir, '국민환경')
+      files: findCheongjuImages(invoiceDirs, '국민환경')
     },
     '슬러지입금표': {
       findKeywords: ['슬러지처리비(입금증)', '슬러지(입금증)'],
       width: 85, height: 30,
-      files: findCheongjuImages(depositDir, '국민환경')
+      files: findCheongjuImages(depositDirs, '국민환경')
     },
     '슬러지반출사진': {
       findKeywords: ['슬러지반출사진', '슬러지 처리 사진', '슬러지 사진'],

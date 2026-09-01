@@ -284,13 +284,28 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       for (const desktopDir of desktopDirs) {
         if (!fs.existsSync(desktopDir)) continue;
 
-        // 1. {현장명}_{YYYY}년{MM}월_사진모음 폴더 검사
+        // 월정산/점검준비/현장별 폴더 후보 전체 탐색
         const photoFolderCandidates = [
+          // 1. 최신 월정산 저장 경로 (청주마감자료, 죽암휴게소 등)
+          path.join(desktopDir, '월정산', '청주마감자료', targetYm),
+          path.join(desktopDir, '월정산', '죽암휴게소', targetYm),
+          path.join(desktopDir, '월정산', '죽암(부산)', targetYm),
+          path.join(desktopDir, '월정산', '죽암(서울)', targetYm),
+          path.join(desktopDir, '월정산', siteName, targetYm),
+          path.join(desktopDir, '월정산', `${siteName}(서울방향)`, targetYm),
+          path.join(desktopDir, '월정산', `${siteName}(부산방향)`, targetYm),
+
+          // 2. 점검준비 폴더
+          path.join(desktopDir, '점검준비', '정산서', targetYm),
+          path.join(desktopDir, '점검준비', '명세서', targetYm),
+          path.join(desktopDir, '점검준비', '계산서', targetYm),
+          path.join(desktopDir, '점검준비', '입금표', targetYm),
+          path.join(desktopDir, '점검준비', '성적서', targetYm),
+
+          // 3. 기존 사진모음 폴더 호환
           path.join(desktopDir, `${siteName}_${year}년${mm}월_사진모음`),
           path.join(desktopDir, `${siteName}(서울방향)_${year}년${mm}월_사진모음`),
           path.join(desktopDir, `${siteName}_${year}년${month}월_사진모음`),
-          path.join(desktopDir, '점검준비', '정산서', targetYm),
-          path.join(desktopDir, '점검준비', '계산서', targetYm),
         ];
 
         for (const candidate of photoFolderCandidates) {
@@ -332,17 +347,16 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(targetYm.substring(4, 6), 10);
       const mm = String(month).padStart(2, '0');
 
-      const home = os.homedir();
-      const desktopDirs = [
-        path.join(home, 'OneDrive', '바탕 화면'),
-        path.join(home, 'OneDrive', 'Desktop'),
-        path.join(home, '바탕 화면'),
-        path.join(home, 'Desktop'),
-      ].filter(d => fs.existsSync(d));
-
+      const desktopDirs = getDesktopDirectories();
       const searchDirs = [];
       desktopDirs.forEach(desktop => {
         searchDirs.push(path.join(desktop, '점검준비', '명세서', targetYm));
+        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm));
+        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '1_실험사진'));
+        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '4_약품입고'));
+        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '5_키트입고'));
+        searchDirs.push(path.join(desktop, '월정산', '청주휴게소', targetYm));
+        searchDirs.push(path.join(desktop, '월정산', '청주휴게소(서울방향)', targetYm));
         searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${mm}월_사진모음`));
         searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${month}월_사진모음`));
       });

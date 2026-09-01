@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getApiBase } from '../../../core/api/serverConfig';
 
-const CURRENT_YEAR = new Date().getFullYear();
+const now = new Date();
+const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+const CURRENT_YEAR = now.getFullYear();
+const DEFAULT_YEAR = prevMonthDate.getFullYear();
+const DEFAULT_MONTH = prevMonthDate.getMonth() + 1;
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
 export function useMonthlySettlementAuto() {
   const [activeTab, setActiveTab] = useState('auto_generate'); // 'auto_generate' | 'template_manager'
-  const [year, setYear] = useState(CURRENT_YEAR);
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(DEFAULT_YEAR);
+  const [month, setMonth] = useState(DEFAULT_MONTH);
   const [selectedSite, setSelectedSite] = useState('all');
   const [sites, setSites] = useState([]);
   const [templates, setTemplates] = useState([]);
