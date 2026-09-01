@@ -23,12 +23,19 @@ const {
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
 const {
+  getReportSiteList,
+  getMonthlyReportData,
+  getMonthlyReportUsageSummary,
+  transformToReportData,
+} = require('../services/monthlyReportService.cjs');
+const {
   getSiteSettlementVendors,
   seedSiteSettlementVendors,
   upsertSiteSettlementVendors,
 } = require('../services/siteSettlementVendorsSheetsService.cjs');
 const { generateCheongjuHwpReport } = require('../services/hwpSettlementService.cjs');
 const { generateJukamBusanExcelReport } = require('../services/jukamSettlementService.cjs');
+const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
 const upload = multer({
@@ -344,48 +351,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   router.get('/cheongju-statements-status', (req, res) => {
     try {
       const targetYm = normalizeTargetYm(req.query.targetYm) || `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-      const year = parseInt(targetYm.substring(0, 4), 10);
-      const month = parseInt(targetYm.substring(4, 6), 10);
-      const mm = String(month).padStart(2, '0');
-
-      const desktopDirs = getDesktopDirectories();
-      const searchDirs = [];
-      desktopDirs.forEach(desktop => {
-        searchDirs.push(path.join(desktop, '점검준비', '명세서', targetYm));
-        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm));
-        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '1_실험사진'));
-        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '4_약품입고'));
-        searchDirs.push(path.join(desktop, '월정산', '청주마감자료', targetYm, '5_키트입고'));
-        searchDirs.push(path.join(desktop, '월정산', '청주휴게소', targetYm));
-        searchDirs.push(path.join(desktop, '월정산', '청주휴게소(서울방향)', targetYm));
-        searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${mm}월_사진모음`));
-        searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${month}월_사진모음`));
-      });
-
-      const findFile = (keyword) => {
-        for (const dir of searchDirs) {
-          if (fs.existsSync(dir)) {
-            try {
-              const files = fs.readdirSync(dir);
-              const matched = files.find(f => {
-                const lower = f.toLowerCase();
-                const isExt = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png');
-                if (!isExt) return false;
-                if (keyword === '대신' && lower.includes('대신')) return true;
-                if (keyword === '케이엠' && (lower.includes('케이엠') || lower.includes('kmsc') || lower.includes('km'))) return true;
-                if (keyword === '에이치' && (lower.includes('에이치') || lower.includes('hde'))) return true;
-                return false;
-              });
-              if (matched) return path.join(dir, matched);
-            } catch (_) {}
-          }
-        }
-        return null;
-      };
-
-      const waterQualityPath = findFile('대신');
-      const kitPath = findFile('케이엠');
-      const chemicalPath = findFile('에이치');
+      const statementsDir = getCheongjuStatementsDir(targetYm);
+      const waterQualityPath = findCheongjuStatementFile(statementsDir, targetYm, '대신');
+      const kitPath = findCheongjuStatementFile(statementsDir, targetYm, '케이엠');
+      const chemicalPath = findCheongjuStatementFile(statementsDir, targetYm, '에이치디이앤씨');
 
       const statements = {
         waterQuality: waterQualityPath ? { exists: true, fileName: path.basename(waterQualityPath), path: waterQualityPath } : { exists: false },
@@ -407,6 +376,62 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     }
   });
 
+  router.get('/cheongju-statements-preview', (req, res) => {
+    try {
+      const targetYm = normalizeTargetYm(req.query.targetYm);
+      const type = String(req.query.type || '');
+      const keywordByType = {
+        waterQuality: '대신',
+        kit: '케이엠',
+        chemical: '에이치',
+      };
+      const keyword = keywordByType[type];
+      if (!targetYm || !keyword) {
+        return res.status(400).json({ success: false, error: '유효하지 않은 명세서 미리보기 요청입니다.' });
+      }
+
+      const vendor = type === 'chemical' ? '에이치디이앤씨' : keyword;
+      const file = findCheongjuStatementFile(getCheongjuStatementsDir(targetYm), targetYm, vendor);
+      if (file) return res.sendFile(file);
+
+      return res.status(404).json({ success: false, error: '명세서 이미지를 찾을 수 없습니다.' });
+    } catch (err) {
+      console.error('[settlementRoutes] 청주 명세서 미리보기 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/cheongju-statements/:type', upload.single('file'), (req, res) => {
+    try {
+      const type = String(req.params.type || '');
+      const labels = {
+        waterQuality: '대신',
+        kit: '케이엠',
+        chemical: '에이치디이앤씨',
+      };
+      const label = labels[type];
+      const targetYm = normalizeTargetYm(req.body?.targetYm);
+      const extension = path.extname(req.file?.originalname || '').toLowerCase();
+      if (!label || !targetYm || !req.file || !['.jpg', '.jpeg', '.png'].includes(extension)) {
+        return res.status(400).json({ success: false, error: '유효하지 않은 명세서 저장 요청입니다.' });
+      }
+
+      const targetDir = getCheongjuStatementsDir(targetYm);
+      fs.mkdirSync(targetDir, { recursive: true });
+      const fileName = `명세서_${targetYm}_청주휴게소(서울방향) ${label}${extension}`;
+      fs.writeFileSync(path.join(targetDir, fileName), req.file.buffer);
+
+      return res.json({
+        success: true,
+        fileName,
+        previewUrl: `/api/settlement/cheongju-statements-preview?targetYm=${targetYm}&type=${type}`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 청주 명세서 저장 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   /**
    * POST /api/settlement/generate/cheongju
    * 청주휴게소 정산서 한글(HWP) 파일 생성 및 전송
@@ -419,87 +444,74 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       { name: 'statementChemical', maxCount: 1 },
     ]),
     async (req, res) => {
+      let diagnosticStage = '요청 검증';
+      let diagnosticTargetYm = '';
       try {
         const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
         const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
         const targetYm = `${year}${String(month).padStart(2, '0')}`;
-        const mm = String(month).padStart(2, '0');
-
+        diagnosticTargetYm = targetYm;
         const tempDir = path.join(os.tmpdir(), `osoo_cheongju_stmt_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
-        const statementFiles = {};
-
-        if (req.files?.statementWaterQuality?.[0]) {
-          const file = req.files.statementWaterQuality[0];
-          const ext = path.extname(file.originalname) || '.jpg';
-          const p = path.join(tempDir, `stmt_water_quality${ext}`);
-          fs.writeFileSync(p, file.buffer);
-          statementFiles.waterQuality = p;
-        }
-
-        if (req.files?.statementKit?.[0]) {
-          const file = req.files.statementKit[0];
-          const ext = path.extname(file.originalname) || '.jpg';
-          const p = path.join(tempDir, `stmt_kit${ext}`);
-          fs.writeFileSync(p, file.buffer);
-          statementFiles.kit = p;
-        }
-
-        if (req.files?.statementChemical?.[0]) {
-          const file = req.files.statementChemical[0];
-          const ext = path.extname(file.originalname) || '.jpg';
-          const p = path.join(tempDir, `stmt_chemical${ext}`);
-          fs.writeFileSync(p, file.buffer);
-          statementFiles.chemical = p;
-        }
-
-        // 업로드 파일이 없는 항목은 로컬 명세서 폴더에서 자동 탐색/연결
-        const home = os.homedir();
-        const desktopDirs = [
-          path.join(home, 'OneDrive', '바탕 화면'),
-          path.join(home, 'OneDrive', 'Desktop'),
-          path.join(home, '바탕 화면'),
-          path.join(home, 'Desktop'),
-        ].filter(d => fs.existsSync(d));
-
-        const searchDirs = [];
-        desktopDirs.forEach(desktop => {
-          searchDirs.push(path.join(desktop, '점검준비', '명세서', targetYm));
-          searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${mm}월_사진모음`));
-          searchDirs.push(path.join(desktop, `청주휴게소(서울방향)_${year}년${month}월_사진모음`));
-        });
-
-        const findFallback = (keyword) => {
-          for (const dir of searchDirs) {
-            if (fs.existsSync(dir)) {
-              try {
-                const files = fs.readdirSync(dir);
-                const matched = files.find(f => {
-                  const lower = f.toLowerCase();
-                  const isExt = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png');
-                  if (!isExt) return false;
-                  if (keyword === '대신' && lower.includes('대신')) return true;
-                  if (keyword === '케이엠' && (lower.includes('케이엠') || lower.includes('kmsc') || lower.includes('km'))) return true;
-                  if (keyword === '에이치' && (lower.includes('에이치') || lower.includes('hde'))) return true;
-                  return false;
-                });
-                if (matched) return path.join(dir, matched);
-              } catch (_) {}
-            }
-          }
-          return null;
+        diagnosticStage = '6_명세서 저장본 확인';
+        const statementsDir = getCheongjuStatementsDir(targetYm);
+        const statementFiles = {
+          waterQuality: findCheongjuStatementFile(statementsDir, targetYm, '대신'),
+          kit: findCheongjuStatementFile(statementsDir, targetYm, '케이엠'),
+          chemical: findCheongjuStatementFile(statementsDir, targetYm, '에이치디이앤씨'),
         };
+        if (Object.values(statementFiles).some((filePath) => !filePath)) {
+          throw new Error(`청주 거래명세서 3종을 ${statementsDir}에 모두 저장한 뒤 생성해 주세요.`);
+        }
+        const statementWorkingFiles = materializeCheongjuStatementFiles(statementFiles, tempDir);
 
-        if (!statementFiles.waterQuality) statementFiles.waterQuality = findFallback('대신');
-        if (!statementFiles.kit) statementFiles.kit = findFallback('케이엠');
-        if (!statementFiles.chemical) statementFiles.chemical = findFallback('에이치');
+        diagnosticStage = '기본 HWP 템플릿 확인';
+        const cheongjuTemplate = getTemplateList().find((site) => site.id === 'cheongju_seoul');
+        const templatePath = cheongjuTemplate?.template
+          ? getTemplateFilePath(cheongjuTemplate.template)
+          : null;
+
+        if (!templatePath) {
+          throw new Error('청주휴게소 정산 한글 양식이 없습니다. 양식관리에서 청주휴게소(서울방향) HWP 양식을 등록해 주세요.');
+        }
+
+        diagnosticStage = 'Drive 현장 사진 준비';
+        const photoSummary = await getMonthlyPhotoSummary({
+          siteName: '청주휴게소(서울방향)',
+          year,
+          month,
+          appDataPath,
+        });
+        const photoFiles = await materializeCheongjuPhotoFiles(photoSummary, tempDir);
+        diagnosticStage = '월별운영보고서 청주 현장 조회';
+        const reportSites = await getReportSiteList(year, month);
+        const cheongjuSite = reportSites.find((site) => {
+          const name = String(site.site_name || '').replace(/\s/g, '');
+          return name.includes('청주') && name.includes('서울');
+        });
+        if (!cheongjuSite) {
+          throw new Error('월별운영보고서 데이터에서 청주휴게소(서울방향) 현장을 찾을 수 없습니다.');
+        }
+        diagnosticStage = 'BigQuery 약품·키트·슬러지 원본 조회';
+        const [rawMonthlyData, usageSummary] = await Promise.all([
+          getMonthlyReportData(year, month, cheongjuSite.site_id),
+          getMonthlyReportUsageSummary(year, month, cheongjuSite.site_id),
+        ]);
+        const reportData = transformToReportData(year, month, cheongjuSite.site_name, rawMonthlyData);
+        diagnosticStage = 'HWP 자동화';
 
         console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작:`, statementFiles);
         const generatedResult = await generateCheongjuHwpReport({
           year,
           month,
-          statementFiles,
+          statementFiles: statementWorkingFiles,
+          photoFiles,
+          usageSummary,
+          reportData,
+          flowRows: rawMonthlyData.flowRows,
+          site: cheongjuSite,
+          templatePath,
         });
 
         const finalFilePath = typeof generatedResult === 'string' ? generatedResult : generatedResult.filePath;
@@ -519,8 +531,9 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
           } catch (_) {}
         });
       } catch (err) {
+        const logPath = writeCheongjuPreflightFailureLog(diagnosticTargetYm, diagnosticStage, err);
         console.error('[settlementRoutes] 청주 정산서 생성 오류:', err);
-        res.status(500).json({ success: false, error: err.message });
+        res.status(500).json({ success: false, error: `${err.message} 로그: ${logPath}` });
       }
     }
   );
@@ -590,6 +603,44 @@ function normalizeTargetYm(value) {
   return /^\d{6}$/.test(targetYm) ? targetYm : '';
 }
 
+function getCheongjuStatementsDir(targetYm) {
+  return path.join(
+    os.homedir(),
+    'OneDrive',
+    '바탕 화면',
+    '월정산',
+    '청주마감자료',
+    targetYm,
+    '6_명세서'
+  );
+}
+
+function findCheongjuStatementFile(statementsDir, targetYm, vendor) {
+  if (!fs.existsSync(statementsDir)) return null;
+  const prefix = `명세서_${targetYm}_청주휴게소(서울방향) ${vendor}`;
+  const fileName = fs.readdirSync(statementsDir).find((name) => (
+    name.startsWith(prefix) && /\.(jpg|jpeg|png)$/i.test(name)
+  ));
+  return fileName ? path.join(statementsDir, fileName) : null;
+}
+
+function writeCheongjuPreflightFailureLog(targetYm, stage, error) {
+  const appDataRoot = process.env.APP_DATA_PATH
+    || path.join(process.env.APPDATA || os.homedir(), 'Osoo_Admin_App');
+  const logDir = path.join(appDataRoot, 'logs', 'cheongju-hwp');
+  fs.mkdirSync(logDir, { recursive: true });
+  const safeTargetYm = /^\d{6}$/.test(targetYm) ? targetYm : 'unknown';
+  const logPath = path.join(logDir, `${safeTargetYm}_${new Date().toISOString().replace(/[:.]/g, '-')}_preflight-error.log`);
+  const content = [
+    `RUN FAILED BEFORE HWP AUTOMATION`,
+    `Stage: ${stage}`,
+    `Error: ${error?.stack || error?.message || String(error)}`,
+    '',
+  ].join('\n');
+  fs.writeFileSync(logPath, content, 'utf8');
+  return logPath;
+}
+
 async function findSettlementMonthlyFolder(targetYm) {
   if (!isDriveConfigured()) return null;
   const monthlyRoot = await getSingleSettlementRootFolder();
@@ -615,4 +666,52 @@ async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {
     });
   }
   console.log(`[settlementRoutes] Drive 월정산 전송 완료: 월정산/${targetYm} (${fileNames.length}개 파일)`);
+}
+
+async function materializeCheongjuPhotoFiles(summary, tempDir) {
+  const categories = {
+    testPhotos: summary.testPhotos?.files || [],
+    sludgePhotos: summary.sludgePhotos?.files || [],
+    cleaningCertificates: summary.cleaningCertificates?.files || [],
+    medicineInPhotos: summary.medicineInPhotos?.files || [],
+    kitInPhotos: summary.kitInPhotos?.files || [],
+  };
+  const result = {};
+  const documentNamePattern = /명세서|계산서|입금표|매출계산서/i;
+
+  for (const [category, files] of Object.entries(categories)) {
+    result[category] = [];
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      if (documentNamePattern.test(file.name || '')) continue;
+      const extension = path.extname(file.name || '') || '.jpg';
+      const targetPath = path.join(tempDir, `${category}_${index + 1}${extension}`);
+
+      try {
+        if (file.localPath && fs.existsSync(file.localPath)) {
+          fs.copyFileSync(file.localPath, targetPath);
+        } else if (file.driveFileId) {
+          fs.writeFileSync(targetPath, await downloadDriveFileBuffer(file.driveFileId));
+        } else {
+          continue;
+        }
+        result[category].push(targetPath);
+      } catch (err) {
+        console.warn(`[settlementRoutes] 청주 ${category} 증빙 준비 실패 (${file.name}):`, err.message);
+      }
+    }
+  }
+
+  return result;
+}
+
+function materializeCheongjuStatementFiles(statementFiles, tempDir) {
+  const result = {};
+  for (const [type, sourcePath] of Object.entries(statementFiles)) {
+    const extension = path.extname(sourcePath || '') || '.jpg';
+    const targetPath = path.join(tempDir, `statement_${type}${extension}`);
+    fs.copyFileSync(sourcePath, targetPath);
+    result[type] = targetPath;
+  }
+  return result;
 }

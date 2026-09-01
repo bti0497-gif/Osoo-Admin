@@ -30,25 +30,31 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
         if (!res.ok) return;
         const data = await res.json();
         if (data.success && data.statements) {
+          const previewBaseUrl = `${getApiBase()}/api/settlement/cheongju-statements-preview?targetYm=${targetYm}`;
           setStatements((prev) => ({
             waterQuality: prev.waterQuality || (data.statements.waterQuality?.exists ? {
               name: data.statements.waterQuality.fileName,
               path: data.statements.waterQuality.path,
+              previewUrl: `${previewBaseUrl}&type=waterQuality`,
               isExisting: true,
             } : null),
             kit: prev.kit || (data.statements.kit?.exists ? {
               name: data.statements.kit.fileName,
               path: data.statements.kit.path,
+              previewUrl: `${previewBaseUrl}&type=kit`,
               isExisting: true,
             } : null),
             chemical: prev.chemical || (data.statements.chemical?.exists ? {
               name: data.statements.chemical.fileName,
               path: data.statements.chemical.path,
+              previewUrl: `${previewBaseUrl}&type=chemical`,
               isExisting: true,
             } : null),
           }));
         }
-      } catch (_) {}
+      } catch {
+        return;
+      }
     };
     fetchExisting();
   }, [isOpen, year, month]);
@@ -88,26 +94,37 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
     },
   ];
 
-  const handleFileSelect = (key, file) => {
+  const handleFileSelect = async (key, file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       alert('이미지 파일(JPG, PNG 등)만 등록 가능합니다.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    try {
+      const targetYm = `${year}${String(month).padStart(2, '0')}`;
+      const formData = new FormData();
+      formData.append('targetYm', targetYm);
+      formData.append('file', file);
+      const response = await fetch(`${getApiBase()}/api/settlement/cheongju-statements/${key}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '명세서 저장에 실패했습니다.');
+
       setStatements((prev) => ({
         ...prev,
         [key]: {
           file,
-          name: file.name,
+          name: result.fileName,
           size: file.size,
-          previewUrl: e.target.result,
+          previewUrl: `${getApiBase()}${result.previewUrl}`,
         },
       }));
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      alert(err.message || '명세서 저장에 실패했습니다.');
+    }
   };
 
   const handleRemove = (key) => {
@@ -122,7 +139,7 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
     e.stopPropagation();
     setDragOverSlot(null);
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFileSelect(key, file);
+    if (file) void handleFileSelect(key, file);
   };
 
   const isAllUploaded = statements.waterQuality && statements.kit && statements.chemical;
@@ -210,7 +227,7 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
                   style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) handleFileSelect(slot.key, f);
+                    if (f) void handleFileSelect(slot.key, f);
                   }}
                 />
 

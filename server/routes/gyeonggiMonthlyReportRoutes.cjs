@@ -22,6 +22,7 @@ const {
   getMonthlyReportData,
   transformToReportData,
 } = require('../services/monthlyReportService.cjs');
+const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 const { resolveTemplatePath } = require('../services/templatePathService.cjs');
 
 const router = express.Router();

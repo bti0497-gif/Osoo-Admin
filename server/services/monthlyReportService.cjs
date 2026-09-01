@@ -157,6 +157,46 @@ async function getMonthlyReportData(year, month, siteId) {
 }
 
 /**
+ * 월별운영보고서와 동일한 BigQuery 원본에서 약품·키트 사용량을 집계한다.
+ * @returns {Promise<{medicines: Object, kits: Object}>}
+ */
+async function getMonthlyReportUsageSummary(year, month, siteId) {
+  const bq = getBigQueryClient();
+  if (!bq) throw new Error('BigQuery 클라이언트 초기화 실패');
+
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+  const yearStart = `${year}-01-01`;
+  const params = { siteId, monthStart, monthEnd, yearStart };
+
+  const buildQuery = (table, nameColumn) => `
+    SELECT
+      ${nameColumn} AS name,
+      COALESCE(SUM(IF(date >= @monthStart AND date < @monthEnd, usage_amount, 0)), 0) AS monthlyUsage,
+      COALESCE(SUM(IF(date >= @yearStart AND date < @monthEnd, usage_amount, 0)), 0) AS yearUsage
+    FROM \`${DATASET_ID}.${table}\`
+    WHERE site_id = @siteId
+      AND date >= @yearStart
+      AND date < @monthEnd
+    GROUP BY ${nameColumn}
+  `;
+
+  const [[medicineRows], [kitRows]] = await Promise.all([
+    bq.query({ query: buildQuery('medicine_logs', 'medicine_name'), params }),
+    bq.query({ query: buildQuery('kit_logs', 'kit_name'), params }),
+  ]);
+
+  const toMap = (rows) => Object.fromEntries(rows.map((row) => [String(row.name), {
+    monthlyUsage: Number(row.monthlyUsage) || 0,
+    yearUsage: Number(row.yearUsage) || 0,
+  }]));
+
+  return { medicines: toMap(medicineRows), kits: toMap(kitRows) };
+}
+
+/**
  * 조회 결과를 Excel 바인딩에 필요한 구조로 변환
  * @param {number} year
  * @param {number} month
@@ -243,6 +283,7 @@ function toDateStr(val) {
 module.exports = {
   getReportSiteList,
   getMonthlyReportData,
+  getMonthlyReportUsageSummary,
   transformToReportData,
   MEDICINE_NAMES,
 };
