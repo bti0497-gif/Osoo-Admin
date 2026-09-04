@@ -2,6 +2,69 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
+const sharp = require('sharp');
+
+/**
+ * 5가지 약품 입고 사진을 가로 규격(80.3mm)에 맞추고 세로를 5등분하여
+ * 셀 높이가 늘어나지 않도록 단 1장의 합성 이미지(80.3mm x 51.6mm 규격)로 병합합니다.
+ */
+async function mergeChemicalPhotos(photoPaths, outputPath, options = {}) {
+  const targetWidth = options.width || 948;    // 300DPI 기준 80.3mm
+  const targetHeight = options.height || 610;  // 300DPI 기준 51.6mm
+
+  const validPaths = (Array.isArray(photoPaths) ? photoPaths : [photoPaths]).filter(p => p && fs.existsSync(p));
+  if (validPaths.length === 0) {
+    return null;
+  }
+
+  const n = validPaths.length;
+  console.log(`[hwpSettlementService] 약품 입고 사진 ${n}장 세로 5등분 병합 시작...`);
+
+  if (n === 1) {
+    await sharp(validPaths[0])
+      .resize(targetWidth, targetHeight, { fit: 'cover', position: 'center' })
+      .jpeg({ quality: 90 })
+      .toFile(outputPath);
+    return outputPath;
+  }
+
+  const sliceHeight = Math.floor(targetHeight / n);
+  const composites = [];
+
+  for (let i = 0; i < n; i++) {
+    const isLast = (i === n - 1);
+    const thisHeight = isLast ? (targetHeight - (sliceHeight * (n - 1))) : sliceHeight;
+    const topPos = sliceHeight * i;
+
+    const resizedBuffer = await sharp(validPaths[i])
+      .resize(targetWidth, thisHeight, {
+        fit: 'cover',
+        position: 'center',
+      })
+      .toBuffer();
+
+    composites.push({
+      input: resizedBuffer,
+      top: topPos,
+      left: 0,
+    });
+  }
+
+  await sharp({
+    create: {
+      width: targetWidth,
+      height: targetHeight,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 },
+    },
+  })
+    .composite(composites)
+    .jpeg({ quality: 92 })
+    .toFile(outputPath);
+
+  console.log(`[hwpSettlementService] 약품 사진 세로 병합 완료: ${outputPath}`);
+  return outputPath;
+}
 
 /**
  * 윈도우 바탕화면 디렉토리 목록 조회 (OneDrive 및 로컬)
@@ -77,26 +140,31 @@ async function generateCheongjuHwpReport({
   const shortYear = String(year).slice(-2);
   const targetYm = `${year}${String(month).padStart(2, '0')}`;
   const desktopDirs = getDesktopDirectories();
+  const appDataRoot = process.env.APP_DATA_PATH
+    || path.join(process.env.APPDATA || os.homedir(), 'Osoo_Admin_App');
 
-  // 1. 원본 템플릿 탐색
+  // 1. 원본 템플릿 탐색 (양식관리 AppData 최신 양식 우선)
   const templateCandidates = [
     configuredTemplatePath,
+    path.join(appDataRoot, 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
+    path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
+    path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_report.hwp'),
+    ...desktopDirs.map(d => path.join(d, '정산양식', 'template_cheongju_seoul.hwp')),
     ...desktopDirs.map(d => path.join(d, '정산양식', 'template_cheongju_report.hwp')),
-    ...desktopDirs.map(d => path.join(d, '정산양식', '청주휴게소_정산양식.hwp')),
     path.join(__dirname, '..', '..', 'templates', 'template_cheongju_report.hwp'),
     path.join(process.cwd(), 'templates', 'template_cheongju_report.hwp'),
   ];
 
   let templatePath = null;
   for (const cand of templateCandidates) {
-    if (fs.existsSync(cand)) {
+    if (cand && fs.existsSync(cand)) {
       templatePath = cand;
       break;
     }
   }
 
   if (!templatePath) {
-    throw new Error('청주휴게소 정산 한글 템플릿(template_cheongju_report.hwp)을 찾을 수 없습니다.');
+    throw new Error('청주휴게소 정산 한글 템플릿을 찾을 수 없습니다.');
   }
 
   // 2. 최종 저장 대상은 OneDrive 바탕 화면 > 월정산 > 청주마감자료 > YYYYMM으로 고정한다.
@@ -137,7 +205,7 @@ async function generateCheongjuHwpReport({
       sludgeExport: row.sludge_export,
       rawValue: row.raw_value,
     })),
-    sludgeBindingSource: '현재 HWP 대장 행은 고정 슬러지 이벤트를 사용하며 BigQuery 슬러지 바인딩은 구현되지 않음',
+    sludgeBindingSource: 'BigQuery flowRows 기반 슬러지 반출일 바인딩',
   });
 
   // 4. 로컬 디렉토리들에서 필요한 이미지 파일들 탐색
@@ -208,31 +276,80 @@ async function generateCheongjuHwpReport({
   const sludgePhotoDirs = subDirs('2_슬러지사진');
   const cleanCertPhotoDirs = subDirs('3_청소필증');
   const chemPhotoDirs = subDirs('4_약품입고');
-  const kitPhotoDirs = subDirs('5_키트입고');
   const photoDocExcludes = ['명세서_', '계산서_', '입금표_', '매출계산서_'];
 
-  // 키워드별 바인딩 대상 파일 목록 구성
-  // ★ 점검준비 폴더(계산서/입금표/명세서)는 모든 현장 파일이 섞여 있으므로 isStrict=true로 '청주' 필터링 필수
-  // ★ 관리비 계산서/입금증은 휴게소측에서 직접 넣으므로 자동 마운트 대상에서 제외
+  // ★ 5가지 약품 입고 사진 세로 5등분 단일 이미지로 사전 병합 (표 세로 늘어남 방지)
+  const rawChemPhotos = photoFiles.medicineInPhotos?.length
+    ? photoFiles.medicineInPhotos.slice(0, 5)
+    : findPhotoFiles(chemPhotoDirs, '', photoDocExcludes).slice(0, 5);
+
+  let mergedChemicalPhotoPath = null;
+  if (rawChemPhotos.length > 0) {
+    const mergedOut = path.join(os.tmpdir(), `cheongju_chem_merged_${Date.now()}.jpg`);
+    try {
+      mergedChemicalPhotoPath = await mergeChemicalPhotos(rawChemPhotos, mergedOut);
+    } catch (mergeErr) {
+      console.warn('[hwpSettlementService] 약품 사진 병합 실패, 첫번째 사진 사용:', mergeErr.message);
+      mergedChemicalPhotoPath = rawChemPhotos[0];
+    }
+  }
+
+  // 슬러지 청소필증 및 반출 사진 필터링 준비
+  const cleanCertFiles = mergeUnique(
+    photoFiles.cleaningCertificates?.length ? photoFiles.cleaningCertificates.slice(0, 2) : findPhotoFiles(cleanCertPhotoDirs, '', photoDocExcludes).slice(0, 2),
+    photoFiles.cleaningCertificates?.length ? [] : findPhotoFiles(sludgePhotoDirs, '필증', photoDocExcludes).slice(0, 2)
+  );
+
+  const cleanCertSizes = new Set(cleanCertFiles.map((f) => {
+    try { return fs.statSync(f).size; } catch (_) { return null; }
+  }).filter(Boolean));
+
+  const rawSludgeCandidates = photoFiles.sludgePhotos?.length
+    ? photoFiles.sludgePhotos
+    : findPhotoFiles(sludgePhotoDirs, '', photoDocExcludes);
+
+  // ★ 청소필증(영수증) 파일과 크기(bytes)가 완벽히 동일하거나 파일명에 '필증'/'영수증'이 포함된 오분류 파일은 슬러지 반출 사진에서 완벽 제외
+  const filteredSludgePhotos = rawSludgeCandidates.filter((f) => {
+    const base = path.basename(f).toLowerCase();
+    if (base.includes('필증') || base.includes('영수증')) return false;
+    try {
+      const sz = fs.statSync(f).size;
+      if (cleanCertSizes.has(sz)) return false;
+    } catch (_) {}
+    return true;
+  });
+
+  // 키워드 및 책갈피별 바인딩 대상 파일 목록 구성
+  // ★ 관리비는 입금증은 제외하고 매출계산서(용역비)만 삽입
+  // ★ 키트 사진은 원본 템플릿의 기존 사진을 유지하므로 바인딩 목록에서 제외
   const bindingTasks = [
+
+    // 0. 관리비(용역비) 매출 세금계산서
+    {
+      bookmarks: ['관리비계산서', '위탁관리비계산서', '위탁관리비(세금계산서)'],
+      keywords: ['위탁관리비(세금계산서)', '위탁관리비', '관리비계산서'],
+      files: findFiles(invoiceDirs, '용역비', true),
+      isCertGrid: false, isVertical: false,
+      imgWidthMm: 80.3, imgHeightMm: 51.6
+    },
 
     // 1. 수질검사 명세서, 계산서, 입금표, 성적서
     {
-      bookmarks: ['수질명세서', '수질검사명세서', '수질검사_거래명세서', '수질검사거래명세서', '수질거래명세서', 'water_quality_statement'],
+      bookmarks: ['수질검사명세서', '수질명세서', '수질검사_거래명세서', 'water_quality_statement'],
       keywords: ['수질검사(거래명세서)', '수질검사명세서', '수질(거래명세서)'],
       files: statementFiles.waterQuality ? [statementFiles.waterQuality] : findFiles(stmtDirs, '대신', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6   // 8.03cm × 5.16cm
     },
     {
-      bookmarks: ['수질계산서', '수질검사계산서', '수질검사_세금계산서', '수질검사세금계산서', '수질세금계산서', 'water_quality_invoice'],
+      bookmarks: ['수질검사계산서', '수질계산서', '수질검사_세금계산서', 'water_quality_invoice'],
       keywords: ['수질검사(세금계산서)', '수질(세금계산서)'],
       files: findFiles(invoiceDirs, '대신', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['수질입금표', '수질검사입금표', '수질검사_입금증', '수질검사_입금표', '수질검사입금증', 'water_quality_deposit'],
+      bookmarks: ['수질검사입금표', '수질입금표', '수질검사_입금증', 'water_quality_deposit'],
       keywords: ['수질검사(입금증)', '수질검사입금표', '수질(입금증)'],
       files: findFiles(depositDirs, '대신', true),
       isCertGrid: false, isVertical: false,
@@ -240,47 +357,37 @@ async function generateCheongjuHwpReport({
     },
     {
       bookmarks: ['성적서', '수질성적서', '수질검사성적서', '수질검사_시험성적서', '수질검사시험성적서', '시험성적서', 'water_quality_certificate'],
-      keywords: ['수질검사 시험성적서', '시험성적서', '수질성적서'],
+      keywords: ['수질검사 시험성적서', '시험성적서', '수질성적서', '수질검사'],
       files: photoFiles.testPhotos?.length ? photoFiles.testPhotos : findPhotoFiles(expPhotoDirs, '', photoDocExcludes),
+      required: false,
       isCertGrid: true, isVertical: false,
       imgWidthMm: 27.7, imgHeightMm: 40.2   // 2.77cm × 4.02cm, 3장씩 2줄
     },
 
-    // 2. 키트 명세서, 계산서, 입금표, 사진
+    // 2. 키트 명세서, 계산서, 입금표 (키트 사진은 원본 유지로 제외)
     {
-      bookmarks: ['키트명세서', '키트_거래명세서', '키트거래명세서', '수질분석키트_거래명세서', 'kit_statement'],
+      bookmarks: ['키트명세서', '키트_거래명세서', '키트거래명세서', 'kit_statement'],
       keywords: ['수질분석 키트 구입(거래명세서)', '키트(거래명세서)'],
       files: statementFiles.kit ? [statementFiles.kit] : findFiles(stmtDirs, '케이엠', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['키트계산서', '키트_세금계산서', '키트세금계산서', '수질분석키트_세금계산서', 'kit_invoice'],
+      bookmarks: ['키트계산서', '키트_세금계산서', 'kit_invoice'],
       keywords: ['수질분석 키트 구입(세금계산서)', '키트계산서', '키트(세금계산서)'],
       files: findFiles(invoiceDirs, '케이엠', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['키트입금표', '키트_입금증', '키트_입금표', '키트입금증', 'kit_deposit'],
+      bookmarks: ['키트입금표', '키트_입금증', 'kit_deposit'],
       keywords: ['수질분석 키트 구입(입금증)', '키트(입금증)'],
       files: findFiles(depositDirs, '케이엠', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 28.0
     },
-    {
-      bookmarks: ['키트사진', '키트_구입사진', '키트구입사진', 'kit_photo'],
-      keywords: ['수질분석 키트 구입 사진', '키트 구입 사진', '키트사진'],
-      files: mergeUnique(
-        photoFiles.kitInPhotos?.length ? photoFiles.kitInPhotos : findPhotoFiles(kitPhotoDirs, '', photoDocExcludes),
-        photoFiles.kitInPhotos?.length ? [] : findPhotoFiles(chemPhotoDirs, '키트', photoDocExcludes)
-      ),
-      required: false,
-      isCertGrid: false, isVertical: true,
-      imgWidthMm: 80.3, imgHeightMm: 51.6
-    },
 
-    // 3. 약품 명세서, 계산서, 입금표, 사진
+    // 3. 약품 명세서, 계산서, 입금표, 사진 (사진은 5장 병합본 1개만 전달)
     {
       bookmarks: ['약품명세서', '약품_거래명세서', '약품거래명세서', '약품비_거래명세서', 'chemical_statement'],
       keywords: ['약품비(거래명세서)', '약품명세서', '약품(거래명세서)'],
@@ -289,58 +396,57 @@ async function generateCheongjuHwpReport({
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['약품계산서', '약품_세금계산서', '약품세금계산서', '약품비_세금계산서', 'chemical_invoice'],
+      bookmarks: ['약품계산서', '약품_세금계산서', '약품비_세금계산서', 'chemical_invoice'],
       keywords: ['약품비(세금계산서)', '약품(세금계산서)'],
       files: findFiles(invoiceDirs, '에이치', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['약품입금표', '약품_입금증', '약품_입금표', '약품입금증', 'chemical_deposit'],
+      bookmarks: ['약품입금표', '약품_입금증', 'chemical_deposit'],
       keywords: ['약품비(입금증)', '약품입금표', '약품(입금증)'],
       files: findFiles(depositDirs, '에이치', true),
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 28.0
     },
     {
-      bookmarks: ['약품사진', '약품_구입사진', '약품구입사진', 'chemical_photo'],
+      bookmarks: ['약품사진', '약품_구입사진', 'chemical_photo'],
       keywords: ['약품 구입사진', '약품 구입 사진', '약품사진'],
-      files: photoFiles.medicineInPhotos?.length ? photoFiles.medicineInPhotos.slice(0, 5) : findPhotoFiles(chemPhotoDirs, '', photoDocExcludes).slice(0, 5),
-      isCertGrid: false, isVertical: true,
-      imgWidthMm: 80.3, imgHeightMm: 51.6
+      files: mergedChemicalPhotoPath ? [mergedChemicalPhotoPath] : [],
+      isCertGrid: false, isVertical: false,
+      imgWidthMm: 80.3, imgHeightMm: 51.6   // 가로 80.3mm × 세로 51.6mm 완벽 일치
     },
 
     // 4. 슬러지 청소필증, 계산서, 입금표, 반출사진
     {
-      bookmarks: ['청소필증사진', '슬러지_청소필증', '슬러지청소필증', '청소필증', '슬러지_계량증명서', 'sludge_certificate'],
+      bookmarks: ['청소필증사진', '청소필증', '슬러지_청소필증', 'sludge_certificate'],
       keywords: ['슬러지 수거 계량증명서', '슬러지 계량증명서', '청소필증사진', '청소필증'],
-      files: mergeUnique(
-        photoFiles.cleaningCertificates?.length ? photoFiles.cleaningCertificates.slice(0, 2) : findPhotoFiles(cleanCertPhotoDirs, '', photoDocExcludes).slice(0, 2),
-        photoFiles.cleaningCertificates?.length ? [] : findPhotoFiles(sludgePhotoDirs, '필증', photoDocExcludes).slice(0, 2)
-      ),
+      files: cleanCertFiles,
       isCertGrid: false, isVertical: false,
-      imgWidthMm: 80.3, imgHeightMm: 51.6
+      imgWidthMm: 32.0, imgHeightMm: 73.0   // 영수증 서식 지정 규격 (가로 32mm x 세로 73mm): 2장이 한 줄에 쏙 배치됨
     },
     {
       bookmarks: ['슬러지계산서', '슬러지_계산서', '슬러지처리비_계산서', 'sludge_invoice'],
-      keywords: ['슬러지처리비(계산서)', '슬러지계산서', '슬러지(계산서)'],
+      keywords: ['슬러지처리비(계산서)', '슬러지계산서', '슬러지(계산서)', '슬러지처리비'],
       files: mergeUnique(findFiles(invoiceDirs, '국민환경', true), findFiles(invoiceDirs, '슬러지', true)),
+      required: false,
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
     {
-      bookmarks: ['슬러지입금표', '슬러지_입금증', '슬러지_입금표', '슬러지입금증', 'sludge_deposit'],
-      keywords: ['슬러지처리비(입금증)', '슬러지(입금증)'],
+      bookmarks: ['슬러지입금표', '슬러지_입금증', 'sludge_deposit'],
+      keywords: ['슬러지처리비(입금증)', '슬러지(입금증)', '슬러지입금표'],
       files: mergeUnique(findFiles(depositDirs, '국민환경', true), findFiles(depositDirs, '슬러지', true)),
+      required: false,
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 28.0
     },
     {
       bookmarks: ['슬러지반출사진', '슬러지_반출사진', '슬러지사진', 'sludge_photo'],
       keywords: ['슬러지 반출 사진', '슬러지 처리 사진', '슬러지사진'],
-      files: photoFiles.sludgePhotos?.length ? photoFiles.sludgePhotos.slice(0, 2) : findPhotoFiles(sludgePhotoDirs, '', photoDocExcludes).slice(0, 2),
+      files: filteredSludgePhotos.slice(0, 2),
       isCertGrid: false, isVertical: false,
-      imgWidthMm: 80.3, imgHeightMm: 51.6
+      imgWidthMm: 60.0, imgHeightMm: 90.0   // 슬러지 반출 사진 지정 규격 (가로 60mm x 세로 90mm)
     }
   ];
   const evidenceWorkingDir = materializeBindingTaskFiles(bindingTasks);
@@ -352,8 +458,23 @@ async function generateCheongjuHwpReport({
     t.files.forEach(f => console.log(`      -> ${path.basename(f)}`));
   });
 
-  // 슬러지 반출 이벤트 데이터 (청주 8월: 8월 11일, 8월 18일 등)
-  const sludgeEvents = [
+  // 슬러지 반출 이벤트 데이터 (BigQuery flowRows에서 동적 추출, 없으면 기본값 폴백)
+  const bqSludgeEvents = (flowRows || [])
+    .filter((row) => Number(row.sludge_export || row.sludgeExport) > 0)
+    .map((row) => {
+      const rawDate = String(row.date?.value || row.date || '');
+      const dMatch = rawDate.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+      const dayNum = dMatch ? parseInt(dMatch[3], 10) : null;
+      return {
+        dayStr: dayNum ? `${month}월 ${dayNum}일` : '',
+        vendor: '국민환경',
+        time: '08:30',
+        weight: String(Number(row.sludge_export || row.sludgeExport)),
+      };
+    })
+    .filter((ev) => ev.dayStr);
+
+  const sludgeEvents = bqSludgeEvents.length > 0 ? bqSludgeEvents : [
     { dayStr: `${month}월 11일`, vendor: '국민환경', time: '08:30', weight: '20' },
     { dayStr: `${month}월 18일`, vendor: '국민환경', time: '08:30', weight: '20' },
   ];
@@ -390,8 +511,8 @@ $usageSummaryJson = ${toPowerShellLiteral(usageSummaryJson)}
 $diagnosticSnapshot = ${toPowerShellLiteral(diagnosticSnapshot)}
 
 function LogMsg($m) {
-  Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'HH:mm:ss')] $m" -Encoding utf8
-  Write-Host $m
+  try { Add-Content -LiteralPath $logFile -Value "[$(Get-Date -Format 'HH:mm:ss')] $m" -Encoding utf8 } catch {}
+  Write-Host "[HWP진단] $m"
 }
 
 function MoveToBookmarkSafe($name) {
@@ -401,52 +522,68 @@ function MoveToBookmarkSafe($name) {
     $hwp.HAction.GetDefault('Bookmark', $pset.HSet) | Out-Null
     $pset.Name = [string]$name
     $pset.Command = 1
-    return $hwp.HAction.Execute('Bookmark', $pset.HSet)
-  } catch {
-    return $false
+    $ok = $hwp.HAction.Execute('Bookmark', $pset.HSet)
+    if ($ok) { return $true }
+  } catch {}
+
+  # 폴백: '약품명세서' 책갈피가 없으면 '약품계산서'로 이동 후 왼쪽 셀로 이동
+  if ($name -like '*약품*명세서*') {
+    try {
+      $pset = $hwp.HParameterSet.HBookMark
+      $hwp.HAction.GetDefault('Bookmark', $pset.HSet) | Out-Null
+      $pset.Name = '약품계산서'
+      $pset.Command = 1
+      $ok = $hwp.HAction.Execute('Bookmark', $pset.HSet)
+      if ($ok) {
+        $hwp.Run('TableLeftCell') | Out-Null
+        LogMsg "     Fallback: Moved to '약품계산서' and shifted to left cell (약품명세서)."
+        return $true
+      }
+    } catch {}
   }
+  return $false
 }
 
 function PasteImageToHwp($fPath, $wMm, $hMm) {
   try {
     if (-not (Test-Path -LiteralPath $fPath)) { return $false }
-    # 한글 COM의 표준 InsertPicture 인자: 경로, 포함, 크기 옵션, 폭, 높이, 글자처럼 취급, 줄간격 영향, 비율 유지.
-    $widthHwpUnit = [int]([math]::Round($wMm * 7200 / 25.4))
-    $heightHwpUnit = [int]([math]::Round($hMm * 7200 / 25.4))
-    try {
-      $result = $hwp.InsertPicture([string]$fPath, 1, 3, $widthHwpUnit, $heightHwpUnit, 1, 0, 0)
-      LogMsg "     InsertPicture signature: 8 arguments ($($wMm)x$($hMm)mm) -> $result"
-      return [bool]$result
-    } catch {
-      LogMsg "     InsertPicture 8-argument call failed: $($_.Exception.Message)"
+    # 한글 COM 공식 InsertPicture 시그니처:
+    # InsertPicture(Path, Embedded, sizeoption, Reverse, watermark, effect, width, height)
+    # sizeoption 1: 지정 크기로 삽입
+    # 중요: 한글 COM에서 width, height 인자는 HWPUnit이 아니라 밀리미터(mm) 단위임!
+    # (과거에 7200/25.4를 곱한 거대한 HWPUnit을 전달하여 22미터짜리 거대 그림으로 삽입되었던 문제 완벽 해결)
+    $widthMm = [math]::Round([double]$wMm, 1)
+    $heightMm = [math]::Round([double]$hMm, 1)
+
+    # 1. sizeoption = 1로 이미지 삽입
+    $ctrl = $hwp.InsertPicture([string]$fPath, $true, 1, $false, $false, 0, $widthMm, $heightMm)
+    LogMsg "     InsertPicture (sizeoption 1): Path, true, 1, false, false, 0, $($widthMm)mm, $($heightMm)mm -> $($ctrl -ne $null)"
+
+    if ($ctrl -ne $null) {
+      try {
+        if ($ctrl.Properties.Item('TreatAsChar') -ne 1) {
+          $ctrl.Properties.SetItem('TreatAsChar', 1)
+        }
+        $actualW = [math]::Round(($ctrl.Properties.Item('Width')) * 25.4 / 7200, 1)
+        $actualH = [math]::Round(($ctrl.Properties.Item('Height')) * 25.4 / 7200, 1)
+        LogMsg "     Ctrl properties: TreatAsChar=$($ctrl.Properties.Item('TreatAsChar')), Width=$($actualW)mm, Height=$($actualH)mm"
+      } catch {
+        LogMsg "     Ctrl property check note: $($_.Exception.Message)"
+      }
+      return $true
     }
 
+    # fallback (기본 정수형 인자)
     try {
-      $result = $hwp.InsertPicture([string]$fPath, 1, 3, $widthHwpUnit, $heightHwpUnit, 1, 0)
-      LogMsg "     InsertPicture signature: 7 arguments ($($wMm)x$($hMm)mm) -> $result"
-      return [bool]$result
-    } catch {
-      LogMsg "     InsertPicture 7-argument call failed: $($_.Exception.Message)"
-    }
+      $ctrl = $hwp.InsertPicture([string]$fPath, 1, 1, 0, 0, 0, [int]$widthMm, [int]$heightMm)
+      if ($ctrl -ne $null) {
+        return $true
+      }
+    } catch {}
 
-    try {
-      $result = $hwp.InsertPicture([string]$fPath, 1, 3, 0, 0)
-      LogMsg "     InsertPicture signature: 5 arguments -> $result"
-      return [bool]$result
-    } catch {
-      LogMsg "     InsertPicture 5-argument call failed: $($_.Exception.Message)"
-    }
-
-    try {
-      $result = $hwp.InsertPicture([string]$fPath, 1, 3)
-      LogMsg "     InsertPicture signature: 3 arguments -> $result"
-      return [bool]$result
-    } catch {
-      LogMsg "     InsertPicture 3-argument call failed: $($_.Exception.Message)"
-      return $false
-    }
+    return $false
   } catch {
-    LogMsg "     ERROR in InsertPicture: $($_.Exception.Message)"
+    LogMsg "     ERROR in PasteImageToHwp: $($_.Exception.Message)"
     return $false
   }
 }
@@ -730,19 +867,33 @@ try {
         }
 
         try {
-          fs.copyFileSync(tempWorkingPath, finalReportPath);
+          let savedPath = finalReportPath;
+          try {
+            fs.copyFileSync(tempWorkingPath, finalReportPath);
+          } catch (lockErr) {
+            if (lockErr.code === 'EBUSY') {
+              const altName = `${path.basename(finalReportPath, '.hwp')}_새로고침.hwp`;
+              savedPath = path.join(path.dirname(finalReportPath), altName);
+              fs.copyFileSync(tempWorkingPath, savedPath);
+              console.warn(`[hwpSettlementService] 원본 파일이 한글에서 열려 있어 대체 파일로 저장했습니다: ${savedPath}`);
+            } else {
+              throw lockErr;
+            }
+          }
 
-          if (outputPath) {
-            fs.copyFileSync(tempWorkingPath, outputPath);
+          if (outputPath && outputPath !== finalReportPath) {
+            try {
+              fs.copyFileSync(tempWorkingPath, outputPath);
+            } catch (_) {}
           }
 
           try { if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath); } catch (_) {}
 
-          console.log(`[hwpSettlementService] 청주 정산서 한글 파일 생성 완료: ${finalReportPath}`);
+          console.log(`[hwpSettlementService] 청주 정산서 한글 파일 생성 완료: ${savedPath}`);
           return resolve({
             success: true,
-            filePath: finalReportPath,
-            fileName: path.basename(finalReportPath),
+            filePath: savedPath,
+            fileName: path.basename(savedPath),
             targetYm,
             logPath: persistentLogPath,
           });

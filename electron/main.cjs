@@ -140,13 +140,11 @@ function createWindow() {
       webviewTag: true,
       backgroundThrottling: false, // 창이 가려지거나 백그라운드로 가도 렌더링/전송 작업이 멈추지 않도록 설정
     },
-    show: false,
+    show: true,
     autoHideMenuBar: true,
   });
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
+  mainWindow.show();
 
   const distIndex = path.join(__dirname, '..', 'dist', 'index.html');
   const forceDevServer = process.env.ELECTRON_FORCE_DEV_SERVER === '1';
@@ -230,13 +228,8 @@ async function buildPdfBufferFromHtml(htmlContent, printBackground) {
 }
 
 app.whenReady().then(async () => {
-  await startServer();
-  try {
-    await waitForServerReady();
-  } catch (err) {
-    console.warn('[Electron] 서버 준비 대기 실패, 창을 먼저 띄웁니다:', err.message);
-  }
   createWindow();
+  startServer();
 
   if (!isDev) {
     setupAutoUpdater(mainWindow);

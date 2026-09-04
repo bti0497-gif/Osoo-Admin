@@ -178,15 +178,19 @@ async function startAll() {
     await waitForServers();
     console.log('[run-all] Starting Electron...');
     const electronCmd = process.platform === 'win32'
-        ? `"${path.join(__dirname, 'node_modules', '.bin', 'electron.cmd')}"`
+        ? path.join(__dirname, 'node_modules', 'electron', 'dist', 'electron.exe')
         : './node_modules/.bin/electron';
     const electronArgs = ['.'];
 
+    const electronEnv = {
+        ...process.env,
+        ELECTRON_FORCE_DEV_SERVER: '1'
+    };
+    delete electronEnv.ELECTRON_RUN_AS_NODE;
+
     electron = spawnCommand(electronCmd, electronArgs, {
-        env: { 
-            ...process.env,
-            ELECTRON_FORCE_DEV_SERVER: '1'  // dev 서버 강제 사용
-        },
+        env: electronEnv,
+        shell: false,
     });
     bindChildExit(electron, 'electron');
 

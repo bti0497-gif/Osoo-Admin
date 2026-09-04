@@ -501,7 +501,16 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         const reportData = transformToReportData(year, month, cheongjuSite.site_name, rawMonthlyData);
         diagnosticStage = 'HWP 자동화';
 
-        console.log(`[settlementRoutes] 청주휴게소 ${year}년 ${month}월 정산서 생성 시작:`, statementFiles);
+        console.log(`\n================== [청주 정산서 생성 진단 시작] ==================`);
+        console.log(`[청주 정산서 진단] 대상: ${year}년 ${month}월 (${targetYm})`);
+        console.log(`[청주 정산서 진단] 템플릿 파일: ${templatePath} (${fs.existsSync(templatePath) ? fs.statSync(templatePath).size + ' bytes' : 'NOT FOUND'})`);
+        console.log(`[청주 정산서 진단] 거래명세서 3종 원본:`);
+        Object.entries(statementFiles).forEach(([k, v]) => {
+          console.log(`  - [${k}]: ${v} (${fs.existsSync(v) ? fs.statSync(v).size + ' bytes' : 'NOT FOUND'})`);
+        });
+        console.log(`[청주 정산서 진단] BigQuery 슬러지 반출일 행 수: ${(rawMonthlyData?.flowRows || []).length}건`);
+        console.log(`[청주 정산서 진단] HWP 자동화 프로세스 시작...`);
+
         const generatedResult = await generateCheongjuHwpReport({
           year,
           month,
@@ -519,20 +528,25 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
           ? generatedResult.fileName
           : path.basename(finalFilePath);
 
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+        console.log(`[청주 정산서 진단] HWP 파일 생성 완료!`);
+        console.log(`  - 최종 파일 경로: ${finalFilePath}`);
+        console.log(`  - 파일 크기: ${fs.existsSync(finalFilePath) ? fs.statSync(finalFilePath).size + ' bytes' : 'NOT FOUND'}`);
+        console.log(`================== [청주 정산서 생성 진단 완료] ==================\n`);
 
-        const fileStream = fs.createReadStream(finalFilePath);
-        fileStream.pipe(res);
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (_) {}
 
-        fileStream.on('end', () => {
-          try {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-          } catch (_) {}
+        return res.json({
+          success: true,
+          filePath: finalFilePath,
+          fileName,
+          message: `[청주(서울방향)] ${year}년 ${month}월 정산 보고서 한글 파일 생성이 완료되었습니다.`,
         });
       } catch (err) {
         const logPath = writeCheongjuPreflightFailureLog(diagnosticTargetYm, diagnosticStage, err);
-        console.error('[settlementRoutes] 청주 정산서 생성 오류:', err);
+        console.error(`\n[청주 정산서 진단 ERROR] 단계: [${diagnosticStage}] 실패:`, err.message);
+        console.error(`[청주 정산서 진단 ERROR] 사전점검 실패 로그: ${logPath}`);
         res.status(500).json({ success: false, error: `${err.message} 로그: ${logPath}` });
       }
     }
@@ -670,20 +684,24 @@ async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {
 
 async function materializeCheongjuPhotoFiles(summary, tempDir) {
   const categories = {
+    cleaningCertificates: summary.cleaningCertificates?.files || [],
     testPhotos: summary.testPhotos?.files || [],
     sludgePhotos: summary.sludgePhotos?.files || [],
-    cleaningCertificates: summary.cleaningCertificates?.files || [],
     medicineInPhotos: summary.medicineInPhotos?.files || [],
     kitInPhotos: summary.kitInPhotos?.files || [],
   };
   const result = {};
   const documentNamePattern = /명세서|계산서|입금표|매출계산서/i;
+  const certSizes = new Set();
 
   for (const [category, files] of Object.entries(categories)) {
     result[category] = [];
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
       if (documentNamePattern.test(file.name || '')) continue;
+      // 슬러지 사진인데 파일명에 '필증'/'영수증'이 들어간 파일은 제외
+      if (category === 'sludgePhotos' && (/필증|영수증/i.test(file.name || ''))) continue;
+
       const extension = path.extname(file.name || '') || '.jpg';
       const targetPath = path.join(tempDir, `${category}_${index + 1}${extension}`);
 
@@ -695,6 +713,18 @@ async function materializeCheongjuPhotoFiles(summary, tempDir) {
         } else {
           continue;
         }
+
+        const size = fs.statSync(targetPath).size;
+        // 청소필증 파일 크기 기록
+        if (category === 'cleaningCertificates') {
+          certSizes.add(size);
+        } else if (category === 'sludgePhotos' && certSizes.has(size)) {
+          // 청소필증과 크기(bytes)가 완벽히 동일한 오분류 파일은 슬러지 사진에서 제외
+          console.log(`[settlementRoutes] 슬러지 사진 중 청소필증과 동일한 크기(${size} bytes)의 파일 제외: ${file.name}`);
+          try { fs.unlinkSync(targetPath); } catch (_) {}
+          continue;
+        }
+
         result[category].push(targetPath);
       } catch (err) {
         console.warn(`[settlementRoutes] 청주 ${category} 증빙 준비 실패 (${file.name}):`, err.message);
