@@ -238,49 +238,194 @@ function resolveLocalPathFromUrl(appDataPath, url) {
   return fs.existsSync(candidate) ? candidate : null;
 }
 
-function getMergedSludgeRows(db, start, end) {
-  const photoRows = db.prepare(
-    'SELECT * FROM sludge_photo_logs WHERE date >= ? AND date <= ? ORDER BY date ASC'
-  ).all(start, end);
+const { BigQuery } = require('@google-cloud/bigquery');
+const bqKeyFile = path.join(__dirname, '../config/work-jindan-194620a46d59.json');
+let _bqClient = null;
+function getBigQueryClient() {
+  if (_bqClient) return _bqClient;
+  if (fs.existsSync(bqKeyFile)) {
+    _bqClient = new BigQuery({ projectId: 'work-jindan', keyFilename: bqKeyFile });
+  }
+  return _bqClient;
+}
 
-  const flowRows = db.prepare(
-    "SELECT date, sludge_export, raw_value, calculated_flow FROM flow_readings WHERE type = '슬러지' AND date >= ? AND date <= ? ORDER BY date ASC"
-  ).all(start, end);
+function getSludgeExportSettings(appDataPath, db) {
+  if (db) {
+    try {
+      const row = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
+      if (row && row.company_name) return row;
+    } catch (_) {}
+  }
+  try {
+    const sPath = path.join(appDataPath, 'settings', 'sludge_export_settings.json');
+    if (fs.existsSync(sPath)) {
+      const raw = fs.readFileSync(sPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      return {
+        company_name: parsed.company_name || parsed.companyName || '국민환경',
+        default_amount: Number(parsed.default_amount ?? parsed.defaultAmount) || 20,
+      };
+    }
+  } catch (_) {}
+  return { company_name: '국민환경', default_amount: 20 };
+}
 
+function saveSludgeExportSettings(appDataPath, db, { companyName, defaultAmount }) {
+  if (db) {
+    try {
+      db.prepare(`
+        INSERT INTO sludge_export_settings (id, company_name, default_amount, updated_at)
+        VALUES (1, ?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(id) DO UPDATE SET
+          company_name = excluded.company_name,
+          default_amount = excluded.default_amount,
+          updated_at = excluded.updated_at
+      `).run(String(companyName || ''), Number(defaultAmount) || 0);
+    } catch (_) {}
+  }
+  try {
+    const sDir = path.join(appDataPath, 'settings');
+    if (!fs.existsSync(sDir)) fs.mkdirSync(sDir, { recursive: true });
+    const sPath = path.join(sDir, 'sludge_export_settings.json');
+    fs.writeFileSync(sPath, JSON.stringify({
+      company_name: String(companyName || '국민환경'),
+      default_amount: Number(defaultAmount) || 20,
+      updated_at: new Date().toISOString(),
+    }, null, 2), 'utf8');
+  } catch (_) {}
+}
+
+async function getMergedSludgeRows(db, start, end, appDataPath) {
   const map = new Map();
-  for (const r of photoRows) {
-    map.set(String(r.date), { ...r });
+
+  // 1. SQLite가 있으면 기존 로컬 데이터 병합
+  if (db) {
+    try {
+      const photoRows = db.prepare(
+        'SELECT * FROM sludge_photo_logs WHERE date >= ? AND date <= ? ORDER BY date ASC'
+      ).all(start, end);
+
+      const flowRows = db.prepare(
+        "SELECT date, sludge_export, raw_value, calculated_flow FROM flow_readings WHERE type = '슬러지' AND date >= ? AND date <= ? ORDER BY date ASC"
+      ).all(start, end);
+
+      for (const r of photoRows) {
+        map.set(String(r.date), { ...r });
+      }
+
+      for (const fr of flowRows) {
+        const date = String(fr.date || '');
+        if (!date) continue;
+        const rawAmount = fr?.sludge_export != null
+          ? fr.sludge_export
+          : (fr?.raw_value != null ? fr.raw_value : null);
+        const amount = rawAmount != null ? Number(rawAmount) : null;
+        if (!map.has(date)) {
+          if (amount == null || !Number.isFinite(amount)) continue;
+          map.set(date, {
+            date,
+            sludge_amount: amount,
+            sludge_photo_path: null,
+            sludge_photo_taken_at: null,
+            certificate_photo_path: null,
+            note: null,
+            site_name: null,
+            author: null,
+            created_at: null,
+            last_modified: null,
+          });
+          continue;
+        }
+
+        const cur = map.get(date);
+        if ((cur.sludge_amount == null || cur.sludge_amount === '') && amount != null) {
+          cur.sludge_amount = amount;
+        }
+      }
+    } catch (_) {}
   }
 
-  for (const fr of flowRows) {
-    const date = String(fr.date || '');
-    if (!date) continue;
-    const rawAmount = fr?.sludge_export != null
-      ? fr.sludge_export
-      : (fr?.raw_value != null ? fr.raw_value : null);
-    const amount = rawAmount != null ? Number(rawAmount) : null;
-    if (!map.has(date)) {
-      // flow_readings만 있는 날짜는 실제 반출량 값이 있을 때만 표시
-      if (amount == null || !Number.isFinite(amount)) continue;
-      map.set(date, {
-        date,
-        sludge_amount: amount,
-        sludge_photo_path: null,
-        sludge_photo_taken_at: null,
-        certificate_photo_path: null,
-        note: null,
-        site_name: null,
-        author: null,
-        created_at: null,
-        last_modified: null,
+  // 2. BigQuery 조회 (중앙관리자 앱 핵심 데이터 원본)
+  try {
+    const bq = getBigQueryClient();
+    if (bq) {
+      const query = `
+        SELECT date, type, raw_value, calculated_flow, sludge_export, site_id, site_name
+        FROM \`daily_log_system.flow_readings\`
+        WHERE type = '슬러지' AND date >= @start AND date <= @end
+        ORDER BY date ASC
+      `;
+      const [bqRows] = await bq.query({
+        query,
+        params: { start, end },
       });
-      continue;
-    }
 
-    const cur = map.get(date);
-    if ((cur.sludge_amount == null || cur.sludge_amount === '') && amount != null) {
-      cur.sludge_amount = amount;
+      for (const r of bqRows || []) {
+        const rawDate = String(r.date?.value || r.date || '');
+        const dateMatch = rawDate.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (!dateMatch) continue;
+        const date = dateMatch[1];
+        const exportAmt = r.sludge_export != null ? Number(r.sludge_export) : (r.raw_value != null ? Number(r.raw_value) : 0);
+        if (exportAmt > 0) {
+          if (!map.has(date)) {
+            map.set(date, {
+              date,
+              sludge_amount: exportAmt,
+              sludge_photo_path: null,
+              sludge_photo_taken_at: null,
+              certificate_photo_path: null,
+              site_name: r.site_name || null,
+              note: null,
+            });
+          } else {
+            const cur = map.get(date);
+            if (cur.sludge_amount == null || cur.sludge_amount === '' || cur.sludge_amount === 0) {
+              cur.sludge_amount = exportAmt;
+            }
+          }
+        }
+      }
     }
+  } catch (bqErr) {
+    console.warn('[getMergedSludgeRows] BigQuery 조회 주의:', bqErr.message);
+  }
+
+  // 3. 로컬 슬러지 사진 스캔 (사진이 저장된 날짜 보강)
+  if (appDataPath) {
+    try {
+      const year = String(start).slice(0, 4);
+      const dir = path.join(appDataPath, '사진관리', '슬러지', year);
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          const m = file.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+          if (m) {
+            const dStr = `${m[1]}-${m[2]}-${m[3]}`;
+            if (dStr >= start && dStr <= end) {
+              const fullPath = path.join(dir, file);
+              const fileStat = fs.statSync(fullPath);
+              const takenAt = toLocalDateTimeString(fileStat.mtime);
+              if (!map.has(dStr)) {
+                map.set(dStr, {
+                  date: dStr,
+                  sludge_amount: null,
+                  sludge_photo_path: `/사진관리/슬러지/${year}/${file}`,
+                  sludge_photo_taken_at: takenAt,
+                  certificate_photo_path: null,
+                  note: null,
+                });
+              } else {
+                const cur = map.get(dStr);
+                if (!cur.sludge_photo_path) {
+                  cur.sludge_photo_path = `/사진관리/슬러지/${year}/${file}`;
+                  cur.sludge_photo_taken_at = takenAt;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   return Array.from(map.values()).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
@@ -289,7 +434,7 @@ function getMergedSludgeRows(db, start, end) {
 module.exports = function (db, baseDir, appDataPath) {
 
   /** GET /api/sludge-photos?year=2026&month=4 */
-  router.get('/api/sludge-photos', (req, res) => {
+  router.get('/api/sludge-photos', async (req, res) => {
     try {
       const year  = parseInt(req.query.year,  10);
       const month = parseInt(req.query.month, 10);
@@ -300,7 +445,7 @@ module.exports = function (db, baseDir, appDataPath) {
       const start   = `${year}-${mm}-01`;
       const lastDay = new Date(year, month, 0).getDate();
       const end     = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
-      const rows = getMergedSludgeRows(db, start, end);
+      const rows = await getMergedSludgeRows(db, start, end, appDataPath);
       const items = rows.map(r => ({
         ...r,
         sludge_photo_url      : resolvePhotoUrl(appDataPath, r.date, '반출'),
@@ -314,21 +459,44 @@ module.exports = function (db, baseDir, appDataPath) {
   });
 
   /** GET /api/sludge-photos/flow-amount?date=YYYY-MM-DD */
-  router.get('/api/sludge-photos/flow-amount', (req, res) => {
+  router.get('/api/sludge-photos/flow-amount', async (req, res) => {
     try {
       const { date } = req.query;
       if (!date) return res.status(400).json({ success: false, error: '날짜가 없습니다.' });
-      const row = db.prepare(
-        "SELECT sludge_export FROM flow_readings WHERE date = ? AND type = '슬러지'"
-      ).get(date);
-      res.json({ success: true, amount: row?.sludge_export ?? null });
+      let amount = null;
+      if (db) {
+        try {
+          const row = db.prepare(
+            "SELECT sludge_export FROM flow_readings WHERE date = ? AND type = '슬러지'"
+          ).get(date);
+          amount = row?.sludge_export ?? null;
+        } catch (_) {}
+      }
+      if (amount == null) {
+        const bq = getBigQueryClient();
+        if (bq) {
+          try {
+            const query = `
+              SELECT sludge_export, raw_value
+              FROM \`daily_log_system.flow_readings\`
+              WHERE date = @date AND type = '슬러지'
+              LIMIT 1
+            `;
+            const [bqRows] = await bq.query({ query, params: { date } });
+            if (bqRows && bqRows.length > 0) {
+              amount = bqRows[0].sludge_export ?? bqRows[0].raw_value ?? null;
+            }
+          } catch (_) {}
+        }
+      }
+      res.json({ success: true, amount });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
   /** GET /api/sludge-ledger?year=2026&month=4 */
-  router.get('/api/sludge-ledger', (req, res) => {
+  router.get('/api/sludge-ledger', async (req, res) => {
     try {
       const year = parseInt(req.query.year, 10);
       const month = parseInt(req.query.month, 10);
@@ -340,7 +508,7 @@ module.exports = function (db, baseDir, appDataPath) {
       const start = `${year}-${mm}-01`;
       const lastDay = new Date(year, month, 0).getDate();
       const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
-      const rows = getMergedSludgeRows(db, start, end).map((r) => ({
+      const rows = (await getMergedSludgeRows(db, start, end, appDataPath)).map((r) => ({
         date: r.date,
         sludge_amount: r.sludge_amount,
         sludge_photo_taken_at: r.sludge_photo_taken_at,
@@ -348,8 +516,8 @@ module.exports = function (db, baseDir, appDataPath) {
         last_modified: r.last_modified,
       }));
 
-      const appSettings = db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get();
-      const ledgerSettings = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
+      const appSettings = db ? (function () { try { return db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get(); } catch (_) { return null; } })() : null;
+      const ledgerSettings = getSludgeExportSettings(appDataPath, db);
 
       const totalAmount = rows.reduce((sum, row) => {
         const n = Number(row?.sludge_amount);
@@ -361,9 +529,9 @@ module.exports = function (db, baseDir, appDataPath) {
         year,
         month,
         lastDay,
-        siteName: appSettings?.site_name || '',
-        companyName: ledgerSettings?.company_name || '',
-        defaultAmount: Number(ledgerSettings?.default_amount) || 0,
+        siteName: appSettings?.site_name || '청주휴게소(서울방향)',
+        companyName: ledgerSettings?.company_name || '국민환경',
+        defaultAmount: Number(ledgerSettings?.default_amount) || 20,
         summary: {
           records: rows.length,
           totalAmount,
@@ -572,8 +740,8 @@ module.exports = function (db, baseDir, appDataPath) {
       const start   = `${year}-${mm}-01`;
       const lastDay = new Date(year, month, 0).getDate();
       const end     = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
-      const rows = getMergedSludgeRows(db, start, end);
-      const settings = db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get();
+      const rows = await getMergedSludgeRows(db, start, end, appDataPath);
+      const appSettings = db ? (function () { try { return db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get(); } catch (_) { return null; } })() : null;
 
       const items = rows.map(r => {
         const sl = resolveLocalPathFromUrl(appDataPath, r.sludge_photo_path);
@@ -596,7 +764,7 @@ module.exports = function (db, baseDir, appDataPath) {
       const outputFileName = `슬러지사진대지_${year}_${mm}_${Date.now()}.xlsx`;
       const outputPath = buildExcelTempPath('osoo-sludge-photo', outputFileName);
       await exportSludgePhotoXlsx({
-        templatePath, outputPath, year, month, items, siteName: settings?.site_name || ''
+        templatePath, outputPath, year, month, items, siteName: appSettings?.site_name || '청주휴게소(서울방향)'
       });
       await openExcelFile(outputPath);
       res.json({ success: true });
@@ -630,10 +798,10 @@ module.exports = function (db, baseDir, appDataPath) {
       const start = `${year}-${mm}-01`;
       const lastDay = new Date(year, month, 0).getDate();
       const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
-      const rows = getMergedSludgeRows(db, start, end);
+      const rows = await getMergedSludgeRows(db, start, end, appDataPath);
 
-      const settings = db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get();
-      const ledgerSettings = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
+      const appSettings = db ? (function () { try { return db.prepare('SELECT site_name FROM app_settings WHERE id = 1').get(); } catch (_) { return null; } })() : null;
+      const ledgerSettings = getSludgeExportSettings(appDataPath, db);
       const outputFileName = `슬러지반출관리대장_${year}_${mm}_${Date.now()}.xlsx`;
       const outputPath = buildExcelTempPath('osoo-sludge-ledger', outputFileName);
 
@@ -643,9 +811,9 @@ module.exports = function (db, baseDir, appDataPath) {
         year,
         month,
         items: rows,
-        siteName: settings?.site_name || '',
-        companyName: ledgerSettings?.company_name || '',
-        defaultAmount: Number(ledgerSettings?.default_amount) || 0,
+        siteName: appSettings?.site_name || '청주휴게소(서울방향)',
+        companyName: ledgerSettings?.company_name || '국민환경',
+        defaultAmount: Number(ledgerSettings?.default_amount) || 20,
       });
 
       await openExcelFile(outputPath);
@@ -971,6 +1139,114 @@ async function exportSludgeLedgerXlsx({ templatePath, outputPath, year, month, i
   const ws = wb.worksheets[0];
   if (!ws) throw new Error('슬러지반출관리대장 템플릿 시트를 찾을 수 없습니다.');
 
+  const effectiveCompanyName = companyName || '국민환경';
+  const effectiveDefaultAmount = Number(defaultAmount) || 20;
+  const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+  const mm = String(month).padStart(2, '0');
+
+  // items를 날짜별 Map으로 인덱싱 (YYYY-MM-DD 및 일자 정수)
+  const byDate = new Map();
+  for (const it of (items || [])) {
+    if (!it) continue;
+    const dStr = String(it.date || '');
+    const m = dStr.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    if (m) {
+      const k = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+      byDate.set(k, it);
+      byDate.set(parseInt(m[3], 10), it);
+    } else {
+      byDate.set(dStr, it);
+    }
+  }
+
+  // 1. 헤더 행 및 열 위치 자동 탐색 (순번, 날짜, 업체명, 시간, 중량, 비고)
+  let headerRowNum = null;
+  let colSeq = 1;
+  let colDate = 2;
+  let colCompany = 3;
+  let colTime = 4;
+  let colWeight = 5;
+  let colNote = 6;
+
+  for (let r = 1; r <= 15; r++) {
+    const row = ws.getRow(r);
+    let hasSeq = false;
+    let hasDate = false;
+    let hasWeight = false;
+
+    row.eachCell({ includeEmpty: true }, (c, col) => {
+      const val = String(c.value || '').replace(/\s/g, '');
+      if (val.includes('순번')) { hasSeq = true; colSeq = col; }
+      if (val.includes('날짜') || val.includes('날자')) { hasDate = true; colDate = col; }
+      if (val.includes('업체명') || val.includes('업체')) { colCompany = col; }
+      if (val.includes('시간') || val.includes('시각')) { colTime = col; }
+      if (val.includes('중량') || val.includes('반출량') || val.includes('수량')) { hasWeight = true; colWeight = col; }
+      if (val.includes('비고')) { colNote = col; }
+    });
+
+    if (hasSeq && (hasDate || hasWeight)) {
+      headerRowNum = r;
+      break;
+    }
+  }
+
+  if (!headerRowNum) headerRowNum = 3;
+
+  // 2. 제목 행 및 현장명 행 업데이트 (헤더 이전 행들)
+  for (let r = 1; r < headerRowNum; r++) {
+    const row = ws.getRow(r);
+    row.eachCell({ includeEmpty: true }, (c) => {
+      const val = String(c.value || '');
+      if (val.includes('슬러지반출') || val.includes('관리대장') || val.includes('대장')) {
+        c.value = `${year}년 ${Number(month)}월 슬러지반출 관리대장`;
+      } else if (r === 2 && siteName) {
+        c.value = siteName;
+      }
+    });
+  }
+
+  // 3. 1일부터 31일까지 각 데이터 행 바인딩
+  const dataStartRow = headerRowNum + 1;
+  for (let day = 1; day <= 31; day++) {
+    const rowNum = dataStartRow + day - 1;
+    const row = ws.getRow(rowNum);
+    const dateKey = `${year}-${mm}-${String(day).padStart(2, '0')}`;
+    const item = byDate.get(dateKey) || byDate.get(day);
+
+    if (day <= daysInMonth) {
+      if (colSeq) row.getCell(colSeq).value = day;
+      if (colDate) {
+        row.getCell(colDate).value = new Date(year, month - 1, day);
+      }
+
+      if (item) {
+        if (colCompany) row.getCell(colCompany).value = item.company_name || effectiveCompanyName;
+        if (colTime) {
+          const t = _toHHmm(item) || item.time || '08:30';
+          row.getCell(colTime).value = t;
+        }
+        if (colWeight) {
+          const amt = item.sludge_amount ?? item.sludge_export ?? item.raw_value ?? item.weight;
+          row.getCell(colWeight).value = (amt != null && amt !== '') ? Number(amt) : effectiveDefaultAmount;
+        }
+        if (colNote) row.getCell(colNote).value = item.note || '';
+      } else {
+        if (colCompany) row.getCell(colCompany).value = null;
+        if (colTime) row.getCell(colTime).value = null;
+        if (colWeight) row.getCell(colWeight).value = null;
+        if (colNote) row.getCell(colNote).value = null;
+      }
+    } else {
+      if (colSeq) row.getCell(colSeq).value = null;
+      if (colDate) row.getCell(colDate).value = null;
+      if (colCompany) row.getCell(colCompany).value = null;
+      if (colTime) row.getCell(colTime).value = null;
+      if (colWeight) row.getCell(colWeight).value = null;
+      if (colNote) row.getCell(colNote).value = null;
+    }
+  }
+
+  // 4. Named Range가 존재하는 경우 하위 호환 처리
   const namedMap = parseNamedRanges(wb);
   const seqCells = parseNamedRangeCells(wb, '순번');
   const dateCells = parseNamedRangeCells(wb, '날짜');
@@ -986,11 +1262,7 @@ async function exportSludgeLedgerXlsx({ templatePath, outputPath, year, month, i
     ws.getCell(namedMap['현장명'].address).value = siteName || '';
   }
 
-  const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
-  const mm = String(month).padStart(2, '0');
   const rowCount = Math.max(seqCells.length, dateCells.length, companyCells.length, timeCells.length, weightCells.length, noteCells.length);
-  const byDate = new Map((items || []).map((it) => [String(it.date || ''), it]));
-
   for (let i = 0; i < rowCount; i++) {
     const dateInfo = dateCells[i];
     const seqInfo = seqCells[i];
@@ -1016,10 +1288,10 @@ async function exportSludgeLedgerXlsx({ templatePath, outputPath, year, month, i
     const item = dateKey ? byDate.get(dateKey) : null;
 
     if (companyCells[i]?.sheetName === ws.name) {
-      ws.getCell(companyCells[i].address).value = item ? (companyName || '') : '';
+      ws.getCell(companyCells[i].address).value = item ? (item.company_name || effectiveCompanyName) : '';
     }
     if (timeCells[i]?.sheetName === ws.name) {
-      const t = _toHHmm(item);
+      const t = _toHHmm(item) || item?.time || (item ? '08:30' : '');
       ws.getCell(timeCells[i].address).value = t;
     }
     if (weightCells[i]?.sheetName === ws.name) {
@@ -1028,13 +1300,18 @@ async function exportSludgeLedgerXlsx({ templatePath, outputPath, year, month, i
       } else if (item?.sludge_amount != null && item?.sludge_amount !== '') {
         ws.getCell(weightCells[i].address).value = Number(item.sludge_amount);
       } else {
-        ws.getCell(weightCells[i].address).value = Number(defaultAmount) || 0;
+        ws.getCell(weightCells[i].address).value = effectiveDefaultAmount;
       }
     }
     if (noteCells[i]?.sheetName === ws.name) {
       ws.getCell(noteCells[i].address).value = item?.note || '';
     }
   }
+
+  // 5. 시트 이름 갱신 (예: '슬러지반출관리대장(8월)')
+  try {
+    ws.name = `슬러지반출관리대장(${Number(month)}월)`;
+  } catch (_) {}
 
   await wb.xlsx.writeFile(outputPath);
 }

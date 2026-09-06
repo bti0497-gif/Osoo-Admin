@@ -33,7 +33,11 @@ const {
   seedSiteSettlementVendors,
   upsertSiteSettlementVendors,
 } = require('../services/siteSettlementVendorsSheetsService.cjs');
-const { generateCheongjuHwpReport } = require('../services/hwpSettlementService.cjs');
+const {
+  generateCheongjuHwpReport,
+  prewarmHwpEngine,
+  isSettlementSeason,
+} = require('../services/hwpSettlementService.cjs');
 const { generateJukamBusanExcelReport } = require('../services/jukamSettlementService.cjs');
 const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
 
@@ -97,6 +101,27 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       success: true,
       sites: SETTLEMENT_TARGET_SITES,
     });
+  });
+
+  /**
+   * POST /api/settlement/prewarm-hwp
+   * HWP COM 엔진 사전 웜업 (말일~익월2일 정산 시즌 또는 정산 메뉴 진입 시 호출)
+   */
+  router.post('/prewarm-hwp', async (req, res) => {
+    try {
+      const force = Boolean(req.body?.force);
+      const isSeason = isSettlementSeason();
+      // 백그라운드 비동기로 웜업 수행 (클라이언트는 즉시 응답 받음)
+      prewarmHwpEngine(force).catch(err => console.warn('[settlementRoutes] Pre-warm background warning:', err.message));
+      res.json({
+        success: true,
+        message: 'HWP COM 엔진 사전 웜업 요청이 접수되었습니다.',
+        isSettlementSeason: isSeason,
+      });
+    } catch (err) {
+      console.warn('[settlementRoutes] HWP 사전 웜업 오류:', err.message);
+      res.json({ success: false, error: err.message });
+    }
   });
 
   /**

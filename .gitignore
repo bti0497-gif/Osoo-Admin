@@ -53,3 +53,4 @@ server/config/firebase-service-account.json
 # Settlement templates & scratch
 server/templates/
 scratch/
+*.traineddata

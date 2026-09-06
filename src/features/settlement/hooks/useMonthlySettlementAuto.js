@@ -233,6 +233,9 @@ export function useMonthlySettlementAuto() {
     fetchSites();
     fetchTemplates();
     fetchSummary(year, month, 'all');
+
+    // 한글 COM 사전 웜업 (Pre-warm): 정산 화면 진입 시 백그라운드에서 한글 엔진 예열
+    fetch(`${getApiBase()}/api/settlement/prewarm-hwp`, { method: 'POST' }).catch(() => {});
   }, [fetchSites, fetchTemplates, fetchSummary, year, month]);
 
   return {

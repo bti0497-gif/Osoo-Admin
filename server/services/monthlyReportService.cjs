@@ -174,11 +174,15 @@ async function getMonthlyReportUsageSummary(year, month, siteId) {
   const buildQuery = (table, nameColumn) => `
     SELECT
       ${nameColumn} AS name,
+      COALESCE(SUM(IF(date >= @monthStart AND date < @monthEnd, purchase_amount, 0)), 0) AS monthlyPurchase,
+      ARRAY_AGG(IF(date < @monthStart AND current_inventory IS NOT NULL,
+        STRUCT(date, current_inventory), NULL) IGNORE NULLS ORDER BY date DESC LIMIT 1)[SAFE_OFFSET(0)].current_inventory AS prevInventory,
+      ARRAY_AGG(IF(current_inventory IS NOT NULL,
+        STRUCT(date, current_inventory), NULL) IGNORE NULLS ORDER BY date DESC LIMIT 1)[SAFE_OFFSET(0)].current_inventory AS endInventory,
       COALESCE(SUM(IF(date >= @monthStart AND date < @monthEnd, usage_amount, 0)), 0) AS monthlyUsage,
       COALESCE(SUM(IF(date >= @yearStart AND date < @monthEnd, usage_amount, 0)), 0) AS yearUsage
     FROM \`${DATASET_ID}.${table}\`
     WHERE site_id = @siteId
-      AND date >= @yearStart
       AND date < @monthEnd
     GROUP BY ${nameColumn}
   `;
@@ -191,6 +195,9 @@ async function getMonthlyReportUsageSummary(year, month, siteId) {
   const toMap = (rows) => Object.fromEntries(rows.map((row) => [String(row.name), {
     monthlyUsage: Number(row.monthlyUsage) || 0,
     yearUsage: Number(row.yearUsage) || 0,
+    monthlyPurchase: Number(row.monthlyPurchase) || 0,
+    prevInventory: row.prevInventory == null ? null : Number(row.prevInventory),
+    endInventory: row.endInventory == null ? null : Number(row.endInventory),
   }]));
 
   return { medicines: toMap(medicineRows), kits: toMap(kitRows) };

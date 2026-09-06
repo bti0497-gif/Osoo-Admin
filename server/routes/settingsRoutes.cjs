@@ -1354,8 +1354,24 @@ module.exports = function (db, baseDir, appDataPath) {
   // ── 슬러지 반출관리대장 기본설정 조회/저장 ──
   router.get('/api/settings/sludge-export-settings', (req, res) => {
     try {
-      const row = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
-      res.json({ success: true, settings: row || { company_name: '', default_amount: 0 } });
+      let row = null;
+      if (db) {
+        try { row = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get(); } catch (_) {}
+      }
+      if (!row || !row.company_name) {
+        try {
+          const sPath = path.join(appDataPath, 'settings', 'sludge_export_settings.json');
+          if (fs.existsSync(sPath)) {
+            const raw = fs.readFileSync(sPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            row = {
+              company_name: parsed.company_name || parsed.companyName || '국민환경',
+              default_amount: Number(parsed.default_amount ?? parsed.defaultAmount) || 20,
+            };
+          }
+        } catch (_) {}
+      }
+      res.json({ success: true, settings: row || { company_name: '국민환경', default_amount: 20 } });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
@@ -1364,17 +1380,36 @@ module.exports = function (db, baseDir, appDataPath) {
   router.post('/api/settings/sludge-export-settings', (req, res) => {
     const { companyName, defaultAmount } = req.body || {};
     try {
-      db.prepare(`
-        INSERT INTO sludge_export_settings (id, company_name, default_amount, updated_at)
-        VALUES (1, ?, ?, datetime('now', 'localtime'))
-        ON CONFLICT(id) DO UPDATE SET
-          company_name = excluded.company_name,
-          default_amount = excluded.default_amount,
-          updated_at = excluded.updated_at
-      `).run(String(companyName || ''), Number(defaultAmount) || 0);
+      if (db) {
+        try {
+          db.prepare(`
+            INSERT INTO sludge_export_settings (id, company_name, default_amount, updated_at)
+            VALUES (1, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(id) DO UPDATE SET
+              company_name = excluded.company_name,
+              default_amount = excluded.default_amount,
+              updated_at = excluded.updated_at
+          `).run(String(companyName || ''), Number(defaultAmount) || 0);
+        } catch (_) {}
+      }
+      try {
+        const sDir = path.join(appDataPath, 'settings');
+        if (!fs.existsSync(sDir)) fs.mkdirSync(sDir, { recursive: true });
+        const sPath = path.join(sDir, 'sludge_export_settings.json');
+        fs.writeFileSync(sPath, JSON.stringify({
+          company_name: String(companyName || '국민환경'),
+          default_amount: Number(defaultAmount) || 20,
+          updated_at: new Date().toISOString(),
+        }, null, 2), 'utf8');
+      } catch (_) {}
 
-      const row = db.prepare('SELECT company_name, default_amount FROM sludge_export_settings WHERE id = 1').get();
-      res.json({ success: true, settings: row });
+      res.json({
+        success: true,
+        settings: {
+          company_name: String(companyName || '국민환경'),
+          default_amount: Number(defaultAmount) || 20,
+        }
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: e.message });
     }
