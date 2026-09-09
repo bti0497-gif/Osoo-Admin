@@ -104,7 +104,7 @@ async function getMonthlyReportData(year, month, siteId) {
     ORDER BY date, type
   `;
 
-  // ── 2. 일별 약품 사용량 ──
+  // ── 2. 일별 약품 사용량 (동일 일자 수정 시 최신 uploaded_at 기준 1건만 선택) ──
   const medicineQuery = `
     SELECT
       date,
@@ -112,11 +112,21 @@ async function getMonthlyReportData(year, month, siteId) {
       usage_amount,
       purchase_amount,
       current_inventory
-    FROM \`${DATASET_ID}.medicine_logs\`
-    WHERE site_id = @siteId
-      AND date >= @startDate
-      AND date < @endDate
-      AND medicine_name IN ('포도당', '중탄산나트륨', '팩(PAC)')
+    FROM (
+      SELECT
+        date,
+        medicine_name,
+        usage_amount,
+        purchase_amount,
+        current_inventory,
+        ROW_NUMBER() OVER (PARTITION BY date, medicine_name ORDER BY uploaded_at DESC) AS rn
+      FROM \`${DATASET_ID}.medicine_logs\`
+      WHERE site_id = @siteId
+        AND date >= @startDate
+        AND date < @endDate
+        AND medicine_name IN ('포도당', '중탄산나트륨', '팩(PAC)')
+    )
+    WHERE rn = 1
     ORDER BY date, medicine_name
   `;
 

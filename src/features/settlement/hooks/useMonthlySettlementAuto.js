@@ -95,6 +95,24 @@ export function useMonthlySettlementAuto() {
     document.body.removeChild(a);
   }, []);
 
+  // 템플릿 파일 직접 열기 (OS 기본 프로그램으로 실행)
+  const openTemplate = useCallback(async (filename) => {
+    if (!filename) return;
+    try {
+      const res = await fetch(`${getApiBase()}/api/settlement/templates/${encodeURIComponent(filename)}/open`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '양식 파일을 여는 데 실패했습니다.');
+      }
+      showToast(`📂 [${filename}] 양식을 프로그램으로 열었습니다.`);
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 양식 열기 오류:', err);
+      showToast(`⚠️ 양식 열기 실패: ${err.message}`);
+    }
+  }, [showToast]);
+
   // 템플릿 파일 업로드/교체
   const uploadTemplate = useCallback(async (siteId, file, isSub = false) => {
     if (!file) return;
@@ -217,6 +235,126 @@ export function useMonthlySettlementAuto() {
     }
   }, [year, month, showToast]);
 
+  // 죽암휴게소(서울방향) 엑셀 정산서 자동 생성
+  const generateJukamSeoulReport = useCallback(async ({ targetYear = year, targetMonth = month } = {}) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [죽암휴게소(서울방향)] ${targetYear}년 ${targetMonth}월 엑셀 정산서 자동 생성을 시작합니다...`);
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/jukam-seoul`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '죽암(서울방향) 정산서 엑셀 생성 실패');
+      }
+
+      showToast(`🎉 [${data.fileName}] 죽암(서울방향) 엑셀 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 죽암(서울) 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
+  // 천안휴게소(부산방향) 엑셀 정산서 자동 생성
+  const generateCheonanBusanReport = useCallback(async ({ targetYear = year, targetMonth = month } = {}) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [천안휴게소(부산방향)] ${targetYear}년 ${targetMonth}월 엑셀 정산서 자동 생성을 시작합니다...`);
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/cheonan-busan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '천안(부산방향) 정산서 엑셀 생성 실패');
+      }
+
+      showToast(`🎉 [${data.fileName}] 천안(부산방향) 엑셀 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 천안(부산) 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
+  // 홍천휴게소(양양방향) 엑셀 정산서 자동 생성
+  const generateHongcheonExcelReport = useCallback(async (targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [홍천휴게소(양양방향)] ${targetYear}년 ${targetMonth}월 엑셀 정산서 자동 생성을 시작합니다...`);
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/hongcheon-excel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '홍천(양양방향) 정산서 엑셀 생성 실패');
+      }
+
+      showToast(`🎉 [${data.fileName}] 홍천(양양방향) 엑셀 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 홍천(양양) 엑셀 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
+  // 홍천휴게소(양양방향) 한글(HWP) 정산서 자동 생성
+  const generateHongcheonHwpReport = useCallback(async (customInputs = {}, targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [홍천휴게소(양양방향)] ${targetYear}년 ${targetMonth}월 한글 정산서 자동 생성을 시작합니다...`);
+
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/hongcheon-hwp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: targetYear,
+          month: targetMonth,
+          customInputs,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '홍천(양양방향) 한글 정산서 생성 실패');
+      }
+
+      showToast(`🎉 [${data.fileName}] 홍천(양양방향) 한글 정산보고서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 홍천(양양) 한글 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
   // 데이터관리 다운로드 사전 검사
   const checkDataReady = useCallback(async (siteId, targetYear = year, targetMonth = month) => {
     try {
@@ -254,11 +392,16 @@ export function useMonthlySettlementAuto() {
     isGenerating,
     fetchSummary,
     fetchTemplates,
+    openTemplate,
     downloadTemplate,
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
     generateJukamBusanReport,
+    generateJukamSeoulReport,
+    generateCheonanBusanReport,
+    generateHongcheonExcelReport,
+    generateHongcheonHwpReport,
     checkDataReady,
   };
 }

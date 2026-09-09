@@ -52,7 +52,85 @@
 * **AppData 경로 사용 보장**: 일렉트론 설치판/패키징 앱 실행 시 임시 파일, 런타임 설정, 서버 작업 폴더 생성 등 로컬 파일 쓰기가 필요한 모든 로직은 반드시 쓰기 권한이 보장되는 `appData` (예: `app.getPath('userData')` 또는 `%APPDATA%` 하위 경로)를 사용해야 합니다.
 * **설치 경로 쓰기 금지**: `Program Files` 등 OS 수준의 쓰기 권한이 제한된 디렉토리에 작업 폴더나 설정 파일 생성을 시도하여 서버 실행 실패나 권한 오류가 발생하지 않도록 경로 설정을 절대로 변경하거나 제거하지 마십시오.
 
-## 9. 회원 및 현장 관리 목록 조회 데이터 보존 규칙
-* **전체 목록 전달 보장**: 회원 관리 View Model([useMemberViewModel.js](file:///e:/Wastewater%20Treatment%20Plant%20Admin/src/features/members/useMemberViewModel.js)) 및 현장 관리 데이터 전달 시, 구글 시트/DB 원본 목록 데이터를 10개 단위 등의 임의 슬라이스(`slice`)나 페이지네이션으로 자르지 말고 전체 목록(`filteredMembers`) 그대로 반환해야 합니다.
-* **스크롤형 그리드 UI 보존**: 회원/현장 관리 패널은 별도의 페이지 이동 컨트롤이 없는 스크롤형 `AdvancedDataGrid`를 사용하므로, ViewModel 단에서 데이터 개수를 제한하여 회원/현장 일부가 숨겨지거나 누락되는 일이 없도록 보호하십시오.
+## 10. 월별 정산 보고서 자동 생성 엔진 보호 및 현장별 확정 규칙
+정산 보고서 자동 생성 로직은 각 휴게소(현장)마다 양식, 시트 구조, 이미지 배치 규격이 모두 상이하므로, 정상 검증이 완료된 현장별 로직을 임의로 단순화하거나 변경해서는 안 됩니다.
+
+### A. 공통 자동화 엔진 원칙
+* **Excel COM 및 HWP COM 안정성**:
+  * 화면 갱신 억제(`ScreenUpdating = $false`, `LockCommand`) 및 경고창 억제(`DisplayAlerts = $false`)를 필수로 적용하여 백그라운드 팝업 대기 프리징을 차단합니다.
+  * 빈 셀 처리 시 `$null` 대입을 금지하고 반드시 `""` (빈 문자열)을 사용하며, 셀 값 대입 시에는 `.Value2`를 사용합니다.
+  * 병합 셀(`MergeArea`) 내 이미지 정렬 시 단일 셀 크기가 아닌 `$rng.MergeArea`의 `Width`, `Height`, `Left`, `Top`을 기준으로 계산하며, PowerShell 연산 시 `[double]` 명시적 캐스팅을 필수 적용합니다.
+  * 생성 완료 시 `월정산 > {현장마감자료} > YYYYMM` 폴더뿐만 아니라 사용자가 즉각 확인할 수 있도록 **바탕화면(`Desktop`) 바로 위**에도 자동 복사합니다.
+
+### B. 청주휴게소(서울방향) - HWP + XLSM
+* **서비스 파일**: `server/services/hwpSettlementService.cjs`
+* **템플릿**: `template_cheongju_report.hwp`, `template_cheongju_daily_log.xlsm`
+* HWP 15페이지 전수 누락 필드 매핑 및 전자세금계산서/명세서 고속 ROI 크롭 바인딩을 보존합니다.
+* 한글 백그라운드 사전 웜업(Pre-warm) 및 화면 갱신 락(LockCommand) 구조를 항상 유지합니다.
+
+### C. 천안휴게소(부산방향) - XLSX (OpenXML)
+* **서비스 파일**: `server/services/cheonanSettlementService.cjs`
+* **템플릿**: `template_cheonan_busan.xlsx` (JSZip 기반 고속 XML 조작)
+* **3개 시트**: `변경양식(최종)`, `${month}월(증빙현황)`, `슬러지반출관리대장(${month}월)`
+* 약품, 슬러지, 용역비 전자세금계산서 이미지 자동 바인딩 및 사진 파일명/EXIF 기반 슬러지 촬영 시각 자동 파싱 로직을 보존합니다.
+
+### D. 죽암휴게소(부산방향) - XLS (Excel COM)
+* **서비스 파일**: `server/services/jukamSettlementService.cjs` (`generateJukamBusanExcelReport`)
+* **템플릿**: `template_jukam_busan.xls`
+* **4개 시트**: `위탁계약 방식`, `증빙`, `월간운영일지`, `슬러지반출대장`
+* **증빙 시트 배치 규격**:
+  * 매출계산서: 4.86cm × 7.6cm (셀 중앙)
+  * 성적서 4장: 각 4.17cm × 2.89cm (2×2 그리드 정중앙 배치)
+  * 수질계산서 & 입금표, 키트계산서 & 입금표, 약품계산서 & 입금표
+  * 약품 3단 세로 합성 사진: 7.8cm × 5.89cm
+  * 슬러지 필증 2장 & 반출사진 2장 및 날짜 라벨
+* **운영일지**: BigQuery `daily_log_system` 31일치 유입, 방류, 슬러지, 약품 사용량 전수 바인딩.
+
+### E. 죽암휴게소(서울방향) - XLS (Excel COM)
+* **서비스 파일**: `server/services/jukamSettlementService.cjs` (`generateJukamSeoulExcelReport`)
+* **템플릿**: `template_jukam_seoul.xls`
+* **3개 시트 탭 이름 동적 월 반영**:
+  1. `${month}월 죽암오수처리 정산` (A1: `[${month}월] 휴게소 오수처리비 정산 내역`)
+  2. `${month}월증빙자료` (J2: `2026년 휴게소 오수처리시설 운영일지(${month}월) 죽암(서울)`)
+  3. `슬러지반출관리대장(${month}월)` (A1: `${year}년 ${month}월 슬러지반출 관리대장`)
+* **증빙자료 시트 31개 정의된 이름 및 정밀 배치 규격**:
+  * 성적서 4장: `성적서12` 셀에 1,2번 좌우 나란히 / `성적서34` 셀에 3,4번 좌우 나란히 (각 4.83cm × 6.6cm, gap 8pt)
+  * 수질실험사진 4장: 2×2 그리드 단일 합성 이미지 (12.61cm × 10.88cm 정중앙)
+  * 약품입고사진 3장: 3단 세로 단일 합성 이미지 (9.37cm × 11.75cm 정중앙)
+  * 계산서 4종 (매출, 수질, 키트, 약품): 각 16.58cm × 8.87cm 정중앙
+  * 입금표 3종 (수질, 키트, 약품): 각 16.52cm × 5.09cm 정중앙
+  * 슬러지 청소필증 (4.28cm × 9.83cm) & 반출사진 (8.02cm × 5.66cm) 정중앙
+
+### F. 홍천휴게소(양양방향) - XLSX (Excel COM)
+* **서비스 파일**: `server/services/hongcheonSettlementService.cjs` (`generateHongcheonExcelReport`)
+* **템플릿**: `template_hongcheon_yangyang_excel.xlsx` (또는 `template_hongcheon_yangyang.xlsx`)
+* **13개 시트 구조**:
+  * 12개 월별 시트: `2026년도 01월` ~ `2026년도 12월`
+  * 1개 연간 총괄 시트: `2026년 총괄(홍천 양양)`
+* **총괄 시트 누적 복사 규칙**:
+  * 기본 빈 양식에는 1월 항목인 `월금액1`($C$8:$H$9)만 입력되어 있으므로,
+  * `월금액1`의 수식/서식을 `월금액2`부터 해당월(`월금액m`)까지 순서대로 누적 복사(`Range.Copy`)하여 지난달 집계까지 완벽 반영.
+* **13개 시트 표시/숨김 제어 규칙**:
+  * 해당월 시트(예: `2026년도 08월`)만 `Visible = -1` (xlSheetVisible)로 표시하고 기본 활성 탭으로 선택.
+  * 나머지 11개 월별 시트는 `Visible = 0` (xlSheetHidden)으로 숨김 처리.
+  * `2026년 총괄(홍천 양양)` 시트는 항상 표시(`Visible = -1`).
+* **저장 위치 보존**:
+  * `월정산 > 홍천마감자료 > YYYYMM` 폴더 및 **바탕화면(`Desktop`) 바로 위** 동시 복사 보존.
+
+### G. 홍천휴게소(양양방향) - HWP
+* **서비스 파일**: `server/services/hongcheonHwpService.cjs`
+* **모달 UI 컴포넌트**: `src/features/settlement/components/HongcheonHwpModal.jsx`
+* **템플릿**: `template_hongcheon_yangyang.hwp`
+* **Working Copy 패턴 준수**: 원본 템플릿 파일 락 방지를 위해 `os.tmpdir()`에 임시 작업 복사본을 생성 후 `$hwp.Open($workingDoc, 'HWP', 'lock:false')`로 열기 및 저장.
+* **증빙 이미지 책갈피 및 정밀 크기 규격**:
+  * 계산서: `162 mm × 100 mm` (책갈피 `계산서`)
+  * 청소필증: `135 mm × 100 mm` (책갈피 `청소필증`, 폴백 `필증`)
+  * 반출사진: `135 mm × 100 mm` (책갈피 `반출사진`)
+  * 성적서 4장: 각 `54 mm × 64 mm` (책갈피 `성적서1`, `성적서2`, `성적서3`, `성적서4`)
+  * 수리수선비계산서 2장: 각 `135 mm × 100 mm` (책갈피 `수리수선비계산서1`, `수리수선비계산서2`, 선택 사항/자리 보존)
+* **모달 선행 등록 UX 보존**:
+  * 청소필증과 반출사진이 모두 등록/존재해야 `[홍천 한글 정산보고서 자동 작성하기]` 버튼이 활성화됨.
+  * 계산서/성적서 미등록 시 경고 메시지 표시.
+* **저장 위치 보존**:
+  * `월정산 > 홍천마감자료 > YYYYMM` 폴더 및 **바탕화면(`Desktop`) 바로 위** 동시 복사 보존.
 

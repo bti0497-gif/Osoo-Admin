@@ -112,7 +112,7 @@ const DEFAULT_SITES = [
     sheets: ['정산보고서.hwp', '운영일지.xlsm', '약품관리대장.hwp'],
   },
   {
-    id: 'hongcheon_yangyang',
+    id: 'hongcheon_yangyang_excel',
     name: '홍천휴게소(양양방향)',
     shortName: '홍천(양양)',
     type: 'excel',
@@ -120,6 +120,16 @@ const DEFAULT_SITES = [
     template: 'template_hongcheon_yangyang.xlsx',
     description: '오수정화조 임대료 정산보고서(월별 1~12월 탭 + 연정산 총괄표)',
     sheets: ['2026년도 01월~12월', '2026년 총괄(홍천 양양)'],
+  },
+  {
+    id: 'hongcheon_yangyang_hwp',
+    name: '홍천휴게소(양양방향)',
+    shortName: '홍천(양양)',
+    type: 'hwp',
+    format: 'hwp',
+    template: 'template_hongcheon_yangyang.hwp',
+    description: '오수정화조 임대료 정산보고서(한글 HWP 양식)',
+    sheets: ['정산보고서.hwp'],
   },
 ];
 

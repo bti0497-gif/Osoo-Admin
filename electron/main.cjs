@@ -144,15 +144,38 @@ function createWindow() {
     autoHideMenuBar: true,
   });
 
+  mainWindow.center();
+  mainWindow.restore();
   mainWindow.show();
+  mainWindow.focus();
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.center();
+    mainWindow.restore();
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(false);
+  });
 
   const distIndex = path.join(__dirname, '..', 'dist', 'index.html');
   const forceDevServer = process.env.ELECTRON_FORCE_DEV_SERVER === '1';
   const useDevServer = isDev && (forceDevServer || !fs.existsSync(distIndex));
 
   if (useDevServer) {
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.log(`[Electron] dev server load failed (${errorCode}: ${errorDescription}), retrying in 1.5s...`);
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL('http://localhost:26240');
+        }
+      }, 1500);
+    });
+
+    console.log('[Electron] Loading dev server: http://localhost:26240');
     mainWindow.loadURL('http://localhost:26240');
   } else {
+    console.log(`[Electron] Loading built file: ${distIndex}`);
     mainWindow.loadFile(distIndex);
   }
 

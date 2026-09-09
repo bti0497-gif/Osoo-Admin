@@ -156,9 +156,19 @@ function bindChildExit(childProcess, label) {
 }
 
 async function waitForServers() {
-    // 서버들이 준비될 시간을 줌 (3초)
-    console.log('[run-all] Waiting 3 seconds for servers to be ready...');
-    await new Promise(r => setTimeout(r, 3000));
+    console.log('[run-all] Waiting for Vite dev server (http://localhost:26240)...');
+    const startTime = Date.now();
+    while (Date.now() - startTime < 12000) {
+        try {
+            const res = await fetch('http://localhost:26240');
+            if (res.ok || res.status < 500) {
+                console.log('[run-all] Vite dev server is ready!');
+                return;
+            }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 400));
+    }
+    console.log('[run-all] Timeout waiting for Vite server, proceeding anyway...');
 }
 
 async function startAll() {
@@ -178,7 +188,7 @@ async function startAll() {
     await waitForServers();
     console.log('[run-all] Starting Electron...');
     const electronCmd = process.platform === 'win32'
-        ? path.join(__dirname, 'node_modules', 'electron', 'dist', 'electron.exe')
+        ? path.join('node_modules', '.bin', 'electron.cmd')
         : './node_modules/.bin/electron';
     const electronArgs = ['.'];
 
@@ -190,7 +200,7 @@ async function startAll() {
 
     electron = spawnCommand(electronCmd, electronArgs, {
         env: electronEnv,
-        shell: false,
+        shell: true,
     });
     bindChildExit(electron, 'electron');
 

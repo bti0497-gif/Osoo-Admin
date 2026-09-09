@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { useMonthlySettlementAuto } from './hooks/useMonthlySettlementAuto';
 import { CheongjuStatementUploadModal } from './components/CheongjuStatementUploadModal';
+import { HongcheonHwpModal } from './components/HongcheonHwpModal';
 
 export function MonthlySettlementAutoView() {
   const {
@@ -19,11 +20,16 @@ export function MonthlySettlementAutoView() {
     isGenerating,
     fetchSummary,
     fetchTemplates,
+    openTemplate,
     downloadTemplate,
     uploadTemplate,
     deleteTemplate,
     generateCheongjuReport,
     generateJukamBusanReport,
+    generateJukamSeoulReport,
+    generateCheonanBusanReport,
+    generateHongcheonExcelReport,
+    generateHongcheonHwpReport,
     checkDataReady,
   } = useMonthlySettlementAuto();
 
@@ -32,6 +38,7 @@ export function MonthlySettlementAutoView() {
   const [targetUploadSite, setTargetUploadSite] = useState(null); // { siteId, isSub }
   const [dragOverSiteId, setDragOverSiteId] = useState(null);
   const [isCheongjuModalOpen, setIsCheongjuModalOpen] = useState(false);
+  const [isHongcheonModalOpen, setIsHongcheonModalOpen] = useState(false);
 
   const handleOpenFileDialog = (siteId, isSub = false) => {
     setTargetUploadSite({ siteId, isSub });
@@ -70,6 +77,31 @@ export function MonthlySettlementAutoView() {
     setDragOverSiteId(null);
   };
 
+  // 현장명이 동일한 연속 행의 경우 현장구분 칼럼 셀 병합(rowSpan) 계산
+  const templateRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < templates.length; i++) {
+      const cur = templates[i];
+      const prev = templates[i - 1];
+      const isSameAsPrev = prev && prev.name === cur.name;
+
+      if (isSameAsPrev) {
+        rows.push({ ...cur, rowSpan: 0 });
+      } else {
+        let span = 1;
+        for (let j = i + 1; j < templates.length; j++) {
+          if (templates[j].name === cur.name) {
+            span++;
+          } else {
+            break;
+          }
+        }
+        rows.push({ ...cur, rowSpan: span });
+      }
+    }
+    return rows;
+  }, [templates]);
+
   return (
     <div style={{ padding: '24px', fontFamily: 'system-ui, sans-serif', height: '100%', display: 'flex', flexDirection: 'column', gap: '16px', background: '#f8fafc', overflowY: 'auto' }}>
       
@@ -107,15 +139,25 @@ export function MonthlySettlementAutoView() {
           </p>
         </div>
 
-        {/* 탭 버튼 */}
-        <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
+        {/* 탭 버튼 세그먼트 컨트롤 */}
+        <div style={{
+          display: 'inline-flex',
+          background: '#e2e8f0',
+          padding: '4px',
+          borderRadius: '10px',
+          gap: '4px',
+          border: '1px solid #cbd5e1',
+          boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.06)'
+        }}>
           <button
+            type="button"
             onClick={() => setActiveTab('template_manager')}
             style={tabButtonStyle(activeTab === 'template_manager')}
           >
             📁 현장별 기본 빈 양식 관리
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('auto_generate')}
             style={tabButtonStyle(activeTab === 'auto_generate')}
           >
@@ -137,19 +179,11 @@ export function MonthlySettlementAutoView() {
       {activeTab === 'template_manager' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          {/* 안내 배너 */}
-          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '14px 18px', color: '#1e40af', fontSize: '13px', lineHeight: 1.6 }}>
-            💡 <strong>현장별 기본 빈 양식 관리 안내:</strong>
-            <br />• 각 현장의 당해년도 기본 관리비(인건비, 기준 표준처리비 등)는 1월에 한 번 정해지면 12월까지 변하지 않는 고정값입니다.
-            <br />• 새 양식 파일(엑셀 <code>.xlsx/.xls/.xlsm</code> 또는 한글 <code>.hwp/.hwpx</code>)을 <strong>[🔄 새 파일로 교체]</strong> 버튼 또는 <strong>드래그 앤 드롭</strong>으로 끌어다 넣으면 기존 양식이 안전하게 교체됩니다.
-            <br />• 시스템은 등록된 양식의 고정 서식/수식을 완벽히 보존하며, <strong>매월 수집된 동적 데이터(일일점검 수치, 키트/공인 수질, 슬러지 반출량, 증빙)</strong>만 자동 주입합니다.
-          </div>
-
           {/* 템플릿 목록 테이블 */}
           <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
-                📁 5대 현장별 기본 빈 양식 등록 목록
+                📁 현장별 기본 빈 양식 등록 목록
               </h3>
               <button
                 onClick={fetchTemplates}
@@ -159,21 +193,18 @@ export function MonthlySettlementAutoView() {
               </button>
             </div>
 
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', color: '#475569', fontWeight: 700, borderBottom: '1px solid #cbd5e1' }}>
-                    <th style={thStyle}>현장 구분</th>
-                    <th style={thStyle}>포맷</th>
+                    <th style={{ ...thStyle, width: '220px', minWidth: '200px' }}>현장 구분</th>
+                    <th style={{ ...thStyle, width: '80px', textAlign: 'center' }}>포맷</th>
                     <th style={thStyle}>현재 등록된 빈 양식 파일</th>
-                    <th style={thStyle}>서식 및 시트 구성 설명</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>파일 크기</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>수정일시</th>
-                    <th style={{ ...thStyle, textAlign: 'center', minWidth: '220px' }}>양식 관리 작업</th>
+                    <th style={{ ...thStyle, textAlign: 'center', width: '220px' }}>양식 관리 작업</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {templates.map((tpl, idx) => {
+                  {templateRows.map((tpl, idx) => {
                     const isUploading = uploadingSiteId === tpl.id;
                     const isDragOver = dragOverSiteId === tpl.id;
 
@@ -184,21 +215,31 @@ export function MonthlySettlementAutoView() {
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, tpl.id, false)}
                         style={{
-                          borderBottom: '1px solid #f1f5f9',
                           background: isDragOver ? '#e0f2fe' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
                           transition: 'background 0.15s ease',
                         }}
                       >
-                        {/* 현장명 */}
-                        <td style={{ ...tdStyle, fontWeight: 700, color: '#0f172a' }}>
-                          <div>{tpl.name}</div>
-                          <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 500 }}>({tpl.shortName})</span>
-                        </td>
+                        {/* 현장명 (동일 현장 연속 시 rowSpan으로 셀 병합) */}
+                        {tpl.rowSpan > 0 && (
+                          <td
+                            rowSpan={tpl.rowSpan}
+                            style={{
+                              ...tdStyle,
+                              fontWeight: 700,
+                              color: '#0f172a',
+                              whiteSpace: 'nowrap',
+                              background: '#ffffff',
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            {tpl.name}
+                          </td>
+                        )}
 
                         {/* 포맷 태그 */}
-                        <td style={tdStyle}>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <span style={{
-                            padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                            padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
                             background: tpl.type === 'hwp_excel' ? '#fee2e2' : '#e0f2fe',
                             color: tpl.type === 'hwp_excel' ? '#b91c1c' : '#0369a1',
                           }}>
@@ -211,42 +252,16 @@ export function MonthlySettlementAutoView() {
                           {tpl.exists ? (
                             <div>
                               <span
-                                onClick={() => downloadTemplate(tpl.template)}
+                                onClick={() => openTemplate(tpl.template)}
                                 style={{ color: '#2563eb', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                                title="클릭하여 파일 다운로드"
+                                title="클릭하여 양식 파일 열기"
                               >
                                 📄 {tpl.template}
                               </span>
-                              {tpl.subTemplate && (
-                                <div style={{ marginTop: '4px' }}>
-                                  <span
-                                    onClick={() => downloadTemplate(tpl.subTemplate)}
-                                    style={{ color: '#059669', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
-                                    title="클릭하여 운영일지 엑셀 다운로드"
-                                  >
-                                    📊 {tpl.subTemplate}
-                                  </span>
-                                </div>
-                              )}
                             </div>
                           ) : (
                             <span style={{ color: '#dc2626', fontWeight: 600 }}>⚠️ 미등록 (파일을 추가하세요)</span>
                           )}
-                        </td>
-
-                        {/* 설명 */}
-                        <td style={{ ...tdStyle, color: '#64748b', fontSize: '12px' }}>
-                          {tpl.description}
-                        </td>
-
-                        {/* 파일 크기 */}
-                        <td style={{ ...tdStyle, textAlign: 'right', color: '#64748b', fontFamily: 'monospace' }}>
-                          {tpl.exists ? `${(tpl.fileSize / 1024).toFixed(1)} KB` : '-'}
-                        </td>
-
-                        {/* 최종 수정일시 */}
-                        <td style={{ ...tdStyle, textAlign: 'center', color: '#64748b', fontSize: '11px' }}>
-                          {tpl.updatedAt ? new Date(tpl.updatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
                         </td>
 
                         {/* 작업 버튼들 */}
@@ -256,59 +271,26 @@ export function MonthlySettlementAutoView() {
                               ⏳ 파일 교체 업로드 중...
                             </span>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
-                              {/* 기본 양식 작업 버튼 그룹 */}
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                {tpl.exists && (
-                                  <button
-                                    onClick={() => downloadTemplate(tpl.template)}
-                                    style={actionBtnStyle('#0284c7')}
-                                    title="현재 등록된 기본 양식 파일을 다운로드합니다"
-                                  >
-                                    ⬇️ 다운로드
-                                  </button>
-                                )}
-
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                              {tpl.exists && (
                                 <button
-                                  onClick={() => handleOpenFileDialog(tpl.id, false)}
-                                  style={actionBtnStyle('#4f46e5')}
-                                  title="새 기본 양식 파일(한글/엑셀)을 선택하여 교체합니다"
+                                  type="button"
+                                  onClick={() => openTemplate(tpl.template)}
+                                  style={actionBtnStyle('#0284c7')}
+                                  title="양식 파일(엑셀/한글)을 직접 열어 확인 및 손봅니다"
                                 >
-                                  🔄 새 양식으로 교체
+                                  📂 양식 열기
                                 </button>
-
-                                {tpl.exists && (
-                                  <button
-                                    onClick={() => deleteTemplate(tpl.id, false)}
-                                    style={actionBtnStyle('#dc2626')}
-                                    title="현재 기본 양식 파일을 삭제합니다"
-                                  >
-                                    🗑️ 삭제
-                                  </button>
-                                )}
-                              </div>
-
-                              {/* 보조 양식(subTemplate)이 있는 경우 전용 교체/다운로드 버튼 그룹 */}
-                              {tpl.subTemplate && (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                                  {tpl.subExists && (
-                                    <button
-                                      onClick={() => downloadTemplate(tpl.subTemplate)}
-                                      style={{ ...actionBtnStyle('#059669'), fontSize: '11px', padding: '3px 7px' }}
-                                      title="현재 등록된 보조 양식(운영일지)을 다운로드합니다"
-                                    >
-                                      ⬇️ 보조(운영일지) 다운
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => handleOpenFileDialog(tpl.id, true)}
-                                    style={{ ...actionBtnStyle('#0d9488'), fontSize: '11px', padding: '3px 7px' }}
-                                    title="보조 양식 파일(운영일지 엑셀 등)을 선택하여 교체합니다"
-                                  >
-                                    🔄 보조 양식 교체
-                                  </button>
-                                </div>
                               )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFileDialog(tpl.id, false)}
+                                style={actionBtnStyle('#4f46e5')}
+                                title="새 기본 양식 파일을 선택하여 교체합니다"
+                              >
+                                🔄 양식 교체
+                              </button>
                             </div>
                           )}
                         </td>
@@ -441,18 +423,31 @@ export function MonthlySettlementAutoView() {
                         <button
                           disabled={isGenerating}
                           onClick={async () => {
+                            if (site.id === 'cheongju_seoul') {
+                              setIsCheongjuModalOpen(true);
+                              return;
+                            }
+                            if (site.id === 'hongcheon_yangyang_hwp') {
+                              setIsHongcheonModalOpen(true);
+                              return;
+                            }
+
                             const checkResult = await checkDataReady(site.id, year, month);
                             if (!checkResult?.ready) {
                               alert(`⚠️ [${site.name}] ${year}년 ${month}월 정산에 필요한 데이터가 아직 로컬에 다운로드되지 않았습니다.\n\n먼저 [데이터관리] 메뉴에서 '${site.name}' 사진 데이터를 바탕화면에 다운로드해 주세요.`);
                               return;
                             }
 
-                            if (site.id === 'cheongju_seoul') {
-                              setIsCheongjuModalOpen(true);
+                            if (site.id === 'jukam_seoul') {
+                              await generateJukamSeoulReport({ targetYear: year, targetMonth: month });
                             } else if (site.id === 'jukam_busan') {
                               await generateJukamBusanReport({ targetYear: year, targetMonth: month });
+                            } else if (site.id === 'cheonan_busan') {
+                              await generateCheonanBusanReport({ targetYear: year, targetMonth: month });
+                            } else if (site.id === 'hongcheon_yangyang_excel' || site.id === 'hongcheon_yangyang') {
+                              await generateHongcheonExcelReport(year, month);
                             } else {
-                              alert(`[${site.name}] ${year}년 ${month}월 정산 엑셀 파일 자동 빌더 엔진이 곧 연결됩니다.`);
+                              alert(`[${site.name}] ${year}년 ${month}월 정산 파일 자동 빌더 엔진이 곧 연결됩니다.`);
                             }
                           }}
                           style={{
@@ -488,21 +483,39 @@ export function MonthlySettlementAutoView() {
         }}
       />
 
+      {/* 홍천휴게소 한글 정산서 작성 및 증빙 모달 */}
+      <HongcheonHwpModal
+        isOpen={isHongcheonModalOpen}
+        onClose={() => setIsHongcheonModalOpen(false)}
+        year={year}
+        month={month}
+        isGenerating={isGenerating}
+        onGenerate={async (customInputs) => {
+          const success = await generateHongcheonHwpReport(customInputs, year, month);
+          if (success) {
+            setIsHongcheonModalOpen(false);
+          }
+        }}
+      />
+
     </div>
   );
 }
 
 const tabButtonStyle = (active) => ({
-  padding: '6px 14px',
-  borderRadius: '6px',
-  fontSize: '13px',
-  fontWeight: active ? 700 : 500,
-  border: 'none',
-  background: active ? '#ffffff' : 'transparent',
-  color: active ? '#0f172a' : '#64748b',
-  boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '8px 18px',
+  borderRadius: '8px',
+  fontSize: '13.5px',
+  fontWeight: active ? 700 : 600,
+  border: active ? '1px solid #1d4ed8' : '1px solid transparent',
+  background: active ? '#2563eb' : 'transparent',
+  color: active ? '#ffffff' : '#475569',
+  boxShadow: active ? '0 2px 6px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)' : 'none',
   cursor: 'pointer',
-  transition: 'all 0.15s ease',
+  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
 });
 
 const selectStyle = {
@@ -530,15 +543,19 @@ const cardStyle = {
 };
 
 const cardLabel = {
-  fontSize: '12px', fontWeight: 600, color: '#64748b',
+  fontSize: '12px',
+  fontWeight: 600,
+  color: '#64748b',
 };
 
 const thStyle = {
   padding: '12px 14px',
   whiteSpace: 'nowrap',
+  border: '1px solid #cbd5e1',
 };
 
 const tdStyle = {
   padding: '12px 14px',
   verticalAlign: 'middle',
+  border: '1px solid #cbd5e1',
 };

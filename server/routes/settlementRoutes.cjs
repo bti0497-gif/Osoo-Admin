@@ -38,7 +38,17 @@ const {
   prewarmHwpEngine,
   isSettlementSeason,
 } = require('../services/hwpSettlementService.cjs');
-const { generateJukamBusanExcelReport } = require('../services/jukamSettlementService.cjs');
+const {
+  generateJukamBusanExcelReport,
+  generateJukamSeoulExcelReport,
+} = require('../services/jukamSettlementService.cjs');
+const { generateCheonanBusanExcelReport } = require('../services/cheonanSettlementService.cjs');
+const { generateHongcheonExcelReport } = require('../services/hongcheonSettlementService.cjs');
+const {
+  getHongcheonEvidenceStatus,
+  saveHongcheonEvidence,
+  generateHongcheonHwpReport,
+} = require('../services/hongcheonHwpService.cjs');
 const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
@@ -156,6 +166,37 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       res.download(filePath, path.basename(filePath));
     } catch (err) {
       console.error('[settlementRoutes] 템플릿 다운로드 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/templates/:filename/open
+   * 템플릿 파일을 사용자의 PC 기본 프로그램(Excel, 한글 등)으로 직접 열기
+   */
+  router.post('/templates/:filename/open', (req, res) => {
+    try {
+      const { filename } = req.params;
+      const filePath = getTemplateFilePath(filename);
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, error: '해당 템플릿 파일을 찾을 수 없습니다.' });
+      }
+
+      const { exec } = require('child_process');
+      const escapedPath = filePath.replace(/'/g, "''");
+      exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Item -LiteralPath '${escapedPath}'"`, (err) => {
+        if (err) {
+          console.error('[settlementRoutes] 양식 열기 오류:', err);
+        }
+      });
+
+      res.json({
+        success: true,
+        message: `${filename} 양식 파일을 열었습니다.`,
+        filePath,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 양식 열기 오류:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -319,8 +360,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
 
         // 월정산/점검준비/현장별 폴더 후보 전체 탐색
         const photoFolderCandidates = [
-          // 1. 최신 월정산 저장 경로 (청주마감자료, 죽암휴게소 등)
+          // 1. 최신 월정산 저장 경로 (청주마감자료, 천안마감자료, 죽암휴게소 등)
           path.join(desktopDir, '월정산', '청주마감자료', targetYm),
+          path.join(desktopDir, '월정산', '천안마감자료', targetYm),
+          path.join(desktopDir, '월정산', '천안(부산)', targetYm),
+          path.join(desktopDir, '월정산', '천안(부산방향)', targetYm),
           path.join(desktopDir, '월정산', '죽암휴게소', targetYm),
           path.join(desktopDir, '월정산', '죽암(부산)', targetYm),
           path.join(desktopDir, '월정산', '죽암(서울)', targetYm),
@@ -453,6 +497,115 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       });
     } catch (err) {
       console.error('[settlementRoutes] 청주 명세서 저장 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/hongcheon/status
+   * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 조회
+   */
+  router.get('/hongcheon/status', (req, res) => {
+    try {
+      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+      const status = getHongcheonEvidenceStatus(year, month);
+      
+      const cleanCertPreview = status.cleanCert
+        ? `/api/settlement/hongcheon/preview?type=cleanCert&year=${year}&month=${month}&t=${Date.now()}`
+        : null;
+      const sludgePhotoPreview = status.sludgePhoto
+        ? `/api/settlement/hongcheon/preview?type=sludgePhoto&year=${year}&month=${month}&t=${Date.now()}`
+        : null;
+
+      return res.json({
+        success: true,
+        ...status,
+        cleanCertPreview,
+        sludgePhotoPreview,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] hongcheon/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/hongcheon/preview
+   * 홍천휴게소 증빙 이미지 미리보기 서빙
+   */
+  router.get('/hongcheon/preview', (req, res) => {
+    try {
+      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+      const type = String(req.query.type || '');
+
+      const status = getHongcheonEvidenceStatus(year, month);
+      let targetFile = null;
+      if (type === 'cleanCert') targetFile = status.cleanCert;
+      else if (type === 'sludgePhoto') targetFile = status.sludgePhoto;
+      else if (type === 'invoice') targetFile = status.invoice;
+
+      if (targetFile && fs.existsSync(targetFile)) {
+        return res.sendFile(targetFile);
+      }
+      return res.status(404).json({ success: false, error: '이미지를 찾을 수 없습니다.' });
+    } catch (err) {
+      console.error('[settlementRoutes] hongcheon/preview 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/hongcheon/upload-evidence
+   * 홍천휴게소 청소필증 또는 반출사진 업로드 저장
+   */
+  router.post('/hongcheon/upload-evidence', upload.single('file'), (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const type = String(req.body?.type || '');
+
+      if (!req.file || !['cleanCert', 'sludgePhoto'].includes(type)) {
+        return res.status(400).json({ success: false, error: '유효하지 않은 업로드 요청입니다.' });
+      }
+
+      const saveRes = saveHongcheonEvidence(year, month, type, req.file.buffer, req.file.originalname);
+      const status = getHongcheonEvidenceStatus(year, month);
+
+      return res.json({
+        success: true,
+        saveRes,
+        status: {
+          ...status,
+          cleanCertPreview: status.cleanCert
+            ? `/api/settlement/hongcheon/preview?type=cleanCert&year=${year}&month=${month}&t=${Date.now()}`
+            : null,
+          sludgePhotoPreview: status.sludgePhoto
+            ? `/api/settlement/hongcheon/preview?type=sludgePhoto&year=${year}&month=${month}&t=${Date.now()}`
+            : null,
+        },
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] hongcheon/upload-evidence 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/hongcheon-hwp
+   * 홍천휴게소 한글 정산보고서 자동 생성
+   */
+  router.post('/generate/hongcheon-hwp', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+
+      const result = await generateHongcheonHwpReport(year, month, customInputs);
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/hongcheon-hwp 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -601,6 +754,160 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       });
     } catch (err) {
       console.error('[settlementRoutes] 죽암(부산) 정산서 생성 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/cheonan-busan
+   * 천안휴게소(부산방향) 정산서 엑셀(XLSX) 파일 자동 생성
+   */
+  router.post('/generate/cheonan-busan', async (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      console.log(`[settlementRoutes] 천안(부산) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
+      const result = await generateCheonanBusanExcelReport({
+        year,
+        month,
+      });
+
+      return res.json({
+        success: true,
+        filePath: result.filePath,
+        fileName: result.fileName,
+        targetYm: result.targetYm,
+        message: `[천안(부산방향)] ${year}년 ${month}월 정산 엑셀 파일 생성이 완료되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 천안(부산) 정산서 생성 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/jukam-seoul
+   * 죽암휴게소(서울방향) 정산서 엑셀(XLS) 파일 자동 생성
+   */
+  router.post('/generate/jukam-seoul', async (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      console.log(`[settlementRoutes] 죽암(서울) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
+      const result = await generateJukamSeoulExcelReport({
+        year,
+        month,
+      });
+
+      return res.json({
+        success: true,
+        filePath: result.filePath,
+        fileName: result.fileName,
+        targetYm: result.targetYm,
+        message: `[죽암(서울방향)] ${year}년 ${month}월 정산 엑셀 파일 생성이 완료되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 죽암(서울) 정산서 생성 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/hongcheon-excel
+   * 홍천휴게소(양양방향) 정산서 엑셀(XLSX) 파일 자동 생성
+   */
+  router.post('/generate/hongcheon-excel', async (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
+      const result = await generateHongcheonExcelReport(year, month);
+
+      return res.json({
+        success: true,
+        filePath: result.savedPath,
+        fileName: result.fileName,
+        desktopPath: result.desktopPath,
+        message: `[홍천(양양방향)] ${year}년 ${month}월 정산 엑셀 파일 생성이 완료되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 홍천(양양) 정산 엑셀 생성 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/hongcheon/status
+   * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 및 누락 진단
+   */
+  router.get('/hongcheon/status', (req, res) => {
+    try {
+      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+      const status = getHongcheonEvidenceStatus(year, month);
+      res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] 홍천 증빙 상태 조회 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/hongcheon/upload-evidence
+   * 홍천휴게소 청소필증 또는 반출사진 개별 업로드
+   */
+  router.post('/hongcheon/upload-evidence', upload.single('file'), (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+      const type = req.body.type; // 'cleanCert' or 'sludgePhoto'
+
+      if (!req.file) {
+        return res.status(400).json({ success: false, error: '업로드할 이미지 파일이 없습니다.' });
+      }
+      if (!type || (type !== 'cleanCert' && type !== 'sludgePhoto')) {
+        return res.status(400).json({ success: false, error: '유효한 증빙 유형(cleanCert 또는 sludgePhoto)이 아닙니다.' });
+      }
+
+      const result = saveHongcheonEvidence(year, month, type, req.file.buffer, req.file.originalname);
+      const updatedStatus = getHongcheonEvidenceStatus(year, month);
+      res.json({
+        success: true,
+        message: `[${type === 'cleanCert' ? '청소필증' : '반출사진'}] 파일이 성공적으로 등록되었습니다.`,
+        uploadResult: result,
+        status: updatedStatus,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 홍천 증빙 업로드 오류:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/hongcheon-hwp
+   * 홍천휴게소(양양방향) 한글(HWP) 정산서 자동 생성 실행
+   */
+  router.post('/generate/hongcheon-hwp', async (req, res) => {
+    try {
+      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 한글 정산서 생성 요청 시작`);
+      const result = await generateHongcheonHwpReport(year, month, req.body.customInputs || {});
+
+      return res.json({
+        success: true,
+        filePath: result.savedPath,
+        fileName: result.fileName,
+        desktopPath: result.desktopPath,
+        missing: result.missing,
+        message: `[홍천(양양방향)] ${year}년 ${month}월 한글 정산보고서 생성이 완료되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] 홍천(양양) 한글 정산서 생성 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
