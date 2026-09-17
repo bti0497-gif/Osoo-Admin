@@ -994,15 +994,17 @@ async function findSettlementMonthlyFolder(targetYm) {
 }
 
 async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {
-  if (!isDriveConfigured()) return;
+  if (!isDriveConfigured() || !Array.isArray(fileNames) || fileNames.length === 0) return;
   const monthlyRoot = await getSingleSettlementRootFolder();
-  if (!monthlyRoot) return;
+  if (!monthlyRoot?.id) return;
+
+  // 단일 월정산 루트(monthlyRoot.id) 직하위에 YYYYMM 폴더를 1회만 확정 생성/조회하여 중복 폴더 원천 차단
+  const targetFolder = await getOrCreateFolder(monthlyRoot.id, targetYm);
+  if (!targetFolder?.id) return;
 
   for (const fileName of fileNames) {
     const sourcePath = path.join(localFolder, fileName);
     if (!fs.existsSync(sourcePath)) continue;
-
-    const targetFolder = await getOrCreateFolderPath(getDriveRootFolderId(), ['월정산', targetYm]);
 
     await uploadBufferToFolder({
       folderId: targetFolder.id,
