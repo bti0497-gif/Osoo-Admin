@@ -941,6 +941,35 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     }
   });
 
+  // ROI 영구 설정 조회 (AppData JSON 파일 기반)
+  router.get('/roi-config', (req, res) => {
+    try {
+      const configPath = path.join(appDataPath || os.tmpdir(), 'settlement-roi-config.json');
+      if (fs.existsSync(configPath)) {
+        const raw = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(raw);
+        return res.json({ success: true, config });
+      }
+      return res.json({ success: true, config: null });
+    } catch (err) {
+      console.error('[settlementRoutes] ROI 설정 조회 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ROI 영구 설정 저장 (AppData JSON 파일 기반)
+  router.post('/roi-config', (req, res) => {
+    try {
+      const configPath = path.join(appDataPath || os.tmpdir(), 'settlement-roi-config.json');
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify(req.body, null, 2), 'utf8');
+      return res.json({ success: true, config: req.body });
+    } catch (err) {
+      console.error('[settlementRoutes] ROI 설정 저장 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 };
 

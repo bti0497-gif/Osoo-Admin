@@ -78,6 +78,7 @@ export function DepositReceiptManagerView() {
     const now = new Date();
     return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [manualVendorName, setManualVendorName] = useState('');
   const [isDriveDownloading, setIsDriveDownloading] = useState(false);
 
   // 현장 필터 및 매칭 상태
@@ -213,8 +214,55 @@ export function DepositReceiptManagerView() {
     setSelectedMatchedId(null);
   };
 
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭
+  const handleManualMatch = () => {
+    if (!activeItem) {
+      alert('먼저 매칭할 입금표 항목을 선택해주세요.');
+      return;
+    }
+    const trimmed = manualVendorName.trim();
+    if (!trimmed) {
+      alert('지정할 거래처명(또는 공사/항목명)을 입력해주세요.');
+      return;
+    }
+
+    const baseFilename = `입금표_${targetYm}_${trimmed}.jpg`;
+    const existing = new Set(Object.values(matchedItems)
+      .filter(item => item.itemId !== activeItem.id)
+      .map(item => item.filename));
+    let filename = baseFilename;
+    if (existing.has(baseFilename)) {
+      let num = 2;
+      while (existing.has(`입금표_${targetYm}_${trimmed} (${num}).jpg`)) num += 1;
+      filename = `입금표_${targetYm}_${trimmed} (${num}).jpg`;
+    }
+
+    setMatchedItems(prev => ({
+      ...prev,
+      [activeItem.id]: {
+        itemId: activeItem.id,
+        siteId: 'manual',
+        siteName: trimmed,
+        vendorName: trimmed,
+        filename,
+        isManual: true,
+      }
+    }));
+
+    setManualVendorName('');
+
+    // 다음 미매칭 항목으로 자동 이동
+    const nextUnmatchedIndex = splitItems.findIndex((s, idx) => idx > selectedIndex && !matchedItems[s.id]);
+    if (nextUnmatchedIndex !== -1) {
+      setSelectedIndex(nextUnmatchedIndex);
+    }
+  };
+
   // 실시간 예상 파일명
   const getLiveFilename = (siteName = '현장명') => {
+    if (manualVendorName.trim()) {
+      return `입금표_${targetYm}_${manualVendorName.trim()}.jpg`;
+    }
     const activeVendor = vendorList.find(v => v.id === selectedVendorId) || vendorList[0];
     const vendorShort = activeVendor?.short_name || activeVendor?.company_name || '업체명(단축명)';
     return `입금표_${targetYm}_${siteName} ${vendorShort}.jpg`;
@@ -534,6 +582,67 @@ export function DepositReceiptManagerView() {
                 onChange={(e) => setTargetYm(e.target.value)}
                 style={selectStyle}
               />
+            </div>
+
+            {/* 목록에 없는 거래처/공사비 직접 수동 매칭 섹션 */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px dashed #94a3b8',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#334155' }}>
+                  ✍️ 목록 외 거래처 직접 지정
+                </span>
+                <span style={{ fontSize: '10px', color: '#64748b' }}>공사/기타 입금</span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="거래처명 입력 (예: OO건설)"
+                  value={manualVendorName}
+                  onChange={(e) => setManualVendorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleManualMatch();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    outline: 'none',
+                    background: '#ffffff',
+                    minWidth: 0
+                  }}
+                />
+                <button
+                  onClick={handleManualMatch}
+                  disabled={!activeItem || !manualVendorName.trim()}
+                  title={!activeItem ? '매칭할 입금표 항목을 먼저 선택하세요' : '입력한 거래처명으로 현재 항목을 매칭합니다'}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: (!activeItem || !manualVendorName.trim()) ? '#cbd5e1' : '#16a34a',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: (!activeItem || !manualVendorName.trim()) ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  수동 매칭
+                </button>
+              </div>
             </div>
 
             {/* 실시간 파일명 미리보기 */}

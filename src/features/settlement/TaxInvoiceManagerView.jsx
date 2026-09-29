@@ -74,6 +74,11 @@ export function TaxInvoiceManagerView() {
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [vendorList, setVendorList] = useState(() => getVendorList());
   useEffect(() => { fetchVendorList().then(setVendorList).catch(console.error); }, []);
+  const [selectedVendorId, setSelectedVendorId] = useState(() => {
+    const list = getVendorList();
+    return list[0]?.id || '';
+  });
+  const [manualVendorName, setManualVendorName] = useState('');
   const getCurrentDefaultYm = () => {
     const d = new Date();
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -528,8 +533,51 @@ export function TaxInvoiceManagerView() {
     setMatchedPreview(previous => previous ? { ...previous, item: { ...item, category, matchKey: nextMatchKey, filename } } : previous);
   };
 
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭
+  const handleManualMatch = () => {
+    if (!activePage) {
+      alert('먼저 매칭할 계산서 페이지를 선택해주세요.');
+      return;
+    }
+    const trimmed = manualVendorName.trim();
+    if (!trimmed) {
+      alert('지정할 거래처명(또는 공사/항목명)을 입력해주세요.');
+      return;
+    }
+
+    const prefix = invoiceType === 'sales' ? '매출계산서' : '계산서';
+    const baseFilename = `${prefix}_${targetYm}_${trimmed}.jpg`;
+    const filename = getUniqueFilename(baseFilename, activePage.id);
+    const matchKey = `manual_${activePage.id}_${Date.now()}`;
+
+    setMatchedPages(prev => ({
+      ...prev,
+      [activePage.id]: {
+        pageId: activePage.id,
+        siteId: 'manual',
+        siteName: trimmed,
+        category: invoiceType === 'sales' ? '수동(매출)' : '수동(매입)',
+        matchKey,
+        filename,
+        isManual: true,
+      }
+    }));
+
+    setManualVendorName('');
+
+    // 다음 미지정 페이지로 포커스 자동 이동
+    const nextUnmatchedIndex = pages.findIndex((p, idx) => idx > selectedPageIndex && !matchedPages[p.id]);
+    if (nextUnmatchedIndex !== -1) {
+      setSelectedPageIndex(nextUnmatchedIndex);
+    }
+  };
+
   // 실시간 예상 파일명 구하기
   const getLiveFilename = (siteName = '현장명') => {
+    if (manualVendorName.trim()) {
+      const prefix = invoiceType === 'sales' ? '매출계산서' : '계산서';
+      return `${prefix}_${targetYm}_${manualVendorName.trim()}.jpg`;
+    }
     const activeVendor = vendorList.find(v => v.id === selectedVendorId) || vendorList[0];
     const vendorShort = activeVendor?.short_name || '거래처명';
     if (invoiceType === 'sales') {
@@ -1164,6 +1212,67 @@ export function TaxInvoiceManagerView() {
                 onChange={(e) => setTargetYm(e.target.value)}
                 style={selectStyle}
               />
+            </div>
+
+            {/* 목록에 없는 거래처/공사비 직접 수동 매칭 섹션 */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px dashed #94a3b8',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#334155' }}>
+                  ✍️ 목록 외 거래처 직접 지정
+                </span>
+                <span style={{ fontSize: '10px', color: '#64748b' }}>비고정/공사 거래처</span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="거래처명 입력 (예: OO건설)"
+                  value={manualVendorName}
+                  onChange={(e) => setManualVendorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleManualMatch();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                    outline: 'none',
+                    background: '#ffffff',
+                    minWidth: 0
+                  }}
+                />
+                <button
+                  onClick={handleManualMatch}
+                  disabled={!activePage || !manualVendorName.trim()}
+                  title={!activePage ? '매칭할 계산서 페이지를 먼저 선택하세요' : '입력한 거래처명으로 현재 페이지를 매칭합니다'}
+                  style={{
+                    padding: '7px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: (!activePage || !manualVendorName.trim()) ? '#cbd5e1' : '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: (!activePage || !manualVendorName.trim()) ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  수동 매칭
+                </button>
+              </div>
             </div>
 
             {/* 실시간 파일명 미리보기 */}
