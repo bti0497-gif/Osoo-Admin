@@ -214,8 +214,8 @@ export function DepositReceiptManagerView() {
     setSelectedMatchedId(null);
   };
 
-  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭
-  const handleManualMatch = () => {
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭 (매칭 목록 등록과 동시에 바탕화면 즉시 저장!)
+  const handleManualMatch = async () => {
     if (!activeItem) {
       alert('먼저 매칭할 입금표 항목을 선택해주세요.');
       return;
@@ -237,16 +237,18 @@ export function DepositReceiptManagerView() {
       filename = `입금표_${targetYm}_${trimmed} (${num}).jpg`;
     }
 
+    const manualItem = {
+      itemId: activeItem.id,
+      siteId: 'manual',
+      siteName: trimmed,
+      vendorName: trimmed,
+      filename,
+      isManual: true,
+    };
+
     setMatchedItems(prev => ({
       ...prev,
-      [activeItem.id]: {
-        itemId: activeItem.id,
-        siteId: 'manual',
-        siteName: trimmed,
-        vendorName: trimmed,
-        filename,
-        isManual: true,
-      }
+      [activeItem.id]: manualItem,
     }));
 
     setManualVendorName('');
@@ -256,7 +258,13 @@ export function DepositReceiptManagerView() {
     if (nextUnmatchedIndex !== -1) {
       setSelectedIndex(nextUnmatchedIndex);
     }
+
+    // 바탕화면 입금표 폴더에 즉시 저장
+    await handleSaveWork(manualItem);
   };
+
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭 후 즉시 저장 (동일 동작)
+  const handleManualMatchAndSave = handleManualMatch;
 
   // 실시간 예상 파일명
   const getLiveFilename = (siteName = '현장명') => {
@@ -268,12 +276,37 @@ export function DepositReceiptManagerView() {
     return `입금표_${targetYm}_${siteName} ${vendorShort}.jpg`;
   };
 
-  const handleSaveWork = async () => {
-    const entries = Object.values(matchedItems).map((item) => ({
+  const handleSaveWork = async (singleItem = null) => {
+    // React 이벤트 객체 방어: singleItem이 실제 매칭 항목 객체(filename과 itemId 필요)인지 검사
+    const isValidSingleItem = singleItem && typeof singleItem === 'object' && !singleItem.nativeEvent && singleItem.itemId && singleItem.filename;
+    let itemsToProcess = [];
+    if (isValidSingleItem) {
+      itemsToProcess = [singleItem];
+    } else {
+      let effectiveMatched = { ...matchedItems };
+      if (activeItem && manualVendorName.trim()) {
+        const trimmed = manualVendorName.trim();
+        const baseFilename = `입금표_${targetYm}_${trimmed}.jpg`;
+        const manualItem = {
+          itemId: activeItem.id,
+          siteId: 'manual',
+          siteName: trimmed,
+          vendorName: trimmed,
+          filename: baseFilename,
+          isManual: true,
+        };
+        effectiveMatched[activeItem.id] = manualItem;
+        setMatchedItems(effectiveMatched);
+        setManualVendorName('');
+      }
+      itemsToProcess = Object.values(effectiveMatched);
+    }
+
+    const entries = itemsToProcess.map((item) => ({
       filename: item.filename,
       imageDataUrl: splitItems.find((split) => split.id === item.itemId)?.imageDataUrl,
     }));
-    if (!entries.length) return alert('저장할 입금표 매칭이 없습니다.');
+    if (!entries.length) return alert('저장할 입금표 매칭이 없습니다.\n\n먼저 입금표를 선택하고 거래처명을 지정하거나 매칭을 진행해주세요.');
     if (entries.some((entry) => !entry.imageDataUrl)) return alert('입금표 이미지를 준비하지 못했습니다.');
     try {
       let savedCount = 0;
@@ -284,9 +317,11 @@ export function DepositReceiptManagerView() {
         targetDir = result.targetDir || targetDir;
       }
       alert(`${savedCount}개 입금표를 저장했습니다.\n${targetDir}\nDrive 백그라운드 전송을 시작했습니다.`);
-      setMatchedItems({});
-      setSelectedMatchedId(null);
-      setVendorPicker(null);
+      if (!singleItem) {
+        setMatchedItems({});
+        setSelectedMatchedId(null);
+        setVendorPicker(null);
+      }
     } catch (error) {
       alert(`입금표 저장에 실패했습니다.\n${error.message}`);
     }
@@ -642,6 +677,26 @@ export function DepositReceiptManagerView() {
                 >
                   수동 매칭
                 </button>
+                <button
+                  onClick={handleManualMatchAndSave}
+                  disabled={!activeItem || !manualVendorName.trim()}
+                  title={!activeItem ? '매칭할 입금표 항목을 먼저 선택하세요' : '현재 입금표를 이 거래처명으로 즉시 바탕화면 폴더에 저장합니다'}
+                  style={{
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: (!activeItem || !manualVendorName.trim()) ? '#cbd5e1' : '#059669',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: (!activeItem || !manualVendorName.trim()) ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                    boxShadow: '0 1px 2px rgba(5,150,105,0.2)'
+                  }}
+                >
+                  ⚡ 즉시 저장
+                </button>
               </div>
             </div>
 
@@ -658,7 +713,7 @@ export function DepositReceiptManagerView() {
 
             {/* 최종 저장 버튼 */}
             <button
-              onClick={handleSaveWork}
+              onClick={() => handleSaveWork()}
               style={btnSaveMainStyle}
             >
               <CheckCircle2 size={16} /> 바탕화면 '점검준비' 폴더로 저장

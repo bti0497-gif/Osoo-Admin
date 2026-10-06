@@ -117,11 +117,21 @@ export function AttendanceDashboardView() {
             <button
               style={{
                 ...styles.statusTab,
-                ...(statusFilter === 'off' ? styles.statusTabActiveOff : {}),
+                ...(statusFilter === 'normal_off' ? styles.statusTabActiveOff : {}),
               }}
-              onClick={() => setStatusFilter('off')}
+              onClick={() => setStatusFilter('normal_off')}
             >
-              <span style={styles.dotOff} /> 퇴근 <strong>{stats.off}</strong>
+              <span style={styles.dotOff} /> 정상퇴근 <strong>{stats.normalOff}</strong>
+            </button>
+
+            <button
+              style={{
+                ...styles.statusTab,
+                ...(statusFilter === 'abnormal_off' ? styles.statusTabActiveAbnormal : {}),
+              }}
+              onClick={() => setStatusFilter('abnormal_off')}
+            >
+              <span style={styles.dotAbnormal} /> 비정상퇴근 <strong>{stats.abnormalOff}</strong>
             </button>
 
             <button
@@ -254,7 +264,7 @@ export function AttendanceDashboardView() {
                         <td style={{ ...styles.td, textAlign: 'center' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                             {badgeSpan(row.access)}
-                            {row.access?.label === '원격' && (row.access?.program || row.remoteType) && (
+                            {row.access?.isRemote && (row.access?.program || row.remoteType) && (
                               <span style={{ fontSize: '10px', color: '#ef4444', marginTop: '2px', fontWeight: 600 }}>
                                 {row.access?.program || row.remoteType}
                               </span>
@@ -279,6 +289,7 @@ function badgeSpan(item, dashed = false) {
   const bgColor = item.bg || `${item.color}22`;
   return (
     <span
+      title={item.hint || undefined}
       style={{
         display: 'inline-block',
         padding: '2px 8px',
@@ -288,6 +299,7 @@ function badgeSpan(item, dashed = false) {
         backgroundColor: bgColor,
         color: item.color || '#94a3b8',
         borderBottom: dashed ? '1px dashed currentColor' : 'none',
+        cursor: item.hint ? 'help' : 'default',
       }}
     >
       {item.label}
@@ -389,6 +401,11 @@ const styles = {
     color: '#ffffff',
     borderColor: '#16a34a',
   },
+  statusTabActiveAbnormal: {
+    backgroundColor: '#ea580c',
+    color: '#ffffff',
+    borderColor: '#ea580c',
+  },
   statusTabActiveNoRecord: {
     backgroundColor: '#64748b',
     color: '#ffffff',
@@ -405,6 +422,12 @@ const styles = {
     height: '7px',
     borderRadius: '50%',
     backgroundColor: '#16a34a',
+  },
+  dotAbnormal: {
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+    backgroundColor: '#ea580c',
   },
   dotNoRecord: {
     width: '7px',

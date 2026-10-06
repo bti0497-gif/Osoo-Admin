@@ -139,14 +139,42 @@ function DayCell({ dateStr, rows, currentMonth, period }) {
   );
 }
 
+function getNowKST() {
+  const now = new Date();
+  const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+  return {
+    todayKst: kst.toISOString().split('T')[0],
+    nowHourKst: kst.getUTCHours()
+  };
+}
+
 // ── 배지 ────────────────────────────────────────────────────────
 
 function JudgeBadge(row) {
   let label, color;
-  if (!row.login_time) { label = '미출근'; color = '#94a3b8'; }
-  else if (row.auto_logout) { label = '비정상'; color = '#f97316'; }
-  else if (row.logout_time) { label = '정상'; color = '#22c55e'; }
-  else { label = '근무중'; color = '#3b82f6'; }
+  const isAutoLogout = Boolean(row.auto_logout) || (
+    typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00')
+  );
+
+  const rawDate = row.date?.value || row.date;
+  const rowDate = rawDate ? String(rawDate).slice(0, 10) : '';
+  const { todayKst, nowHourKst } = getNowKST();
+  const isPastDate = rowDate && rowDate < todayKst;
+  const isPastCutoffToday = rowDate && rowDate === todayKst && nowHourKst >= 20;
+
+  if (!row.login_time) {
+    label = '미출근';
+    color = '#94a3b8';
+  } else if (isAutoLogout || (!row.logout_time && (isPastDate || isPastCutoffToday))) {
+    label = '비정상퇴근';
+    color = '#ea580c';
+  } else if (row.logout_time) {
+    label = '정상퇴근';
+    color = '#16a34a';
+  } else {
+    label = '근무중';
+    color = '#2563eb';
+  }
   return <span key="j" style={{ ...styles.badge, background: `${color}22`, color }}>{label}</span>;
 }
 
@@ -162,8 +190,8 @@ function AccessBadge(row) {
                    row.remote_session_detected === 1 ||
                    row.remote_session_detected === 'true' ||
                    row.remote_session_detected === '1';
-  const color = isRemote ? '#ef4444' : '#22c55e';
-  const label = isRemote ? '원격' : '정상';
+  const color = isRemote ? '#ef4444' : '#16a34a';
+  const label = isRemote ? '비정상' : '정상';
   return (
     <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
       <span key="a" style={{ ...styles.badge, background: `${color}22`, color }}>
@@ -187,7 +215,18 @@ function getCellState(row) {
                    row.remote_session_detected === 'true' ||
                    row.remote_session_detected === '1';
   if (isRemote) return 'remote';
-  if (row.auto_logout) return 'abnormal';
+
+  const isAutoLogout = Boolean(row.auto_logout) || (
+    typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00')
+  );
+
+  const rawDate = row.date?.value || row.date;
+  const rowDate = rawDate ? String(rawDate).slice(0, 10) : '';
+  const { todayKst, nowHourKst } = getNowKST();
+  const isPastDate = rowDate && rowDate < todayKst;
+  const isPastCutoffToday = rowDate && rowDate === todayKst && nowHourKst >= 20;
+
+  if (isAutoLogout || (!row.logout_time && (isPastDate || isPastCutoffToday))) return 'abnormal';
   if (!row.logout_time) return 'working';
   return 'normal';
 }

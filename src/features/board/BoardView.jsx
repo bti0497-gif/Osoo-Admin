@@ -51,7 +51,7 @@ const CommentInput = ({ onSubmit, placeholder, initialValue = '', onCancel, butt
     );
 };
 
-const BoardView = ({ currentUser }) => {
+const BoardView = ({ currentUser, isActive }) => {
     const { showAlert, showConfirm } = useDialog();
     const {
         posts, allPostsCount, loading, form, updateForm,
@@ -59,8 +59,9 @@ const BoardView = ({ currentUser }) => {
         selectedPost, comments, submitComment, deleteComment, uploadFile,
         viewMode, setViewMode, searchTerm, setSearchTerm,
         currentPage, setCurrentPage, totalPages, resetForm, loadPosts, replyToPost,
-        sites // 현장 목록 (관리자용)
-    } = useBoardViewModel(currentUser, { showAlert, showConfirm });
+        sites, // 현장 목록 (관리자용)
+        isRefreshing, refreshPosts
+    } = useBoardViewModel(currentUser, { showAlert, showConfirm, isActive });
 
     const [replyTo, setReplyTo] = useState(null);
     const [uploadProgress, setUploadProgress] = useState({ loading: false, percent: 0, fileName: '' });
@@ -263,9 +264,46 @@ const BoardView = ({ currentUser }) => {
                             <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#1e293b', letterSpacing: '-0.025em' }}>
                                 소통게시판
                             </h1>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
-                                총 {allPostsCount}건
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <button
+                                    type="button"
+                                    onClick={refreshPosts}
+                                    disabled={loading || isRefreshing}
+                                    title="최신 게시글 목록 새로고침"
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '4px 10px',
+                                        backgroundColor: '#f8fafc',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '6px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        color: '#334155',
+                                        cursor: loading || isRefreshing ? 'default' : 'pointer',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                    onMouseEnter={e => { if (!loading && !isRefreshing) e.currentTarget.style.backgroundColor = '#e2e8f0'; }}
+                                    onMouseLeave={e => { if (!loading && !isRefreshing) e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                                >
+                                    <span
+                                        className="material-icons"
+                                        style={{
+                                            fontSize: '15px',
+                                            display: 'inline-block',
+                                            animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+                                            transformOrigin: 'center'
+                                        }}
+                                    >
+                                        refresh
+                                    </span>
+                                    <span>{isRefreshing ? '새로고침 중...' : '새로고침'}</span>
+                                </button>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>
+                                    총 {allPostsCount}건
+                                </span>
+                            </div>
                         </div>
                     </div>
 

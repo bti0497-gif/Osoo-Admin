@@ -505,11 +505,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/hongcheon/status
    * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 조회
    */
-  router.get('/hongcheon/status', (req, res) => {
+  router.get('/hongcheon/status', async (req, res) => {
     try {
       const year = parseInt(req.query.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
-      const status = getHongcheonEvidenceStatus(year, month);
+      const status = await getHongcheonEvidenceStatus(year, month);
       
       const cleanCertPreview = status.cleanCert
         ? `/api/settlement/hongcheon/preview?type=cleanCert&year=${year}&month=${month}&t=${Date.now()}`
@@ -534,13 +534,13 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/hongcheon/preview
    * 홍천휴게소 증빙 이미지 미리보기 서빙
    */
-  router.get('/hongcheon/preview', (req, res) => {
+  router.get('/hongcheon/preview', async (req, res) => {
     try {
       const year = parseInt(req.query.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
       const type = String(req.query.type || '');
 
-      const status = getHongcheonEvidenceStatus(year, month);
+      const status = await getHongcheonEvidenceStatus(year, month);
       let targetFile = null;
       if (type === 'cleanCert') targetFile = status.cleanCert;
       else if (type === 'sludgePhoto') targetFile = status.sludgePhoto;
@@ -560,7 +560,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * POST /api/settlement/hongcheon/upload-evidence
    * 홍천휴게소 청소필증 또는 반출사진 업로드 저장
    */
-  router.post('/hongcheon/upload-evidence', upload.single('file'), (req, res) => {
+  router.post('/hongcheon/upload-evidence', upload.single('file'), async (req, res) => {
     try {
       const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
@@ -571,7 +571,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       }
 
       const saveRes = saveHongcheonEvidence(year, month, type, req.file.buffer, req.file.originalname);
-      const status = getHongcheonEvidenceStatus(year, month);
+      const status = await getHongcheonEvidenceStatus(year, month);
 
       return res.json({
         success: true,
@@ -718,6 +718,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         return res.json({
           success: true,
           filePath: finalFilePath,
+          desktopPath: generatedResult?.desktopPath || null,
           fileName,
           message: `[청주(서울방향)] ${year}년 ${month}월 정산 보고서 한글 파일 생성이 완료되었습니다.`,
         });

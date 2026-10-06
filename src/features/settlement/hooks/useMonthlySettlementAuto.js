@@ -196,10 +196,12 @@ export function useMonthlySettlementAuto() {
       }
 
       showToast(`🎉 [${data.fileName || '정산서'}] 한글 파일이 지정된 경로에 성공적으로 저장되었습니다!`);
+      alert(`🎉 [청주휴게소(서울방향)] ${targetYear}년 ${targetMonth}월 정산서 한글 파일 작성이 완료되었습니다!\n\n저장 파일: ${data.fileName || '정산서'}\n저장 위치: 바탕 화면 및 월정산 마감 폴더`);
       return true;
     } catch (err) {
       console.error('[useMonthlySettlementAuto] 청주 정산서 생성 오류:', err);
       setError(err.message);
+      alert(`⚠️ 청주휴게소 정산서 작성 실패\n\n오류: ${err.message}`);
       return false;
     } finally {
       setIsGenerating(false);

@@ -93,6 +93,19 @@ export function useAttendanceDashboard() {
         const formatted = (result.data || []).map((row, index) => {
           const rawDate = row.date?.value || row.date;
           const judgment = getJudgment(row);
+          
+          let checkOutDisplay = '-';
+          if (row.login_time) {
+            if (row.logout_time) {
+              const isAuto = Boolean(row.auto_logout) || (typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00'));
+              checkOutDisplay = isAuto ? '20:00:00 (자동)' : row.logout_time;
+            } else if (judgment.key === 'working') {
+              checkOutDisplay = '근무중';
+            } else {
+              checkOutDisplay = '20:00:00 (자동)';
+            }
+          }
+
           return {
             id: `${row.site_id || 'unknown'}-${row.member_id || 'unknown'}-${rawDate || 'nodate'}-${index}`,
             no: index + 1,
@@ -101,7 +114,7 @@ export function useAttendanceDashboard() {
             siteName: row.site_name || '-',
             worker: row.member_name || '-',
             checkIn: row.login_time || '-',
-            checkOut: row.logout_time ? row.logout_time : (row.login_time ? '근무중' : '-'),
+            checkOut: checkOutDisplay,
             judgment,
             access: getAccess(row),
             statusKey: judgment.key,
@@ -134,21 +147,26 @@ export function useAttendanceDashboard() {
   }, [fetchAttendance]);
 
   // 상태별 통계 수치
+  // 상태별 통계 수치
   const stats = useMemo(() => {
     let working = 0;
-    let off = 0;
+    let normalOff = 0;
+    let abnormalOff = 0;
     let noRecord = 0;
 
     for (const r of attendanceData) {
       if (r.statusKey === 'working') working++;
-      else if (r.statusKey === 'off') off++;
+      else if (r.statusKey === 'normal_off') normalOff++;
+      else if (r.statusKey === 'abnormal_off') abnormalOff++;
       else if (r.statusKey === 'no_record') noRecord++;
     }
 
     return {
       total: attendanceData.length,
       working,
-      off,
+      normalOff,
+      abnormalOff,
+      off: normalOff + abnormalOff,
       noRecord,
     };
   }, [attendanceData]);
@@ -156,6 +174,9 @@ export function useAttendanceDashboard() {
   // 필터링된 출결 목록
   const filteredAttendanceData = useMemo(() => {
     if (statusFilter === 'all') return attendanceData;
+    if (statusFilter === 'off') {
+      return attendanceData.filter((r) => r.statusKey === 'normal_off' || r.statusKey === 'abnormal_off');
+    }
     return attendanceData.filter((r) => r.statusKey === statusFilter);
   }, [attendanceData, statusFilter]);
 
@@ -183,23 +204,52 @@ export function useAttendanceDashboard() {
   };
 }
 
-// 판정: 출근 여부
+function getNowKST() {
+  const now = new Date();
+  const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+  return {
+    todayKst: kst.toISOString().split('T')[0],
+    nowHourKst: kst.getUTCHours()
+  };
+}
+
+// 판정: 출근 여부 및 상태 판정 (출퇴근 규정 준수 여부)
 function getJudgment(row) {
   if (!row.login_time || row.status === 'no_record') {
     return { label: '기록없음', color: '#94a3b8', bg: '#f1f5f9', key: 'no_record' };
   }
   
-  // auto_logout 플래그가 true이거나 퇴근시각이 20:00(저녁 8시) 정각인 경우 자동 로그아웃이므로 '비정상' 판정
+  // auto_logout 플래그가 true이거나 퇴근시각이 20:00(저녁 8시) 정각인 경우 퇴근 미로그아웃이므로 '비정상퇴근' 판정
   const isAutoLogout = Boolean(row.auto_logout) || (
     typeof row.logout_time === 'string' && row.logout_time.startsWith('20:00')
   );
 
-  if (isAutoLogout) return { label: '비정상', color: '#ea580c', bg: '#ffedd5', key: 'off' };
-  if (row.logout_time) return { label: '퇴근완료', color: '#16a34a', bg: '#dcfce7', key: 'off' };
+  if (isAutoLogout) {
+    return { label: '비정상퇴근', color: '#ea580c', bg: '#ffedd5', key: 'abnormal_off', hint: '퇴근 미로그아웃 (20:00 자동퇴근 처리)' };
+  }
+
+  // 퇴근 시간이 직접 기록된 경우: 수동 로그아웃하고 나갔으므로 '정상퇴근'
+  if (row.logout_time) {
+    return { label: '정상퇴근', color: '#16a34a', bg: '#dcfce7', key: 'normal_off', hint: '정상 로그아웃 퇴근' };
+  }
+
+  // 퇴근 시간이 아직 없는 경우: 시간 경과 여부 점검
+  const rawDate = row.date?.value || row.date;
+  const rowDate = rawDate ? String(rawDate).slice(0, 10) : '';
+  const { todayKst, nowHourKst } = getNowKST();
+
+  const isPastDate = rowDate && rowDate < todayKst;
+  const isPastCutoffToday = rowDate && rowDate === todayKst && nowHourKst >= 20;
+
+  // 과거 날짜이거나 오늘 20시를 넘긴 경우: 퇴근 미로그아웃으로 비정상퇴근 판정
+  if (isPastDate || isPastCutoffToday) {
+    return { label: '비정상퇴근', color: '#ea580c', bg: '#ffedd5', key: 'abnormal_off', hint: '퇴근 미로그아웃 (20:00 자동퇴근 처리)' };
+  }
+
   return { label: '근무중', color: '#2563eb', bg: '#dbeafe', key: 'working' };
 }
 
-// 접속: 원격 여부 및 접속 프로그램 정보
+// 접속: 원격 접속 여부 (원격 아닐 때 '정상', 원격일 때 '비정상')
 function getAccess(row) {
   if (!row.login_time || row.status === 'no_record') {
     return { label: '-', color: '#94a3b8' };
@@ -217,10 +267,13 @@ function getAccess(row) {
                    row.remote_session_detected === '1';
   if (isRemote) {
     return {
-      label: '원격',
+      label: '비정상',
       color: '#ef4444',
-      program: program || ''
+      bg: '#fee2e2',
+      isRemote: true,
+      program: program || '',
+      hint: `원격 프로그램 탐지: ${program || '원격접속'}`
     };
   }
-  return { label: '정상', color: '#22c55e' };
+  return { label: '정상', color: '#16a34a', bg: '#dcfce7', isRemote: false, hint: '현장 PC 직접 접속 (정상)' };
 }

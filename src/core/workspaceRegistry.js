@@ -51,7 +51,7 @@ export const WORKSPACE_REGISTRY = {
     helpText: '수집된 일일점검, QnTech 키트수질, 성적서 데이터를 기반으로 5대 현장별 월정산 엑셀 파일을 자동 작성합니다.'
   },
   board: {
-    render: ({ currentUser }) => React.createElement(BoardView, { currentUser }),
+    render: ({ currentUser, isActive }) => React.createElement(BoardView, { currentUser, isActive }),
     helpText: '공지사항 및 소통 게시판을 관리합니다.'
   },
   certificate: {

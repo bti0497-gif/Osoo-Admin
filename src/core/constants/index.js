@@ -9,7 +9,7 @@ export const APP_TARGETS = {
   SHARED_BEFORE_SPLIT: 'shared-before-split'
 };
 
-export const ADMIN_ROLES = ['admin', 'group_admin', 'central_admin'];
+export const ADMIN_ROLES = ['admin', 'group_admin', 'central_admin', 'super_admin'];
 
 export const MENU_REGISTRY = [
   { id: 'members', label: '회원 및 현장 관리', icon: 'admin_panel_settings', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'members', displayOrder: 10 },

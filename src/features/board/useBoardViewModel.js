@@ -33,9 +33,10 @@ const toTimestampMs = (value) => {
     return 0;
 };
 
-export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) => {
+export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActive } = {}) => {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [viewMode, setViewMode] = useState('list');
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -172,21 +173,44 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
         return [...sortedNoticePosts, ...sortedRegularPosts];
     };
 
-    const loadPosts = useCallback(async () => {
+    const loadPosts = useCallback(async ({ silent = false, isManualRefresh = false } = {}) => {
         try {
-            setLoading(true);
+            if (isManualRefresh) setIsRefreshing(true);
+            else if (!silent) setLoading(true);
+
             const data = await BoardModel.fetchPosts(currentUser);
             const sortedData = sortThreadedPosts(data);
             setPosts(sortedData);
         } catch (error) {
-            console.error('Failed to view post:', error);
-            showAlert?.('게시글을 불러올 수 없습니다.');
+            console.error('[useBoardViewModel] Failed to load posts:', error);
+            if (!silent) showAlert?.('게시글을 불러올 수 없습니다.');
         } finally {
-            setLoading(false);
+            if (isManualRefresh) setIsRefreshing(false);
+            if (!silent) setLoading(false);
         }
     }, [currentUser, showAlert]);
 
+    const refreshPosts = useCallback(() => {
+        return loadPosts({ isManualRefresh: true });
+    }, [loadPosts]);
+
     useEffect(() => { loadPosts(); }, [loadPosts]);
+
+    // 탭 활성화(isActive=true) 시 최신 게시글 자동 동기화
+    useEffect(() => {
+        if (isActive) {
+            loadPosts({ silent: true });
+        }
+    }, [isActive, loadPosts]);
+
+    // 활성 상태 유지 시 60초 주기로 최신 게시글 백그라운드 동기화
+    useEffect(() => {
+        if (!isActive) return;
+        const intervalId = setInterval(() => {
+            loadPosts({ silent: true });
+        }, 60000);
+        return () => clearInterval(intervalId);
+    }, [isActive, loadPosts]);
 
     // 현장 목록 로드 (관리자용)
     const loadSites = useCallback(async () => {
@@ -365,6 +389,8 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm } = {}) 
         setCurrentPage,
         totalPages,
         resetForm,
-        loadPosts
+        loadPosts,
+        isRefreshing,
+        refreshPosts
     };
 };

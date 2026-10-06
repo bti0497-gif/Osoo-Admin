@@ -218,8 +218,9 @@ async function generateCheongjuHwpReport({
 
   // 1. 원본 템플릿 탐색 (양식관리 AppData 최신 양식 우선)
   const templateCandidates = [
-    configuredTemplatePath,
     path.join(appDataRoot, 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
+    path.join(appDataRoot, 'templates', 'settlement', 'template_cheongju_report.hwp'),
+    configuredTemplatePath,
     path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
     path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_report.hwp'),
     ...desktopDirs.map(d => path.join(d, '정산양식', 'template_cheongju_seoul.hwp')),
@@ -260,6 +261,24 @@ async function generateCheongjuHwpReport({
   // 3. 임시 작업 파일 생성
   const tempWorkingPath = path.join(os.tmpdir(), `cheongju_hwp_${Date.now()}_${Math.random().toString(36).substring(7)}.hwp`);
   fs.copyFileSync(templatePath, tempWorkingPath);
+
+  // 슬러지 반출 데이터(flowRows) 보강: 비어있거나 슬러지 행이 없으면 BigQuery에서 직접 조회
+  let effectiveFlowRows = Array.isArray(flowRows) ? [...flowRows] : [];
+  if (effectiveFlowRows.length === 0 || !effectiveFlowRows.some(r => r.type === '슬러지')) {
+    try {
+      const { getMonthlyReportData } = require('./monthlyReportService.cjs');
+      const siteId = site?.site_id || 'ca09b513-a02e-4ded-bdee-9893e89542d1';
+      console.log(`[hwpSettlementService] flowRows 슬러지 보강: BigQuery 직접 조회 시작 (siteId: ${siteId}, ${year}-${month})`);
+      const bqData = await getMonthlyReportData(year, month, siteId);
+      if (Array.isArray(bqData?.flowRows) && bqData.flowRows.length > 0) {
+        effectiveFlowRows = bqData.flowRows;
+        console.log(`[hwpSettlementService] flowRows BigQuery 보강 성공: ${effectiveFlowRows.length}건 (슬러지: ${effectiveFlowRows.filter(r => r.type === '슬러지').length}건)`);
+      }
+    } catch (bqErr) {
+      console.warn('[hwpSettlementService] flowRows BigQuery 보강 실패:', bqErr.message);
+    }
+  }
+
   const diagnosticSnapshot = JSON.stringify({
     site,
     targetYm,
@@ -271,7 +290,7 @@ async function generateCheongjuHwpReport({
     medicine: reportData?.medicine || {},
     kitUsage: usageSummary.kits || {},
     medicineUsage: usageSummary.medicines || {},
-    flowRows: (flowRows || []).map((row) => ({
+    flowRows: (effectiveFlowRows || []).map((row) => ({
       date: row.date?.value || row.date,
       type: row.type,
       calculatedFlow: row.calculated_flow,
@@ -565,7 +584,7 @@ async function generateCheongjuHwpReport({
 
   const { buildLedgerBindings, buildSludgeEvents } = require('./cheongjuBindingData.cjs');
   const ledgerBindings = buildLedgerBindings(usageSummary);
-  const sludgeEvents = buildSludgeEvents(flowRows, year, month);
+  const sludgeEvents = buildSludgeEvents(effectiveFlowRows, year, month);
   const usageSummaryJson = JSON.stringify(usageSummary);
   const ledgerBindingScript = fs.readFileSync(path.join(__dirname, 'cheongjuLedgerBinding.ps1'), 'utf8');
 
@@ -1038,12 +1057,25 @@ try {
             } catch (_) {}
           }
 
+          // 바탕화면 루트 동시 복사 보존 (.agents/AGENTS.md 제10조 A항 준수)
+          const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), 'OneDrive', '바탕 화면');
+          const desktopFilePath = path.join(primaryDesktop, finalReportFileName);
+          try {
+            if (fs.existsSync(primaryDesktop) && desktopFilePath !== savedPath) {
+              fs.copyFileSync(tempWorkingPath, desktopFilePath);
+              console.log(`[hwpSettlementService] 바탕화면 루트 동시 복사 완료: ${desktopFilePath}`);
+            }
+          } catch (deskErr) {
+            console.warn('[hwpSettlementService] 바탕화면 루트 복사 참고:', deskErr.message);
+          }
+
           try { if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath); } catch (_) {}
 
           console.log(`[hwpSettlementService] 청주 정산서 한글 파일 생성 완료: ${savedPath}`);
           return resolve({
             success: true,
             filePath: savedPath,
+            desktopPath: fs.existsSync(desktopFilePath) ? desktopFilePath : null,
             fileName: path.basename(savedPath),
             targetYm,
             logPath: persistentLogPath,

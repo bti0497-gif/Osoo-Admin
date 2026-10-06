@@ -424,17 +424,46 @@ export function TaxInvoiceManagerView() {
     setVendorPickerSearch('');
   }, [resetPdfLoader]);
 
-  const handleSaveWork = async () => {
-    const count = Object.keys(matchedPages).length;
-    if (!count) {
-      alert('저장할 매칭 항목이 없습니다.');
+  const handleSaveWork = async (singleItem = null) => {
+    // React 이벤트 객체 방어: singleItem이 실제 매칭 항목 객체(filename과 pageId 필요)인지 검사
+    const isValidSingleItem = singleItem && typeof singleItem === 'object' && !singleItem.nativeEvent && singleItem.pageId && singleItem.filename;
+    let itemsToProcess = [];
+    if (isValidSingleItem) {
+      itemsToProcess = [singleItem];
+    } else {
+      // 현재 선택된 페이지와 입력된 거래처명이 있다면 매칭 여부와 관계없이 자동 포함하여 저장!
+      let effectiveMatched = { ...matchedPages };
+      if (activePage && manualVendorName.trim()) {
+        const trimmed = manualVendorName.trim();
+        const prefix = invoiceType === 'sales' ? '매출계산서' : '계산서';
+        const baseFilename = `${prefix}_${targetYm}_${trimmed}.jpg`;
+        const filename = getUniqueFilename(baseFilename, activePage.id);
+        const matchKey = `manual_${activePage.id}_${Date.now()}`;
+        const manualItem = {
+          pageId: activePage.id,
+          siteId: 'manual',
+          siteName: trimmed,
+          category: invoiceType === 'sales' ? '수동(매출)' : '수동(매입)',
+          matchKey,
+          filename,
+          isManual: true,
+        };
+        effectiveMatched[activePage.id] = manualItem;
+        setMatchedPages(effectiveMatched);
+        setManualVendorName('');
+      }
+      itemsToProcess = Object.values(effectiveMatched);
+    }
+
+    if (!itemsToProcess.length) {
+      alert('저장할 매칭 항목이 없습니다.\n\n먼저 계산서 페이지를 선택하고 거래처명을 지정하거나 매칭을 진행해주세요.');
       return;
     }
 
     try {
       // 저장 시점에 고해상도(scale 2.5) 3mm 크롭 이미지를 실시간 생성하여 100% 잘라내기가 반영되도록 보장
       const entries = [];
-      for (const item of Object.values(matchedPages)) {
+      for (const item of itemsToProcess) {
         const pageObj = parsedPdfPages?.find(candidate => `pdf-page-${candidate.pageNum}` === item.pageId);
         let croppedImageData = null;
         if (pageObj) {
@@ -461,8 +490,10 @@ export function TaxInvoiceManagerView() {
         savedCount += result.savedFiles.length;
         targetDir = result.targetDir;
       }
-      alert(`${savedCount}개 계산서 파일을 성공적으로 저장했습니다!\n${targetDir}\n\nPDF 작업 정보가 리셋되었습니다. 새로운 PDF 파일을 드롭하여 시작하세요.`);
-      resetMatchingWork();
+      alert(`${savedCount}개 계산서 파일을 성공적으로 저장했습니다!\n${targetDir}\n\n바탕화면 '점검준비/계산서/${targetYm}' 폴더를 확인하세요.`);
+      if (!singleItem) {
+        resetMatchingWork();
+      }
     } catch (err) {
       alert(`저장에 실패했습니다.\n${err.message}`);
     }
@@ -533,8 +564,8 @@ export function TaxInvoiceManagerView() {
     setMatchedPreview(previous => previous ? { ...previous, item: { ...item, category, matchKey: nextMatchKey, filename } } : previous);
   };
 
-  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭
-  const handleManualMatch = () => {
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭 (매칭 목록 등록과 동시에 바탕화면 즉시 저장!)
+  const handleManualMatch = async () => {
     if (!activePage) {
       alert('먼저 매칭할 계산서 페이지를 선택해주세요.');
       return;
@@ -550,17 +581,19 @@ export function TaxInvoiceManagerView() {
     const filename = getUniqueFilename(baseFilename, activePage.id);
     const matchKey = `manual_${activePage.id}_${Date.now()}`;
 
+    const manualItem = {
+      pageId: activePage.id,
+      siteId: 'manual',
+      siteName: trimmed,
+      category: invoiceType === 'sales' ? '수동(매출)' : '수동(매입)',
+      matchKey,
+      filename,
+      isManual: true,
+    };
+
     setMatchedPages(prev => ({
       ...prev,
-      [activePage.id]: {
-        pageId: activePage.id,
-        siteId: 'manual',
-        siteName: trimmed,
-        category: invoiceType === 'sales' ? '수동(매출)' : '수동(매입)',
-        matchKey,
-        filename,
-        isManual: true,
-      }
+      [activePage.id]: manualItem,
     }));
 
     setManualVendorName('');
@@ -570,7 +603,14 @@ export function TaxInvoiceManagerView() {
     if (nextUnmatchedIndex !== -1) {
       setSelectedPageIndex(nextUnmatchedIndex);
     }
+
+    // ★ 사용자의 요구: "선택한 페이지가 있고 직접 지정한 거래처 이름이 있다면 매칭 여부와 관계없이 저장해야 한다"
+    // 수동 매칭 버튼을 누르는 즉시 해당 건을 바탕화면 계산서 폴더에 저장!
+    await handleSaveWork(manualItem);
   };
+
+  // 목록에 없는 비고정/공사 거래처 직접 수동 매칭 후 즉시 저장 (동일 동작)
+  const handleManualMatchAndSave = handleManualMatch;
 
   // 실시간 예상 파일명 구하기
   const getLiveFilename = (siteName = '현장명') => {
@@ -1256,9 +1296,9 @@ export function TaxInvoiceManagerView() {
                 <button
                   onClick={handleManualMatch}
                   disabled={!activePage || !manualVendorName.trim()}
-                  title={!activePage ? '매칭할 계산서 페이지를 먼저 선택하세요' : '입력한 거래처명으로 현재 페이지를 매칭합니다'}
+                  title={!activePage ? '매칭할 계산서 페이지를 먼저 선택하세요' : '입력한 거래처명으로 현재 페이지를 매칭 목록에 추가합니다'}
                   style={{
-                    padding: '7px 12px',
+                    padding: '7px 10px',
                     borderRadius: '6px',
                     border: 'none',
                     background: (!activePage || !manualVendorName.trim()) ? '#cbd5e1' : '#2563eb',
@@ -1271,6 +1311,26 @@ export function TaxInvoiceManagerView() {
                   }}
                 >
                   수동 매칭
+                </button>
+                <button
+                  onClick={handleManualMatchAndSave}
+                  disabled={!activePage || !manualVendorName.trim()}
+                  title={!activePage ? '매칭할 계산서 페이지를 먼저 선택하세요' : '현재 페이지를 이 거래처명으로 즉시 바탕화면 폴더에 저장합니다'}
+                  style={{
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: (!activePage || !manualVendorName.trim()) ? '#cbd5e1' : '#059669',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: (!activePage || !manualVendorName.trim()) ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                    boxShadow: '0 1px 2px rgba(5,150,105,0.2)'
+                  }}
+                >
+                  ⚡ 즉시 저장
                 </button>
               </div>
             </div>
@@ -1288,7 +1348,7 @@ export function TaxInvoiceManagerView() {
 
             {/* 최종 저장 버튼 */}
             <button
-              onClick={handleSaveWork}
+              onClick={() => handleSaveWork()}
               style={btnSaveMainStyle}
             >
               <CheckCircle2 size={16} /> 바탕화면 '점검준비' 폴더로 저장

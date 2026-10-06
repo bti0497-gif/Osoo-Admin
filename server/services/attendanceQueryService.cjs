@@ -28,7 +28,7 @@ async function getDailyAttendance(date, siteId = null) {
       ANY_VALUE(t.member_name) AS member_name,
       t.date,
       FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
-      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      FORMAT_TIME('%H:%M:%S', MAX(t.logout_time)) AS logout_time,
       LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
       LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
       MAX(t.remote_session_type) AS remote_session_type,
@@ -66,7 +66,7 @@ async function getWeeklyAttendance(startDate, endDate, siteId = null) {
       ANY_VALUE(t.member_name) AS member_name,
       t.date,
       FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
-      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      FORMAT_TIME('%H:%M:%S', MAX(t.logout_time)) AS logout_time,
       LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
       LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
       MAX(t.remote_session_type) AS remote_session_type,
@@ -107,7 +107,7 @@ async function getMonthlyAttendance(yearMonth, siteId = null) {
       ANY_VALUE(t.member_name) AS member_name,
       t.date,
       FORMAT_TIME('%H:%M:%S', MIN(t.login_time)) AS login_time,
-      FORMAT_TIME('%H:%M:%S', IF(COUNTIF(t.logout_time IS NULL) > 0, NULL, MAX(t.logout_time))) AS logout_time,
+      FORMAT_TIME('%H:%M:%S', MAX(t.logout_time)) AS logout_time,
       LOGICAL_AND(COALESCE(t.location_matched, TRUE)) AS location_matched,
       LOGICAL_OR(COALESCE(t.remote_session_detected, FALSE)) AS remote_session_detected,
       MAX(t.remote_session_type) AS remote_session_type,
@@ -247,13 +247,40 @@ module.exports = {
   getSiteList,
 };
 
+function getNowKST() {
+  const now = new Date();
+  const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+  return {
+    dateStr: kst.toISOString().split('T')[0],
+    hour: kst.getUTCHours()
+  };
+}
+
 /**
- * BigQuery 값 정리 - { value: '...' } 객체 평탄화
+ * BigQuery 값 정리 - { value: '...' } 객체 평탄화 및 퇴근 시간 만료(20:00) 보정
  */
 function normalizeRow(row) {
   const norm = {};
   for (const [k, v] of Object.entries(row)) {
     norm[k] = (v !== null && typeof v === 'object' && 'value' in v) ? v.value : v;
   }
+
+  // 출근 기록은 있으나 퇴근 기록이 없는 경우
+  // 1) 과거 날짜이거나 2) 당일 20:00(저녁 8시) 이후이면 규정상 자동 로그아웃(20:00:00) 처리
+  if (norm.login_time && !norm.logout_time) {
+    const rowDate = norm.date ? String(norm.date).slice(0, 10) : '';
+    const { dateStr: todayKst, hour: nowHourKst } = getNowKST();
+    
+    const isPastDate = rowDate && rowDate < todayKst;
+    const isPastCutoffToday = rowDate && rowDate === todayKst && nowHourKst >= 20;
+
+    if (isPastDate || isPastCutoffToday) {
+      norm.logout_time = '20:00:00';
+      norm.auto_logout = true;
+      norm.is_auto_logout = true;
+    }
+  }
+
   return norm;
 }
+

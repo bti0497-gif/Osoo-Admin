@@ -7,9 +7,198 @@ const { execFile } = require('child_process');
 const sharp = require('sharp');
 
 const { getMonthlyReportData, transformToReportData } = require('./monthlyReportService.cjs');
+const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
 
 // 죽암휴게소(부산방향) 구글 시트 / BigQuery 표준 현장 ID
 const JUKAM_BUSAN_SITE_ID = 'fdd44211-5162-4494-838d-fb5f5d6bed69';
+
+/**
+ * Google Drive에서 죽암 해당 월 성적서 파일 자동 검색 및 로컬 다운로드 (서울/부산)
+ */
+async function ensureJukamCertificatesFromDrive(direction = '서울', year, month) {
+  const numYear = Number(year) || 2026;
+  const numMonth = Number(month) || 9;
+  const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
+  const desktopDirs = getDesktopDirectories();
+  const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), '바탕 화면');
+  const localCertDir = path.join(primaryDesktop, '점검준비', '성적서', targetYm);
+
+  if (!fs.existsSync(localCertDir)) {
+    try { fs.mkdirSync(localCertDir, { recursive: true }); } catch (_) {}
+  }
+
+  const isMatchingCert = (filename) => {
+    const lower = filename.toLowerCase();
+    const isJukam = lower.includes('죽암');
+    const isTargetDir = direction === '서울'
+      ? (lower.includes('서울') && !lower.includes('부산'))
+      : (lower.includes('부산') && !lower.includes('서울'));
+    const isCert = lower.includes('성적서') || lower.includes('mlss');
+    const isExt = /\.(jpe?g|png|bmp)$/i.test(filename);
+    return isJukam && isTargetDir && isCert && isExt;
+  };
+
+  // 1. 로컬에 이미 4장 이상 존재하는지 확인
+  let localFiles = [];
+  try {
+    const list = fs.readdirSync(localCertDir);
+    localFiles = list.filter(isMatchingCert).map(f => path.join(localCertDir, f));
+  } catch (_) {}
+
+  if (localFiles.length >= 4) {
+    localFiles.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
+    return localFiles.slice(0, 4);
+  }
+
+  // 2. Drive 클라이언트가 없으면 로컬 파일 반환
+  if (!drive) {
+    console.warn(`[jukamSettlementService] Drive 클라이언트가 없어 ${direction}방향 성적서 검색을 건너뜁니다.`);
+    return localFiles;
+  }
+
+  // 3. Google Drive에서 죽암 해당 방향 & 월 성적서 파일 검색
+  try {
+    const dirKeyword = direction === '서울' ? '서울' : '부산';
+    console.log(`[jukamSettlementService] Drive에서 죽암(${dirKeyword}) ${targetYm} 성적서 검색 중...`);
+    const q = `name contains '죽암' and name contains '${dirKeyword}' and (name contains '성적서' or name contains 'mlss') and name contains '${targetYm}' and trashed = false`;
+    const res = await drive.files.list({
+      q,
+      fields: 'files(id, name, mimeType, createdTime)',
+      pageSize: 20,
+      spaces: 'drive',
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+    });
+
+    const driveFiles = res.data.files || [];
+    console.log(`[jukamSettlementService] Drive 죽암(${dirKeyword}) 성적서 검색 결과: ${driveFiles.length}개 발견`);
+
+    for (const df of driveFiles) {
+      const destPath = path.join(localCertDir, df.name);
+      if (!fs.existsSync(destPath)) {
+        try {
+          const buf = await downloadDriveFileBuffer(df.id);
+          fs.writeFileSync(destPath, buf);
+          console.log(`[jukamSettlementService] Drive 성적서 다운로드 완료: ${df.name} (${buf.length} bytes)`);
+        } catch (dlErr) {
+          console.error(`[jukamSettlementService] Drive 성적서 다운로드 실패 (${df.name}):`, dlErr.message);
+        }
+      }
+    }
+
+    // 다운로드 후 다시 로컬 파일 정렬 및 4장 반환
+    const refreshed = fs.readdirSync(localCertDir)
+      .filter(isMatchingCert)
+      .map(f => path.join(localCertDir, f));
+    refreshed.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
+    return refreshed.slice(0, 4);
+  } catch (err) {
+    console.error(`[jukamSettlementService] Drive 성적서 검색/다운로드 에러:`, err.message);
+    return localFiles;
+  }
+}
+
+/**
+ * 죽암 수질실험(키트) 분석 사진 4장(알칼리도, 오르토인산염, 질산성질소, 암모니아성질소) 확보
+ */
+async function ensureJukamLabPhotos(year, month) {
+  const numYear = Number(year) || 2026;
+  const numMonth = Number(month) || 9;
+  const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
+  const desktopDirs = getDesktopDirectories();
+  const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), '바탕 화면');
+  const targetDir = path.join(primaryDesktop, '월정산', '죽암마감자료', targetYm, '1_실험사진');
+
+  if (!fs.existsSync(targetDir)) {
+    try { fs.mkdirSync(targetDir, { recursive: true }); } catch (_) {}
+  }
+
+  const isImageFile = (f) => /\.(jpe?g|png|bmp)$/i.test(f);
+
+  // 1. 해당 월 로컬 폴더에 이미 사진이 있는지 확인
+  let localPhotos = [];
+  try {
+    localPhotos = fs.readdirSync(targetDir)
+      .filter(isImageFile)
+      .map(f => path.join(targetDir, f));
+  } catch (_) {}
+
+  if (localPhotos.length >= 4) {
+    localPhotos.sort();
+    return localPhotos.slice(0, 4);
+  }
+
+  // 2. Google Drive에서 해당 월 죽암 수질분석 사진 검색
+  if (drive) {
+    try {
+      console.log(`[jukamSettlementService] Drive에서 죽암 수질분석 사진 검색 중...`);
+      const q = `name contains '죽암' and (name contains '수질분석' or name contains '알칼리도' or name contains '질산성') and trashed = false`;
+      const res = await drive.files.list({
+        q,
+        fields: 'files(id, name, mimeType, createdTime)',
+        pageSize: 20,
+        spaces: 'drive',
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+      });
+
+      const driveFiles = res.data.files || [];
+      if (driveFiles.length > 0) {
+        for (const df of driveFiles) {
+          const destPath = path.join(targetDir, df.name);
+          if (!fs.existsSync(destPath)) {
+            try {
+              const buf = await downloadDriveFileBuffer(df.id);
+              fs.writeFileSync(destPath, buf);
+              console.log(`[jukamSettlementService] Drive 실험사진 다운로드 완료: ${df.name}`);
+            } catch (dlErr) {
+              console.error(`[jukamSettlementService] Drive 실험사진 다운로드 실패:`, dlErr.message);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[jukamSettlementService] Drive 실험사진 검색 실패:`, err.message);
+    }
+  }
+
+  // 3. 다운로드 후 로컬 확인
+  try {
+    localPhotos = fs.readdirSync(targetDir).filter(isImageFile).map(f => path.join(targetDir, f));
+  } catch (_) {}
+
+  if (localPhotos.length >= 4) {
+    localPhotos.sort();
+    return localPhotos.slice(0, 4);
+  }
+
+  // 4. 여전히 4장 미만인 경우: 직전 월(예: 8월) 로컬 폴더에서 복사하여 보존
+  const prevMonth = numMonth === 1 ? 12 : numMonth - 1;
+  const prevYear = numMonth === 1 ? numYear - 1 : numYear;
+  const prevYm = `${prevYear}${String(prevMonth).padStart(2, '0')}`;
+  const prevDir = path.join(primaryDesktop, '월정산', '죽암마감자료', prevYm, '1_실험사진');
+
+  if (fs.existsSync(prevDir)) {
+    try {
+      const prevFiles = fs.readdirSync(prevDir).filter(isImageFile);
+      for (const pf of prevFiles) {
+        const src = path.join(prevDir, pf);
+        const dst = path.join(targetDir, pf);
+        if (!fs.existsSync(dst)) {
+          fs.copyFileSync(src, dst);
+          console.log(`[jukamSettlementService] 직전월(${prevYm}) 실험사진 복사: ${pf}`);
+        }
+      }
+      localPhotos = fs.readdirSync(targetDir).filter(isImageFile).map(f => path.join(targetDir, f));
+      localPhotos.sort();
+      return localPhotos.slice(0, 4);
+    } catch (copyErr) {
+      console.warn(`[jukamSettlementService] 직전월 실험사진 복사 실패:`, copyErr.message);
+    }
+  }
+
+  return localPhotos;
+}
 
 /**
  * 윈도우 바탕화면 디렉토리 목록 조회 (OneDrive 및 로컬)
@@ -256,11 +445,14 @@ async function generateJukamBusanExcelReport({
   const invChem = findImages(invoiceDirs, '에이치');
   const depChem = findImages(depositDirs, '에이치');
 
-  // 시험성적서 4장 (점검준비 > 성적서 > YYYYMM 폴더 우선 탐색, 총 6장 중 앞의 4장)
-  let certImages = findImages(certDirs).sort();
-  if (certImages.length === 0) {
-    const expPhotoDirs = settlementPhotoDirs.flatMap(d => [path.join(d, '1_실험사진'), d]);
-    certImages = findImages(expPhotoDirs).sort();
+  // 시험성적서 4장 (점검준비 > 성적서 > YYYYMM 폴더 및 Drive 연동)
+  let certImages = await ensureJukamCertificatesFromDrive('부산', year, month);
+  if (!certImages || certImages.length === 0) {
+    certImages = findImages(certDirs).sort();
+    if (certImages.length === 0) {
+      const expPhotoDirs = settlementPhotoDirs.flatMap(d => [path.join(d, '1_실험사진'), d]);
+      certImages = findImages(expPhotoDirs).sort();
+    }
   }
   certImages = certImages.slice(0, 4);
 
@@ -1000,17 +1192,15 @@ async function generateJukamSeoulExcelReport({
   const invChem = findImages(invoiceDirs, '에이치');
   const depChem = findImages(depositDirs, '에이치');
 
-  // 성적서 4장 (점검준비/성적서/YYYYMM 중 서울방향)
-  const certImages = findImages(certDirs).sort().slice(0, 4);
-
-  // 수질실험 사진 4장 (1_실험사진) 및 2x2 합성
-  const rawLabPhotos = [];
-  if (fs.existsSync(expPhotoDirs[0])) {
-    fs.readdirSync(expPhotoDirs[0]).forEach(f => {
-      if (/\.(jpg|jpeg|png)$/i.test(f)) rawLabPhotos.push(path.join(expPhotoDirs[0], f));
-    });
+  // 성적서 4장 확보 (로컬 점검준비/성적서/YYYYMM 폴더 및 Drive 자동 연동)
+  let certImages = await ensureJukamCertificatesFromDrive('서울', year, month);
+  if (!certImages || certImages.length === 0) {
+    certImages = findImages(certDirs).sort().slice(0, 4);
   }
-  const combinedLabPhotoPath = await compositeWaterLabPhotos(rawLabPhotos.slice(0, 4), tempDir);
+
+  // 수질실험 사진 4장 확보 (로컬 1_실험사진 폴더 및 Drive 자동 연동) 및 2x2 합성
+  const labPhotos = await ensureJukamLabPhotos(year, month);
+  const combinedLabPhotoPath = await compositeWaterLabPhotos(labPhotos.slice(0, 4), tempDir);
 
   // 약품 사진 3장 및 3단 세로 합성
   const chemGlucose = findImages(chemPhotoDirs, '포도당');
