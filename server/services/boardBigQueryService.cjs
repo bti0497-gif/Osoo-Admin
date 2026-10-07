@@ -59,7 +59,9 @@ function buildVisibilityFilter(role, siteName, userName) {
   return {
     where: `p.is_deleted = FALSE AND (
       p.author = @userName
-      OR (p.author_role IN ('admin', 'group_admin', 'central_admin', 'super_admin') AND (p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName))
+      OR (p.author_role IN ('admin', 'group_admin', 'central_admin', 'super_admin') AND (
+        p.target_site IS NULL OR p.target_site = '' OR p.target_site = @siteName OR p.target_site LIKE CONCAT('%', @siteName, '%')
+      ))
     )`,
     params: { siteName, userName }
   };
@@ -73,7 +75,10 @@ function canViewPost(post, user) {
 
   const targetSite = String(post.target_site || '').trim();
   if (!targetSite) return true;
-  return targetSite === String(user.site || '').trim();
+  const userSite = String(user.site || '').trim();
+  if (targetSite === userSite) return true;
+  if (userSite && targetSite.includes(userSite)) return true;
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────

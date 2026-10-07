@@ -132,6 +132,7 @@ async function getPosts(role, siteName, userName) {
 
   posts = posts.map(p => ({
     ...p,
+    target_sites: extractTargetSites(p),
     is_popup: isPopupActive(p),
     popup_expires_at: toISOString(p.popup_expires_at),
     comment_count: commentCounts[p.id] || 0,
@@ -161,6 +162,7 @@ async function getPost(id, { incrementView = false } = {}) {
   if (!doc.exists) return null;
   const data = { id: doc.id, ...doc.data() };
   if (data.is_deleted) return null;
+  data.target_sites = extractTargetSites(data);
   data.is_popup = isPopupActive(data);
   data.popup_expires_at = toISOString(data.popup_expires_at);
   data.created_at = toISOString(data.created_at);
@@ -175,6 +177,69 @@ async function getPost(id, { incrementView = false } = {}) {
   return data;
 }
 
+function extractTargetSites(p) {
+  if (!p) return [];
+  if (Array.isArray(p.target_sites) && p.target_sites.length > 0) return p.target_sites;
+  if (Array.isArray(p.visible_sites) && !p.visible_sites.includes('ALL') && p.visible_sites.length > 0) return p.visible_sites;
+  if (p.target_site && p.target_site !== 'ALL' && p.target_site !== '전체') {
+    return p.target_site.includes(',') ? p.target_site.split(',').map(s => s.trim()).filter(Boolean) : [p.target_site.trim()];
+  }
+  return [];
+}
+
+/**
+ * 다중 대상 현장 처리 헬퍼
+ */
+function resolveTargetSites(data) {
+  const authorRole = data.author_role || '';
+  if (!isAdminRole(authorRole)) {
+    const site = (data.author_site || '').trim();
+    return {
+      visibleSites: site ? [site] : ['ALL'],
+      targetSite: site || '',
+      targetSites: site ? [site] : []
+    };
+  }
+
+  let sites = [];
+  if (Array.isArray(data.target_sites)) {
+    sites = data.target_sites.map(s => String(s || '').trim()).filter(Boolean);
+  } else if (typeof data.target_site === 'string' && data.target_site.trim()) {
+    const trimmed = data.target_site.trim();
+    if (trimmed !== 'ALL' && trimmed !== '전체') {
+      sites = trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+
+  // 중복 제거
+  sites = [...new Set(sites)];
+
+  // 'ALL'이 포함되어 있거나 0개이면 전체 대상
+  if (sites.includes('ALL') || sites.length === 0) {
+    return {
+      visibleSites: ['ALL'],
+      targetSite: '',
+      targetSites: []
+    };
+  }
+
+  // 단일 현장
+  if (sites.length === 1) {
+    return {
+      visibleSites: [sites[0]],
+      targetSite: sites[0],
+      targetSites: [sites[0]]
+    };
+  }
+
+  // 복수 현장
+  return {
+    visibleSites: sites,
+    targetSite: `${sites[0]} 외 ${sites.length - 1}곳`,
+    targetSites: sites
+  };
+}
+
 /**
  * 게시글 생성
  * - 답글(parent_id 존재)인 경우 부모 게시글의 visible_sites 상속
@@ -184,14 +249,20 @@ async function createPost(data) {
   const now = new Date().toISOString();
   const id = newUUID();
 
+  const resolved = resolveTargetSites(data);
+  let visibleSites = resolved.visibleSites;
+  let targetSite = resolved.targetSite;
+  let targetSites = resolved.targetSites;
+
   // 답글인 경우 부모 게시글의 visible_sites 상속
-  let visibleSites = buildVisibleSites(data);
   if (data.parent_id) {
     const parentDoc = await db.collection('posts').doc(data.parent_id).get();
     if (parentDoc.exists) {
       const parentData = parentDoc.data();
       if (parentData.visible_sites) {
         visibleSites = parentData.visible_sites;
+        targetSites = Array.isArray(parentData.target_sites) ? parentData.target_sites : (visibleSites.includes('ALL') ? [] : visibleSites);
+        targetSite = parentData.target_site || '';
       }
     }
   }
@@ -204,7 +275,8 @@ async function createPost(data) {
     author:        data.author       || '',
     author_role:   data.author_role  || 'manager',
     author_site:   data.author_site  || '',
-    target_site:   data.target_site  || '',
+    target_site:   targetSite,
+    target_sites:  targetSites,
     visible_sites: visibleSites,
     title:         data.title        || '',
     content:       data.content      || '',
@@ -235,10 +307,15 @@ async function updatePost(id, data) {
   if (data.content     !== undefined) updates.content     = data.content;
   if (data.is_notice   !== undefined) updates.is_notice   = Boolean(data.is_notice);
   if (data.attachments !== undefined) updates.attachments = data.attachments;
-  if (data.target_site !== undefined) {
-    updates.target_site = data.target_site;
-    // visible_sites도 함께 갱신
-    updates.visible_sites = buildVisibleSitesFromTarget(data.target_site, data.author_role);
+  if (data.target_site !== undefined || data.target_sites !== undefined) {
+    const resolved = resolveTargetSites({
+      target_site: data.target_site,
+      target_sites: data.target_sites,
+      author_role: data.author_role
+    });
+    updates.target_site = resolved.targetSite;
+    updates.target_sites = resolved.targetSites;
+    updates.visible_sites = resolved.visibleSites;
   }
   if (data.is_popup !== undefined) {
     const isPopup = isAdminRole(data.user_role || data.author_role) ? Boolean(data.is_popup) : false;

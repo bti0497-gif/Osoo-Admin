@@ -83,17 +83,18 @@ module.exports = function () {
     const body = req.body || {};
     try {
       const post = await createPost({
-        author:      user.name,
-        author_role: isAdminRole(user.role) ? user.role : 'user',
-        author_site: isAdminRole(user.role) ? 'CENTRAL' : user.site,
-        target_site: isAdminRole(user.role) ? (body.target_site ?? '') : '',
-        title:       body.title        || '',
-        content:     body.content      || '',
-        is_notice:   isAdminRole(user.role) ? Boolean(body.is_notice) : false,
-        is_popup:    isAdminRole(user.role) ? Boolean(body.is_popup) : false,
-        popup_days:  body.popup_days   || 1,
-        attachments: normalizeAttachments(body.attachments),
-        parent_id:   body.parent_id    || null
+        author:       user.name,
+        author_role:  isAdminRole(user.role) ? user.role : 'user',
+        author_site:  isAdminRole(user.role) ? 'CENTRAL' : user.site,
+        target_site:  isAdminRole(user.role) ? (body.target_site ?? '') : '',
+        target_sites: isAdminRole(user.role) ? (body.target_sites ?? null) : null,
+        title:        body.title        || '',
+        content:      body.content      || '',
+        is_notice:    isAdminRole(user.role) ? Boolean(body.is_notice) : false,
+        is_popup:     isAdminRole(user.role) ? Boolean(body.is_popup) : false,
+        popup_days:   body.popup_days   || 1,
+        attachments:  normalizeAttachments(body.attachments),
+        parent_id:    body.parent_id    || null
       });
       res.json({ success: true, data: post });
     } catch (err) { handleError(res, err, 'createPost'); }
@@ -115,15 +116,16 @@ module.exports = function () {
       }
 
       await updatePost(req.params.id, {
-        title:       body.title,
-        content:     body.content,
-        is_notice:   isAdminRole(user.role) ? body.is_notice : false,
-        is_popup:    isAdminRole(user.role) ? body.is_popup : false,
-        popup_days:  body.popup_days   || 1,
-        attachments: body.attachments != null ? normalizeAttachments(body.attachments) : undefined,
-        target_site: isAdminRole(user.role) ? body.target_site : existing.target_site,
-        author_role: existing.author_role || user.role,
-        user_role:   user.role
+        title:        body.title,
+        content:      body.content,
+        is_notice:    isAdminRole(user.role) ? body.is_notice : false,
+        is_popup:     isAdminRole(user.role) ? body.is_popup : false,
+        popup_days:   body.popup_days   || 1,
+        attachments:  body.attachments != null ? normalizeAttachments(body.attachments) : undefined,
+        target_site:  isAdminRole(user.role) ? body.target_site : existing.target_site,
+        target_sites: isAdminRole(user.role) ? body.target_sites : existing.target_sites,
+        author_role:  existing.author_role || user.role,
+        user_role:    user.role
       });
       res.json({ success: true });
     } catch (err) { handleError(res, err, 'updatePost'); }

@@ -33,6 +33,21 @@ const toTimestampMs = (value) => {
     return 0;
 };
 
+const isAdminRole = (role) => {
+    if (!role) return true;
+    const r = String(role).toLowerCase().trim();
+    return r === 'admin' || r === 'group_admin' || r === 'central_admin' || r === 'super_admin' || r === '최고관리자' || r === '중앙관리자' || r === '관리자';
+};
+
+// 관리 비대상 현장 제외 판별 (상주 근무자 없음 / 시스템 가상 현장)
+const isManageableSite = (name) => {
+    if (!name) return false;
+    const n = String(name).trim();
+    if (n === '중앙' || n === '본사' || n.toLowerCase() === 'central') return false;
+    if (n.includes('시화호') || n.includes('오수처리장') || n.includes('양북임시') || n.includes('낙동강')) return false;
+    return true;
+};
+
 export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActive } = {}) => {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -42,7 +57,17 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActiv
     const [currentPage, setCurrentPage] = useState(1);
     const [selectedPost, setSelectedPost] = useState(null);
     const [comments, setComments] = useState([]);
-    const [form, setForm] = useState({ title: '', content: '', is_notice: 0, is_popup: 0, popup_days: 1, attachments: '', parent_id: null, target_site: '' });
+    const [form, setForm] = useState({
+        title: '',
+        content: '',
+        is_notice: 0,
+        is_popup: 0,
+        popup_days: 1,
+        attachments: '',
+        parent_id: null,
+        target_sites: null, // null = 전체 발송 기본값 (모든 현장 자동 체크)
+        target_site: ''
+    });
     const [sites, setSites] = useState([]); // 현장 목록 (관리자용 글쓰기)
     const postsPerPage = 10;
 
@@ -59,6 +84,7 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActiv
             popup_days: 1,
             attachments: '',
             parent_id: parentPost.id,
+            target_sites: null,
             target_site: ''
         });
         setViewMode('form');
@@ -228,8 +254,36 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActiv
 
     const submitPost = async () => {
         try {
+            const isAdmin = isAdminRole(currentUser?.role);
+            let finalTargetSites = [];
+            let finalTargetSite = '';
+
+            if (isAdmin) {
+                // sites 목록에서 관리 비대상 현장 제외
+                const siteList = (sites || [])
+                    .map(s => s.site_name || s.name || s)
+                    .filter(isManageableSite);
+
+                // target_sites가 null이거나 전체 목록과 같으면 "전체 발송"
+                if (form.target_sites === null || (Array.isArray(form.target_sites) && form.target_sites.length === siteList.length)) {
+                    finalTargetSites = [];
+                    finalTargetSite = '';
+                } else {
+                    if (!Array.isArray(form.target_sites) || form.target_sites.length === 0) {
+                        showAlert?.('발송 대상 현장을 1개 이상 선택해 주세요.');
+                        return { success: false };
+                    }
+                    finalTargetSites = form.target_sites;
+                    finalTargetSite = finalTargetSites.length === 1
+                        ? finalTargetSites[0]
+                        : `${finalTargetSites[0]} 외 ${finalTargetSites.length - 1}곳`;
+                }
+            }
+
             const postPayload = {
                 ...form,
+                target_sites: finalTargetSites,
+                target_site: finalTargetSite,
                 author: currentUser?.name || '익명'
             };
             await BoardModel.savePost(postPayload, currentUser);
@@ -284,6 +338,15 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActiv
     };
 
     const editPost = (post) => {
+        let initialSites = null;
+        if (Array.isArray(post.target_sites) && post.target_sites.length > 0) {
+            initialSites = post.target_sites;
+        } else if (Array.isArray(post.visible_sites) && !post.visible_sites.includes('ALL') && post.visible_sites.length > 0) {
+            initialSites = post.visible_sites;
+        } else if (post.target_site && post.target_site !== 'ALL' && post.target_site !== '전체') {
+            initialSites = post.target_site.includes(',') ? post.target_site.split(',').map(s => s.trim()).filter(Boolean) : [post.target_site.trim()];
+        }
+
         setForm({
             id: post.id,
             title: post.title,
@@ -293,13 +356,24 @@ export const useBoardViewModel = (currentUser, { showAlert, showConfirm, isActiv
             popup_days: 1,
             attachments: post.attachments || '',
             parent_id: post.parent_id || null,
+            target_sites: initialSites, // null이면 전체 선택으로 모든 체크박스 체크됨
             target_site: post.target_site || ''
         });
         setViewMode('form');
     };
 
     const resetForm = () => {
-        setForm({ title: '', content: '', is_notice: 0, is_popup: 0, popup_days: 1, attachments: '', parent_id: null, target_site: '' });
+        setForm({
+            title: '',
+            content: '',
+            is_notice: 0,
+            is_popup: 0,
+            popup_days: 1,
+            attachments: '',
+            parent_id: null,
+            target_sites: null,
+            target_site: ''
+        });
         setSelectedPost(null);
         setComments([]);
     };
