@@ -27,6 +27,23 @@ export const AuthModel = {
         return this.localLogin(name, password);
     },
 
+    async getAssignedSites(userId, userName) {
+        try {
+            const params = new URLSearchParams();
+            if (userId) params.append('userId', userId);
+            if (userName) params.append('userName', userName);
+            const res = await fetch(`${getApiBase()}/api/auth/assigned-sites?${params.toString()}`);
+            const data = await res.json();
+            if (data && data.success) {
+                return data.assignedSites || [];
+            }
+            return [];
+        } catch (e) {
+            console.warn('담당 현장 조회 실패:', e);
+            return [];
+        }
+    },
+
     async getActiveSiteSession() {
         try {
             const res = await fetch(`${getApiBase()}/api/settings`);

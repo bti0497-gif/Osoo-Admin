@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getApiBase } from '../../../core/api/serverConfig';
+import { filterSitesForUser } from '../../../core/auth/siteAccessHelper';
 
 const now = new Date();
 const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -9,7 +10,7 @@ const DEFAULT_MONTH = prevMonthDate.getMonth() + 1;
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
-export function useMonthlySettlementAuto() {
+export function useMonthlySettlementAuto(currentUser = null) {
   const [activeTab, setActiveTab] = useState('auto_generate'); // 'auto_generate' | 'template_manager'
   const [year, setYear] = useState(DEFAULT_YEAR);
   const [month, setMonth] = useState(DEFAULT_MONTH);
@@ -30,16 +31,35 @@ export function useMonthlySettlementAuto() {
   // 현장 목록 조회
   const fetchSites = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiBase()}/api/settlement/sites`);
+      const activeUser = currentUser || (() => {
+        try {
+          const raw = localStorage.getItem('osoo_admin_user_session');
+          return raw ? JSON.parse(raw).user : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const params = new URLSearchParams();
+      if (activeUser?.id) params.append('userId', activeUser.id);
+      if (activeUser?.name) params.append('userName', activeUser.name);
+
+      const url = `${getApiBase()}/api/settlement/sites${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error('현장 목록 조회 실패');
       const data = await res.json();
       if (data.success && Array.isArray(data.sites)) {
-        setSites(data.sites);
+        const filtered = filterSitesForUser(
+          data.sites,
+          activeUser,
+          (s) => s.shortName || s.name || s.id
+        );
+        setSites(filtered);
       }
     } catch (err) {
       console.error('[useMonthlySettlementAuto] 현장 목록 로드 오류:', err);
     }
-  }, []);
+  }, [currentUser]);
 
   // 템플릿 목록 조회
   const fetchTemplates = useCallback(async () => {
@@ -364,7 +384,7 @@ export function useMonthlySettlementAuto() {
       if (!res.ok) return { ready: true }; // 네트워크 실패 시 작업 방해 방지용 fallback
       const data = await res.json();
       return data;
-    } catch (_) {
+    } catch {
       return { ready: true };
     }
   }, [year, month]);

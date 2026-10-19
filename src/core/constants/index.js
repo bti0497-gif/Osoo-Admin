@@ -24,6 +24,7 @@ export const MENU_REGISTRY = [
     ]
   },
   { id: 'attendance_dashboard', label: '출결 현황 보기', icon: 'event_available', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'attendance_dashboard', displayOrder: 45 },
+  { id: 'hr_evaluation', label: '근태 및 인사고과', icon: 'military_tech', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'hr_evaluation', displayOrder: 46 },
   { id: 'settlement', label: '정산 관리', icon: 'receipt_long', appTarget: APP_TARGETS.ADMIN_APP, workspaceId: 'settlement', displayOrder: 48,
     children: [
       { id: 'tax_invoice_mgr', label: '계산서 관리', workspaceId: 'tax_invoice_mgr', appTarget: APP_TARGETS.ADMIN_APP },

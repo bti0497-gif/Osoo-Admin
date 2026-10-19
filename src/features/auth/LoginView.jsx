@@ -11,10 +11,10 @@ const LoginView = ({ onLogin, loginHintName = '' }) => {
     useEffect(() => {
         const nextName = String(loginHintName || '').trim();
         if (!nextName) return;
-        setName(nextName);
-        setPass('');
-        setError('');
         const timer = setTimeout(() => {
+            setName(nextName);
+            setPass('');
+            setError('');
             passRef.current?.focus();
         }, 0);
         return () => clearTimeout(timer);

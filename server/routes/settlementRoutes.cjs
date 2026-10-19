@@ -22,6 +22,7 @@ const {
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
+const { getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 const {
   getReportSiteList,
   getMonthlyReportData,
@@ -104,13 +105,40 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
 
   /**
    * GET /api/settlement/sites
-   * 정산 지원 대상 현장 목록
+   * 정산 지원 대상 현장 목록 (userId, userName 쿼리 전달 시 담당 현장 필터링)
    */
-  router.get('/sites', (req, res) => {
-    res.json({
-      success: true,
-      sites: SETTLEMENT_TARGET_SITES,
-    });
+  router.get('/sites', async (req, res) => {
+    try {
+      const { userId, userName } = req.query;
+      let sites = SETTLEMENT_TARGET_SITES;
+
+      if (userId || userName) {
+        const assigned = await getAssignedSitesForManager(userId, userName);
+        if (assigned && !assigned.includes('*') && assigned.length > 0) {
+          const normalize = (str) => String(str || '').replace(/[\s\-_/()（）\[\]휴게소방향]/g, '').toLowerCase();
+          const assignedNorm = assigned.map(normalize);
+          sites = SETTLEMENT_TARGET_SITES.filter((site) => {
+            const n1 = normalize(site.name);
+            const n2 = normalize(site.shortName);
+            const n3 = normalize(site.id);
+            return assignedNorm.some(
+              (a) => a === n1 || a === n2 || a === n3 || n1.includes(a) || a.includes(n1) || n2.includes(a) || a.includes(n2)
+            );
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        sites,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] /sites 조회 오류:', err);
+      res.json({
+        success: true,
+        sites: SETTLEMENT_TARGET_SITES,
+      });
+    }
   });
 
   /**

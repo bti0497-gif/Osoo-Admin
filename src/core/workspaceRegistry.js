@@ -16,6 +16,7 @@ const TemplateManagerView = lazy(() => import('../features/gyeonggi-reports/Temp
 const TemplateBuilderView = lazy(() => import('../features/gyeonggi-reports/TemplateBuilderView'));
 const GyeonggiMonthlyReportView = lazy(() => import('../features/gyeonggi-reports/monthly-report/GyeonggiMonthlyReportView'));
 const AttendanceDashboardView = lazy(() => import('../features/attendance').then((m) => ({ default: m.AttendanceDashboardView })));
+const HrEvaluationView = lazy(() => import('../features/hr-evaluation').then((m) => ({ default: m.HrEvaluationView })));
 const PeriodReportView = lazy(() => import('../features/period-report/PeriodReportView').then((m) => ({ default: m.PeriodReportView })));
 const SitePhotoExportView = lazy(() => import('../features/photo-export/SitePhotoExportView').then((m) => ({ default: m.SitePhotoExportView })));
 const TaxInvoiceManagerView = lazy(() => import('../features/settlement/TaxInvoiceManagerView').then((m) => ({ default: m.TaxInvoiceManagerView })));
@@ -47,7 +48,7 @@ export const WORKSPACE_REGISTRY = {
     helpText: 'A4 1페이지 4분할 입금표 파일의 공백을 자르고 거래처 및 현장별로 3열 고속 매칭합니다.'
   },
   monthly_settlement_auto: {
-    render: () => React.createElement(MonthlySettlementAutoView),
+    render: ({ currentUser }) => React.createElement(MonthlySettlementAutoView, { currentUser }),
     helpText: '수집된 일일점검, QnTech 키트수질, 성적서 데이터를 기반으로 5대 현장별 월정산 엑셀 파일을 자동 작성합니다.'
   },
   board: {
@@ -87,8 +88,12 @@ export const WORKSPACE_REGISTRY = {
     helpText: '양식을 선택하고 BigQuery 데이터를 바인딩해 문서를 생성합니다.'
   },
   attendance_dashboard: {
-    render: () => React.createElement(AttendanceDashboardView),
+    render: ({ currentUser }) => React.createElement(AttendanceDashboardView, { currentUser }),
     helpText: '전국 현장관리자 출결현황을 조회합니다.'
+  },
+  hr_evaluation: {
+    render: ({ currentUser }) => React.createElement(HrEvaluationView, { currentUser }),
+    helpText: '현장관리자별 월간 근무형태(달력/목록), 휴무·지각·조퇴 사유 기록, 상벌점 부여 및 전국 현장 인사고과 순위를 관리합니다.'
   },
   period_report: {
     render: () => React.createElement(PeriodReportView),

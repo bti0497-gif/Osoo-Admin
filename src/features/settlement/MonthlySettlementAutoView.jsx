@@ -3,7 +3,7 @@ import { useMonthlySettlementAuto } from './hooks/useMonthlySettlementAuto';
 import { CheongjuStatementUploadModal } from './components/CheongjuStatementUploadModal';
 import { HongcheonHwpModal } from './components/HongcheonHwpModal';
 
-export function MonthlySettlementAutoView() {
+export function MonthlySettlementAutoView({ currentUser } = {}) {
   const {
     activeTab, setActiveTab,
     year, setYear,
@@ -21,9 +21,7 @@ export function MonthlySettlementAutoView() {
     fetchSummary,
     fetchTemplates,
     openTemplate,
-    downloadTemplate,
     uploadTemplate,
-    deleteTemplate,
     generateCheongjuReport,
     generateJukamBusanReport,
     generateJukamSeoulReport,
@@ -31,7 +29,7 @@ export function MonthlySettlementAutoView() {
     generateHongcheonExcelReport,
     generateHongcheonHwpReport,
     checkDataReady,
-  } = useMonthlySettlementAuto();
+  } = useMonthlySettlementAuto(currentUser);
 
   // 파일 업로드 input 참조 및 상태
   const fileInputRef = useRef(null);

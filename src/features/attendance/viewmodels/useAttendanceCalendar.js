@@ -95,7 +95,6 @@ function getWeekDays(dateStr) {
 function getMonthDays(dateStr) {
   const [year, month] = dateStr.split('-').map(Number);
   const first = new Date(year, month - 1, 1);
-  const last = new Date(year, month, 0);
   // 달력 그리드: 월요일 시작, 6주 × 7일
   const startDay = first.getDay(); // 0=일
   const gridStart = new Date(first);

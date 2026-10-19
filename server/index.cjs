@@ -97,6 +97,7 @@ app.use(require('./routes/photoExportRoutes.cjs'));          // 현장 사진 �
 app.use('/api/auth', require('./routes/authRoutes.cjs')()); // 인증
 app.use(require('./routes/attendanceRoutes.cjs'));        // 출근부
 app.use(require('./routes/uploadRoutes.cjs')(BASE_DIR, appDataPath));   // 파일 업로드/다운로드 (/api/upload, /api/download)
+app.use(require('./routes/hrEvaluationRoutes.cjs')());      // 인사고과 (근태 기록, 상벌점, 시말서 Drive 업로드, 배치 동기화)
 
 async function findFreePort(startPort, endPort) {
   for (let p = startPort; p <= endPort; p++) {

@@ -1,22 +1,39 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getApiBase } from '../../../core/api/serverConfig.js';
+import { filterSitesForUser, isSiteAssigned } from '../../../core/auth/siteAccessHelper.js';
 
 // 오늘 날짜 YYYY-MM-DD 반환
 const getTodayString = () => new Date().toISOString().split('T')[0];
 
-const adminHeaders = () => {
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+const getActiveUser = (explicitUser = null) => {
+  if (explicitUser) return explicitUser;
+  try {
+    const rawSession = localStorage.getItem('osoo_admin_user_session');
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession);
+      if (parsed.user) return parsed.user;
+    }
+    const legacy = localStorage.getItem('user');
+    if (legacy) return JSON.parse(legacy);
+  } catch {
+    // fallback
+  }
+  return null;
+};
+
+const adminHeaders = (currentUser = null) => {
+  const user = getActiveUser(currentUser) || {};
   return {
     'Content-Type': 'application/json',
     'x-user-role': user.role || 'admin',
-    'x-user-name': user.name || 'admin',
+    'x-user-name': encodeURIComponent(user.name || 'admin'),
   };
 };
 
 /**
  * 출결 현황 대시보드 ViewModel
  */
-export function useAttendanceDashboard() {
+export function useAttendanceDashboard(currentUser = null) {
   const [selectedDate, setSelectedDate] = useState(getTodayString());
   const [selectedSite, setSelectedSite] = useState('all');
   const [period, setPeriod] = useState('daily');
@@ -31,8 +48,9 @@ export function useAttendanceDashboard() {
   // 현장 목록 조회
   const fetchSites = useCallback(async () => {
     try {
+      const activeUser = getActiveUser(currentUser);
       const res = await fetch(`${getApiBase()}/api/attendance/sites`, {
-        headers: adminHeaders(),
+        headers: adminHeaders(activeUser),
       });
       if (!res.ok) throw new Error('현장 목록 조회 실패');
       const result = await res.json();
@@ -41,12 +59,17 @@ export function useAttendanceDashboard() {
         const uniqueSites = result.data
           .filter((site, index, self) => index === self.findIndex((s) => s.site_id === site.site_id))
           .sort((a, b) => (a.site_name || '').localeCompare(b.site_name || '', 'ko'));
-        setSites(uniqueSites);
+        const filteredSites = filterSitesForUser(
+          uniqueSites,
+          activeUser,
+          (s) => s.site_name || s.site_id
+        );
+        setSites(filteredSites);
       }
     } catch (err) {
       console.error('[useAttendanceDashboard] 현장 목록 조회 실패:', err);
     }
-  }, []);
+  }, [currentUser]);
 
   // 출결 데이터 조회
   const fetchAttendance = useCallback(async () => {
@@ -123,7 +146,14 @@ export function useAttendanceDashboard() {
             raw: row,
           };
         });
-        setAttendanceData(formatted);
+        const activeUser = getActiveUser(currentUser);
+        let finalData = formatted;
+        if (selectedSite === 'all' && activeUser && !activeUser.isSuperAdmin && activeUser.role !== 'admin') {
+          finalData = formatted.filter((item) =>
+            isSiteAssigned(item.siteName || item.siteId, activeUser.assignedSites)
+          );
+        }
+        setAttendanceData(finalData);
       } else {
         throw new Error(result.error || '조회 실패');
       }
@@ -134,7 +164,7 @@ export function useAttendanceDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, selectedSite, period]);
+  }, [selectedDate, selectedSite, period, currentUser]);
 
   // 초기 현장 목록 로드
   useEffect(() => {

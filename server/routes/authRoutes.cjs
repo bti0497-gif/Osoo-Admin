@@ -1,8 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { getMembers, upsertMember, deleteMember, isSheetsConfigured } = require('../services/membersSheetsService.cjs');
-
-const ADMIN_ROLES = new Set(['admin', 'group_admin', 'central_admin']);
+const { normalizeRole, getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 
 module.exports = () => {
     const router = express.Router();
@@ -17,24 +16,55 @@ module.exports = () => {
         res.json({ success: true, name: '' });
     });
 
+    router.get('/assigned-sites', async (req, res) => {
+        try {
+            const { userId, userName } = req.query || {};
+            const assignedSites = await getAssignedSitesForManager(userId, userName);
+            const isSuperAdmin =
+                String(userId || '').toLowerCase() === 'admin' ||
+                String(userName || '').toLowerCase() === 'admin' ||
+                assignedSites.includes('*');
+
+            res.json({
+                success: true,
+                assignedSites: isSuperAdmin ? ['*'] : assignedSites,
+                isSuperAdmin,
+            });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     router.post('/local-login', async (req, res) => {
         try {
             if (!requireSheets(res)) return;
             const { name, password } = req.body || {};
             const members = await getMembers();
             const member = members.find((item) =>
-                String(item.name || '') === String(name || '') &&
-                String(item.password || '') === String(password || '')
+                String(item.name || '').trim() === String(name || '').trim() &&
+                String(item.password || '').trim() === String(password || '').trim()
             );
 
             if (!member) {
                 return res.status(401).json({ success: false, message: '이름 또는 비밀번호가 올바르지 않습니다.' });
             }
-            if (!ADMIN_ROLES.has(String(member.role || ''))) {
-                return res.status(403).json({ success: false, message: '관리자 전용 앱입니다.' });
+
+            const normalizedRole = normalizeRole(member.role, member.name);
+            if (normalizedRole !== 'admin' && normalizedRole !== 'group_admin') {
+                return res.status(403).json({ success: false, message: '중앙관리자 또는 최고관리자만 접속할 수 있습니다.' });
             }
 
-            res.json({ success: true, member });
+            const assignedSites = await getAssignedSitesForManager(member.id, member.name);
+            const isSuperAdmin = member.id === 'admin' || normalizedRole === 'admin' || assignedSites.includes('*');
+
+            const authenticatedMember = {
+                ...member,
+                role: normalizedRole,
+                isSuperAdmin,
+                assignedSites: isSuperAdmin ? ['*'] : assignedSites,
+            };
+
+            res.json({ success: true, member: authenticatedMember });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
         }

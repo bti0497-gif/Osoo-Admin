@@ -8,7 +8,7 @@ import { AttendanceCalendarView } from './AttendanceCalendarView.jsx';
  * - 상태별 필터링 (전체, 근무중, 퇴근완료, 미출근/기록없음)
  * - 주간/월간 특정 현장 선택 제약 유도 UI
  */
-export function AttendanceDashboardView() {
+export function AttendanceDashboardView({ currentUser } = {}) {
   const {
     selectedDate,
     setSelectedDate,
@@ -27,7 +27,7 @@ export function AttendanceDashboardView() {
     selectedRowId,
     setSelectedRowId,
     refresh,
-  } = useAttendanceDashboard();
+  } = useAttendanceDashboard(currentUser);
 
   const useCalendar = selectedSite !== 'all' && (period === 'weekly' || period === 'monthly');
   const siteName = sites.find((s) => s.site_id === selectedSite)?.site_name || selectedSite;

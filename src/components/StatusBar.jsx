@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useDialog } from './common/DialogContext';
 
 const StatusBar = ({ title, helpText, onTabChange }) => {
@@ -8,11 +8,60 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
     const [appVersion, setAppVersion] = useState('v1.0.32');
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateProgressText, setUpdateProgressText] = useState('');
+    const [syncNotification, setSyncNotification] = useState(null);
+    const syncTimerRef = useRef(null);
 
-    const appVersionRef = React.useRef(appVersion);
+    const appVersionRef = useRef(appVersion);
     useEffect(() => {
         appVersionRef.current = appVersion;
     }, [appVersion]);
+
+    useEffect(() => {
+        const handleSyncStatus = (e) => {
+            const detail = e.detail;
+            if (!detail) return;
+
+            if (syncTimerRef.current) {
+                clearTimeout(syncTimerRef.current);
+                syncTimerRef.current = null;
+            }
+
+            if (detail.state === 'syncing') {
+                setSyncNotification({
+                    state: 'syncing',
+                    text: detail.text || '서버 저장 중...',
+                });
+            } else if (detail.state === 'saved') {
+                setSyncNotification({
+                    state: 'saved',
+                    text: detail.text || '저장되었습니다.',
+                });
+                syncTimerRef.current = setTimeout(() => {
+                    setSyncNotification(null);
+                    syncTimerRef.current = null;
+                }, 2800);
+            } else if (detail.state === 'error') {
+                setSyncNotification({
+                    state: 'error',
+                    text: detail.text || '서버 저장 실패',
+                });
+                syncTimerRef.current = setTimeout(() => {
+                    setSyncNotification(null);
+                    syncTimerRef.current = null;
+                }, 3500);
+            } else {
+                setSyncNotification(null);
+            }
+        };
+
+        window.addEventListener('osoo:sync-status', handleSyncStatus);
+        return () => {
+            window.removeEventListener('osoo:sync-status', handleSyncStatus);
+            if (syncTimerRef.current) {
+                clearTimeout(syncTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -258,9 +307,45 @@ const StatusBar = ({ title, helpText, onTabChange }) => {
                     <span className="material-icons" style={{ fontSize: '14px', color: '#94a3b8' }}>login</span>
                     <span>현재 시간: <span style={{ color: 'white' }}>{time}</span></span>
                 </div>
-                <div className="status-item" style={{ backgroundColor: '#334155', padding: '2px 8px', borderRadius: '4px', color: 'white' }}>
-                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#4ade80', marginRight: '6px' }}></div>
-                    <span>서버 상태: 양호</span>
+                <div
+                    className="status-item"
+                    style={{
+                        backgroundColor:
+                            syncNotification?.state === 'error'
+                                ? '#7f1d1d'
+                                : syncNotification?.state === 'syncing'
+                                ? '#1e3a8a'
+                                : '#334155',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.25s ease',
+                    }}
+                >
+                    {syncNotification?.state === 'syncing' ? (
+                        <>
+                            <span className="material-icons spin" style={{ fontSize: '13px', color: '#60a5fa', animation: 'spin 1s linear infinite' }}>sync</span>
+                            <span style={{ color: '#93c5fd', fontWeight: 600 }}>{syncNotification.text}</span>
+                        </>
+                    ) : syncNotification?.state === 'saved' ? (
+                        <>
+                            <span style={{ fontSize: '12px' }}>✅</span>
+                            <span style={{ color: '#86efac', fontWeight: 600 }}>{syncNotification.text}</span>
+                        </>
+                    ) : syncNotification?.state === 'error' ? (
+                        <>
+                            <span style={{ fontSize: '12px' }}>⚠️</span>
+                            <span style={{ color: '#fca5a5', fontWeight: 600 }}>{syncNotification.text}</span>
+                        </>
+                    ) : (
+                        <>
+                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#4ade80' }}></div>
+                            <span>서버 상태: 양호</span>
+                        </>
+                    )}
                 </div>
             </div>
         </footer>

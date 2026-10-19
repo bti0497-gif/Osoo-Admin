@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiClient } from '../../../core/api';
+import { filterSitesForUser } from '../../../core/auth/siteAccessHelper';
 
 /**
  * 구글시트 현장 목록을 로드하고 캐싱하는 훅
@@ -175,14 +176,14 @@ export function matchSiteName(rawName, siteMaster) {
     };
 }
 
-export function useSiteMaster() {
-    const [siteMaster, setSiteMaster] = useState(_cachedSiteMaster || []);
+export function useSiteMaster(currentUser = null) {
+    const [allSites, setAllSites] = useState(_cachedSiteMaster || []);
     const [loading, setLoading] = useState(!_cachedSiteMaster);
     const [error, setError] = useState(null);
 
     const load = useCallback(async () => {
         if (_cachedSiteMaster) {
-            setSiteMaster(_cachedSiteMaster);
+            setAllSites(_cachedSiteMaster);
             setLoading(false);
             return;
         }
@@ -191,7 +192,7 @@ export function useSiteMaster() {
             const res = await apiClient.get('/api/site-master');
             const sites = Array.isArray(res?.sites) ? res.sites : [];
             _cachedSiteMaster = sites;
-            setSiteMaster(sites);
+            setAllSites(sites);
         } catch (err) {
             setError(err.message);
         } finally {
@@ -206,5 +207,9 @@ export function useSiteMaster() {
         load();
     }, [load]);
 
-    return { siteMaster, loading, error, invalidateCache };
+    const siteMaster = useMemo(() => {
+        return filterSitesForUser(allSites, currentUser, (s) => s.site_name || s.name || s.shortName || s.id);
+    }, [allSites, currentUser]);
+
+    return { siteMaster, allSites, loading, error, invalidateCache };
 }

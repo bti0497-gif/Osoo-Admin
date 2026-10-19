@@ -4,9 +4,8 @@ import { ADMIN_ROLES } from '../../core/constants';
 
 const isAdminUser = (member) => ADMIN_ROLES.includes(String(member?.role || ''));
 
-// [개발 단계 임시 설정] 중앙관리자 앱 기능 개발 중이므로 로그인 바이패스 활성화 중
-// 개발 마무리 단계에서 중앙관리자별 로그인 및 소통게시판 작성자 식별을 적용할 경우 `false`로 변경
-const BYPASS_LOGIN = true;
+// 중앙관리자별 로그인 및 권한 격리 활성화 (BYPASS_LOGIN = false)
+const BYPASS_LOGIN = false;
 
 const DEFAULT_ADMIN_USER = {
     id: 'super_admin',
@@ -54,6 +53,26 @@ export const useAuthViewModel = () => {
                 const savedUser = AuthModel.loadSession();
                 if (savedUser && isAdminUser(savedUser)) {
                     setUser(savedUser);
+                    // 백그라운드 담당 현장 최신 동기화 (Google Sheet Wastewater_Central_Managers 연동)
+                    try {
+                        const latestAssigned = await AuthModel.getAssignedSites(savedUser.id, savedUser.name);
+                        if (Array.isArray(latestAssigned)) {
+                            const isSuperAdmin =
+                                savedUser.id === 'admin' ||
+                                savedUser.role === 'admin' ||
+                                savedUser.role === 'super_admin' ||
+                                latestAssigned.includes('*');
+                            const updatedUser = {
+                                ...savedUser,
+                                isSuperAdmin,
+                                assignedSites: isSuperAdmin ? ['*'] : latestAssigned,
+                            };
+                            setUser(updatedUser);
+                            AuthModel.saveSession(updatedUser);
+                        }
+                    } catch (syncErr) {
+                        console.warn('Background assigned sites sync failed:', syncErr);
+                    }
                 } else {
                     AuthModel.clearSession();
                     await refreshLoginHint();
