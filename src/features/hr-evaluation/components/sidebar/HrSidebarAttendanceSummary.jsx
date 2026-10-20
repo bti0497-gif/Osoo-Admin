@@ -55,10 +55,15 @@ export function HrSidebarAttendanceSummary({
       <div style={styles.leaveTagsWrap}>
         <span style={styles.leaveTagItem}>월차 {leaveBreakdown?.monthly_leave || 0}</span>
         <span style={styles.leaveTagItem}>연차 {leaveBreakdown?.annual_leave || 0}</span>
-        <span style={styles.leaveTagItem}>반차 {leaveBreakdown?.half_leave || 0}</span>
+        <span style={styles.leaveTagItem}>대체휴무 {leaveBreakdown?.sub_leave || 0}</span>
         <span style={styles.leaveTagItem}>경조사 {leaveBreakdown?.family_leave || 0}</span>
         <span style={styles.leaveTagItem}>병가 {leaveBreakdown?.sick_leave || 0}</span>
         <span style={styles.leaveTagItem}>공가 {leaveBreakdown?.official_leave || 0}</span>
+        {leaveBreakdown?.early_leave > 0 && (
+          <span style={{ ...styles.leaveTagItem, backgroundColor: '#ffe4e6', color: '#e11d48' }}>
+            조퇴 {leaveBreakdown.early_leave}
+          </span>
+        )}
         {leaveBreakdown?.absent > 0 && (
           <span style={{ ...styles.leaveTagItem, backgroundColor: '#fee2e2', color: '#b91c1c' }}>
             결근 {leaveBreakdown.absent}

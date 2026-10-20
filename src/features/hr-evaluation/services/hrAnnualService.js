@@ -32,10 +32,11 @@ export function calculateWorkerMonthlySummary(worker, workerRecord, scoringSetti
   const leaveBreakdown = {
     monthly_leave: 0,
     annual_leave: 0,
-    half_leave: 0,
+    sub_leave: 0,
     family_leave: 0,
     sick_leave: 0,
     official_leave: 0,
+    early_leave: 0,
     absent: 0,
   };
 
@@ -51,10 +52,13 @@ export function calculateWorkerMonthlySummary(worker, workerRecord, scoringSetti
 
     if (rec.dayType === 'work') {
       workDays += 1;
-    } else if (rec.dayType === 'half_am' || rec.dayType === 'half_pm') {
-      workDays += 0.5;
-      totalLeaveDays += 0.5;
-      leaveBreakdown.half_leave += 1;
+    } else if (rec.dayType === 'early_leave') {
+      workDays += 1;
+      earlyLeaveCount += 1;
+      leaveBreakdown.early_leave += 1;
+    } else if (rec.dayType === 'sub_leave' || rec.dayType === 'half_am' || rec.dayType === 'half_pm') {
+      totalLeaveDays += 1;
+      leaveBreakdown.sub_leave = (leaveBreakdown.sub_leave || 0) + 1;
     } else if (rec.dayType === 'regular_off') {
       regularOffDays += 1;
     } else if (rec.dayType === 'absent') {
@@ -69,9 +73,7 @@ export function calculateWorkerMonthlySummary(worker, workerRecord, scoringSetti
     if (rec.lateType && rec.dayType !== 'absent') {
       lateCount += 1;
     }
-    if (rec.earlyType === '조기퇴근') {
-      earlyLeaveCount += 1;
-    } else if (rec.earlyType === '20시자동퇴근') {
+    if (rec.earlyType === '20시자동퇴근' || rec.autoLogout) {
       autoLogoutCount += 1;
     }
 
@@ -213,7 +215,7 @@ export function calculateWorkerAnnualSummary(
   const annualLeaveBreakdown = {
     monthly_leave: 0,
     annual_leave: 0,
-    half_leave: 0,
+    sub_leave: 0,
     family_leave: 0,
     sick_leave: 0,
     official_leave: 0,
@@ -324,6 +326,8 @@ export function calculateWorkerAnnualSummary(
     annualRewardPenaltyTimeline: allTimelineItems,
     salaryRecommendation,
     annualComment,
+    annualRank: 1,
+    totalWorkers: 1,
     isAnnualConfirmed,
     annualConfirmedAt,
   };

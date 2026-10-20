@@ -10,12 +10,15 @@ export function HrApologyDocumentPaper({
   zoomScale,
   styles,
 }) {
+  const scaledWidth = Math.round(680 * (zoomScale || 1));
+
   return (
     <div
       style={{
         ...styles.documentPaper,
-        transform: `scale(${zoomScale})`,
-        transformOrigin: 'top center',
+        width: `${scaledWidth}px`,
+        maxWidth: '95%',
+        padding: apologyDoc.dataUrl ? '16px' : '36px 42px',
       }}
     >
       {apologyDoc.dataUrl ? (

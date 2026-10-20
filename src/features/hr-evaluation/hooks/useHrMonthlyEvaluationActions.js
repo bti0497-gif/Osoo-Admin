@@ -35,7 +35,10 @@ export function useHrMonthlyEvaluationActions({
         if (patch.dayType !== undefined && patch.dayType !== currentDay.dayType) {
           if (nextDayType === 'work') {
             if (nextCheckIn === '-') nextCheckIn = '08:50';
-            if (nextCheckOut === '-') nextCheckOut = '18:10';
+          } else if (nextDayType === 'early_leave') {
+            if (nextCheckIn === '-') nextCheckIn = '08:50';
+            if (nextCheckOut === '-') nextCheckOut = '14:30';
+            nextAutoLogout = false;
           } else if (nextDayType === 'half_am') {
             nextCheckIn = '13:50';
             if (nextCheckOut === '-') nextCheckOut = '18:05';
@@ -57,7 +60,8 @@ export function useHrMonthlyEvaluationActions({
             checkOut: nextCheckOut,
             autoLogout: nextAutoLogout,
           },
-          scoringSettings.autoPenalty
+          scoringSettings.autoPenalty,
+          scoringSettings.workHours
         );
 
         const nextIsExcused =

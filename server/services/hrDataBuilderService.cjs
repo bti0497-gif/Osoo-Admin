@@ -83,14 +83,21 @@ async function getActiveWorkers() {
 /**
  * 출퇴근 시각 및 근무형태 벌점 계산
  */
-function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRules = null) {
-  const rules = customRules || {
-    lateMinor: -1,
-    lateNormal: -2,
-    lateSevere: -3,
-    earlyLeave: -2,
+function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRules = null, customWorkHours = null) {
+  const rules = customRules?.autoPenalty || customRules || {
+    late10m: -1,
+    late30m: -2,
+    late60m: -3,
+    early10m: -1,
+    early30m: -2,
+    early60m: -3,
     autoLogout: -2,
     absent: -10,
+  };
+
+  const workHours = customWorkHours || customRules?.workHours || {
+    workStartTime: '09:00',
+    workEndTime: '17:00',
   };
 
   if (dayType === 'absent') {
@@ -103,7 +110,17 @@ function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRu
     };
   }
 
-  if (dayType !== 'work' && dayType !== 'half_am' && dayType !== 'half_pm') {
+  // 조퇴(신청): 관리자가 조퇴로 지정한 날은 벌점 0점 부과 및 조퇴 건수만 집계
+  if (dayType === 'early_leave') {
+    return {
+      autoPenaltyPoints: 0,
+      lateType: null,
+      earlyType: '조퇴신청',
+      penaltyBadges: [{ label: '조퇴(신청)', color: '#e11d48', bg: '#ffe4e6' }],
+    };
+  }
+
+  if (dayType !== 'work') {
     return {
       autoPenaltyPoints: 0,
       lateType: null,
@@ -112,53 +129,78 @@ function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRu
     };
   }
 
+  const [sH, sM] = String(workHours.workStartTime || '09:00').split(':').map(Number);
+  const [eH, eM] = String(workHours.workEndTime || '17:00').split(':').map(Number);
+  const startMin = (Number.isNaN(sH) ? 9 : sH) * 60 + (Number.isNaN(sM) ? 0 : sM);
+  const endMin = (Number.isNaN(eH) ? 17 : eH) * 60 + (Number.isNaN(eM) ? 0 : eM);
+
   let points = 0;
   let lateType = null;
   let earlyType = null;
   const penaltyBadges = [];
 
-  if (checkIn && checkIn !== '-' && dayType !== 'half_am') {
+  // 출근 판정 (10분까지는 봐줌 = 0점)
+  if (checkIn && checkIn !== '-') {
     const parts = checkIn.split(':').map(Number);
     const hh = parts[0];
     const mm = parts[1];
     if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
-      const totalMin = hh * 60 + mm;
-      if (totalMin > 9 * 60 + 30) {
-        const p = rules.lateSevere !== undefined ? rules.lateSevere : -3;
+      const inMin = hh * 60 + mm;
+      if (inMin > startMin + 60) {
+        // 1시간 초과 지각
+        const p = rules.late60m ?? rules.lateSevere ?? -3;
         points += p;
         lateType = '심한지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#dc2626', bg: '#fee2e2' });
-      } else if (totalMin > 9 * 60 + 10) {
-        const p = rules.lateNormal !== undefined ? rules.lateNormal : -2;
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#dc2626', bg: '#fee2e2' });
+      } else if (inMin > startMin + 30) {
+        // 30분 초과 ~ 1시간 이하 지각
+        const p = rules.late30m ?? rules.lateNormal ?? -2;
         points += p;
         lateType = '일반지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#ea580c', bg: '#ffedd5' });
-      } else if (totalMin >= 9 * 60 + 1) {
-        const p = rules.lateMinor !== undefined ? rules.lateMinor : -1;
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#ea580c', bg: '#ffedd5' });
+      } else if (inMin > startMin + 10) {
+        // 10분 초과 ~ 30분 이하 지각
+        const p = rules.late10m ?? rules.lateMinor ?? -1;
         points += p;
         lateType = '경미지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#d97706', bg: '#fef3c7' });
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#d97706', bg: '#fef3c7' });
       }
+      // inMin <= startMin + 10: 10분 유예 인정 (0점)
     }
   }
 
+  // 퇴근 판정 (퇴근 10분 전부터 정상 인정)
   if (autoLogout || (typeof checkOut === 'string' && checkOut.startsWith('20:00'))) {
     const p = rules.autoLogout !== undefined ? rules.autoLogout : -2;
     points += p;
     earlyType = '20시자동퇴근';
     penaltyBadges.push({ label: `20시자동 ${p}`, color: '#ea580c', bg: '#ffedd5' });
-  } else if (checkOut && checkOut !== '-' && dayType !== 'half_pm') {
+  } else if (checkOut && checkOut !== '-') {
     const parts = checkOut.split(':').map(Number);
     const hh = parts[0];
     const mm = parts[1];
     if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
-      const totalMin = hh * 60 + mm;
-      if (totalMin < 17 * 60 + 50) {
-        const p = rules.earlyLeave !== undefined ? rules.earlyLeave : -2;
+      const outMin = hh * 60 + mm;
+      if (outMin < endMin - 60) {
+        // 1시간 초과 일찍 퇴근
+        const p = rules.early60m ?? -3;
         points += p;
-        earlyType = '조기퇴근';
-        penaltyBadges.push({ label: `조퇴(${checkOut}) ${p}`, color: '#e11d48', bg: '#ffe4e6' });
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#dc2626', bg: '#fee2e2' });
+      } else if (outMin < endMin - 30) {
+        // 30분 전 초과 ~ 1시간 전 이하
+        const p = rules.early30m ?? rules.earlyLeave ?? -2;
+        points += p;
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#ea580c', bg: '#ffedd5' });
+      } else if (outMin < endMin - 10) {
+        // 10분 전 초과 ~ 30분 전 이하
+        const p = rules.early10m ?? -1;
+        points += p;
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#f59e0b', bg: '#fef3c7' });
       }
+      // outMin >= endMin - 10: 퇴근 10분 전부터 정상 인정 (0점)
     }
   }
 
@@ -173,7 +215,7 @@ function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRu
 /**
  * 2. 실제 BigQuery 출퇴근 로그 + 중앙관리자 수기 저장 레코드 결합
  */
-function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manualDailyRows = [], scoringRules = null }) {
+function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manualDailyRows = [], scoringRules = null, workHours = null }) {
   const daysInMonth = new Date(year, month, 0).getDate();
   const { dateStr: todayKst } = getNowKST();
   const dailyRecordsMap = {};
@@ -237,7 +279,7 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         if (bqRow.logout_time) {
           const lOut = String(bqRow.logout_time);
           if (bqRow.auto_logout || lOut.startsWith('20:00')) {
-            checkOut = '20:00 (자동)';
+            checkOut = '20:00';
             autoLogout = true;
           } else {
             checkOut = lOut.slice(0, 5);
@@ -253,14 +295,20 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
       }
 
       // 기본 벌점 계산
-      let penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules);
+      let penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules, workHours);
 
       // 중앙관리자 수기 저장 레코드 오버레이 (휴가 변경, 사유 등록, 참작 면제 등)
       const manual = manualMap.get(`${dateStr}|${wId}`) || manualMap.get(`${dateStr}|${worker.siteId}`);
       if (manual) {
-        if (manual.day_type) dayType = manual.day_type;
+        if (manual.day_type) {
+          dayType = (manual.day_type === 'half_am' || manual.day_type === 'half_pm')
+            ? 'sub_leave'
+            : manual.day_type;
+        }
         if (manual.login_time && manual.login_time !== '-') checkIn = manual.login_time;
-        if (manual.logout_time && manual.logout_time !== '-') checkOut = manual.logout_time;
+        if (manual.logout_time && manual.logout_time !== '-') {
+          checkOut = String(manual.logout_time).replace(/\s*\([^)]*\)/g, '').trim();
+        }
         if (manual.is_auto_logout !== undefined) autoLogout = Boolean(manual.is_auto_logout);
         leaveReason = manual.leave_reason || '';
         lateReason = manual.late_reason || '';
@@ -268,7 +316,7 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         isPenaltyExcused = Boolean(manual.is_penalty_excused);
 
         // 변경된 상태로 재계산
-        penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules);
+        penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules, workHours);
       }
 
       const finalPenaltyPoints = isPenaltyExcused ? 0 : penaltyInfo.autoPenaltyPoints;

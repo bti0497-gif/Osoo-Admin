@@ -22,6 +22,9 @@ export function HrSidebarScoreCard({
     border: '#c4b5fd',
   };
 
+  const safeTotalWorkers = Math.max(Number(rank) || 1, Number(totalWorkers) || 1);
+  const safeRank = Math.min(Number(rank) || 1, safeTotalWorkers);
+
   return (
     <section
       style={{
@@ -62,7 +65,7 @@ export function HrSidebarScoreCard({
             {safeGrade.label}
           </span>
           <span style={styles.rankBadge}>
-            🏆 전체 {totalWorkers}개 현장 중 <strong>{rank}위</strong>
+            🏆 전체 {safeTotalWorkers}개 현장 중 <strong>{safeRank}위</strong>
           </span>
         </div>
       </div>

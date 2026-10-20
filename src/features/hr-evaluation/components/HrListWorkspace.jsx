@@ -149,26 +149,30 @@ export function HrListWorkspace({
                   <td style={{ ...styles.td, textAlign: 'center' }}>
                     {rec.checkIn !== '-' || rec.checkOut !== '-' ? (
                       <div style={styles.timeCellWrap}>
-                        <span style={styles.monoTime}>
+                        <span style={{ ...styles.monoTime, whiteSpace: 'nowrap' }}>
                           {rec.checkIn} →{' '}
                           <strong style={{ color: rec.autoLogout ? '#ea580c' : '#0f172a' }}>
-                            {rec.autoLogout ? '20:00(자동)' : rec.checkOut}
+                            {(rec.autoLogout ? '20:00' : (rec.checkOut || '-')).replace(/\s*\([^)]*\)/g, '').trim()}
                           </strong>
                         </span>
                         {rec.penaltyBadges?.length > 0 && (
                           <div style={styles.miniBadgeRow}>
-                            {rec.penaltyBadges.map((b, idx) => (
-                              <span
-                                key={idx}
-                                style={{
-                                  ...styles.miniBadge,
-                                  backgroundColor: b.bg,
-                                  color: b.color,
-                                }}
-                              >
-                                {b.label}
-                              </span>
-                            ))}
+                            {rec.penaltyBadges.map((b, idx) => {
+                              const cleanLabel = (b.label || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+                              return (
+                                <span
+                                  key={idx}
+                                  style={{
+                                    ...styles.miniBadge,
+                                    backgroundColor: b.bg,
+                                    color: b.color,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {cleanLabel}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </div>

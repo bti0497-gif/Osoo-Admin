@@ -19,9 +19,9 @@ export function HrSidebarRewardPenaltyManager({
   const activePresets = rpTab === 'reward' ? presets.rewardPresets : presets.penaltyPresets;
 
   const [selectedPresetId, setSelectedPresetId] = useState(() => activePresets[0]?.id || '');
-  const [customTitle, setCustomTitle] = useState(() => activePresets[0]?.title || '');
+  const [customTitle, setCustomTitle] = useState(() => activePresets[0]?.title?.replace(' (포상)', '').replace(' (징계/감점)', '') || '');
   const [customPoints, setCustomPoints] = useState(() => Math.abs(activePresets[0]?.points || 2));
-  const [customReason, setCustomReason] = useState(() => activePresets[0]?.defaultReason || '');
+  const [customReason, setCustomReason] = useState('');
   const [attachedApologyDoc, setAttachedApologyDoc] = useState(null);
 
   const fileInputRef = useRef(null);
@@ -29,6 +29,13 @@ export function HrSidebarRewardPenaltyManager({
   const [targetAppendItemId, setTargetAppendItemId] = useState(null);
 
   const { netRewardPenalty = 0, rewardPenaltyList = [] } = workerEvaluation || {};
+
+  // 근무자 변경 시 사유 및 첨부 파일 자동 초기화
+  React.useEffect(() => {
+    setCustomReason('');
+    setAttachedApologyDoc(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [workerEvaluation?.workerId]);
 
   const handleTabSwitch = (nextTab) => {
     setRpTab(nextTab);
@@ -38,19 +45,20 @@ export function HrSidebarRewardPenaltyManager({
       setSelectedPresetId(first.id);
       setCustomTitle(first.title.replace(' (포상)', '').replace(' (징계/감점)', ''));
       setCustomPoints(Math.abs(first.points));
-      setCustomReason(first.defaultReason);
     }
+    setCustomReason('');
     setAttachedApologyDoc(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handlePresetChange = (presetId) => {
     setSelectedPresetId(presetId);
     const found = activePresets.find((p) => p.id === presetId);
     if (found) {
-      setCustomTitle(found.id.includes('custom') ? '' : found.title);
+      setCustomTitle(found.id.includes('custom') ? '' : found.title.replace(' (포상)', '').replace(' (징계/감점)', ''));
       setCustomPoints(Math.abs(found.points));
-      setCustomReason(found.defaultReason);
     }
+    setCustomReason('');
   };
 
   // 신규 등록 시 시말서 파일 선택 핸들러
@@ -103,13 +111,15 @@ export function HrSidebarRewardPenaltyManager({
       category: rpTab,
       title: customTitle || (rpTab === 'reward' ? '관리자 포상' : '관리자 감점'),
       points: rpTab === 'reward' ? Math.abs(Number(customPoints) || 2) : -Math.abs(Number(customPoints) || 2),
-      reason: customReason || '-',
+      reason: customReason ? customReason.trim() : '-',
       apologyDoc: rpTab === 'penalty' ? attachedApologyDoc : null,
     });
+    // 사유 입력창 및 첨부파일 즉시 비우기
+    setCustomReason('');
     setAttachedApologyDoc(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (selectedPresetId.includes('custom')) {
       setCustomTitle('');
-      setCustomReason('');
     }
   };
 

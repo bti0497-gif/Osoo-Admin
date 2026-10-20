@@ -101,8 +101,8 @@ export function HrAnnualMonthlyTable({ year, currentMonth, monthlySummaries, onS
                         {mItem.leaveBreakdown?.monthly_leave > 0 && (
                           <span style={styles.miniTag}>월차{mItem.leaveBreakdown.monthly_leave}</span>
                         )}
-                        {mItem.leaveBreakdown?.half_leave > 0 && (
-                          <span style={styles.miniTag}>반차{mItem.leaveBreakdown.half_leave}</span>
+                        {mItem.leaveBreakdown?.sub_leave > 0 && (
+                          <span style={styles.miniTag}>대체휴무{mItem.leaveBreakdown.sub_leave}</span>
                         )}
                       </div>
                     ) : (

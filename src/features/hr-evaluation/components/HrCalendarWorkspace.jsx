@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { DAY_TYPE_OPTIONS, DAY_TYPE_MAP } from '../constants/hrEvaluationConstants';
+import { DAY_TYPE_MAP } from '../constants/hrEvaluationConstants';
 import { hrCalendarWorkspaceStyles as styles } from './calendar/hrCalendarWorkspaceStyles';
 import { HrCalendarDayDetailPanel } from './calendar/HrCalendarDayDetailPanel';
 
@@ -44,28 +44,13 @@ export function HrCalendarWorkspace({
 
   return (
     <div style={styles.container}>
-      {/* 상단 범례 바 */}
+      {/* 상단 타이틀 바 */}
       <div style={styles.legendBar}>
         <div style={styles.legendLeft}>
           <span style={styles.legendTitle}>
             📅 {year}년 {month}월 · <strong>{workerEvaluation?.siteName}</strong> ({workerEvaluation?.workerName} {workerEvaluation?.position})
           </span>
           <span style={styles.legendHint}>날짜 셀을 클릭하면 하단 상세 패널에서 근무형태·사유·벌점참작을 즉시 수정할 수 있습니다.</span>
-        </div>
-        <div style={styles.legendChips}>
-          {DAY_TYPE_OPTIONS.slice(0, 7).map((opt) => (
-            <span
-              key={opt.value}
-              style={{
-                ...styles.legendChip,
-                backgroundColor: opt.bg,
-                color: opt.color,
-                border: `1px solid ${opt.border}`,
-              }}
-            >
-              {opt.shortLabel}
-            </span>
-          ))}
         </div>
       </div>
 
@@ -139,13 +124,14 @@ export function HrCalendarWorkspace({
                 </div>
 
                 {/* 출퇴근 시각 */}
-                {rec.dayType === 'work' || rec.dayType === 'half_am' || rec.dayType === 'half_pm' ? (
-                  <div style={styles.timeRow}>
+                {rec.dayType === 'work' ? (
+                  <div style={{ ...styles.timeRow, whiteSpace: 'nowrap' }}>
                     <span
                       style={{
                         ...styles.timeText,
                         color: rec.lateType ? '#dc2626' : '#334155',
                         fontWeight: rec.lateType ? 700 : 500,
+                        whiteSpace: 'nowrap',
                       }}
                     >
                       {rec.checkIn}
@@ -156,9 +142,10 @@ export function HrCalendarWorkspace({
                         ...styles.timeText,
                         color: rec.autoLogout || rec.earlyType ? '#dc2626' : '#334155',
                         fontWeight: rec.autoLogout || rec.earlyType ? 700 : 500,
+                        whiteSpace: 'nowrap',
                       }}
                     >
-                      {rec.autoLogout ? '20:00(자동)' : rec.checkOut}
+                      {(rec.autoLogout ? '20:00' : (rec.checkOut || '-')).replace(/\s*\([^)]*\)/g, '').trim()}
                     </span>
                   </div>
                 ) : (
@@ -168,19 +155,23 @@ export function HrCalendarWorkspace({
                 {/* 벌점 및 참작 배지 */}
                 {hasPenalty && (
                   <div style={styles.penaltyRow}>
-                    {rec.penaltyBadges.map((b, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          ...styles.penaltyBadge,
-                          backgroundColor: rec.isPenaltyExcused ? '#f1f5f9' : b.bg,
-                          color: rec.isPenaltyExcused ? '#64748b' : b.color,
-                          textDecoration: rec.isPenaltyExcused ? 'line-through' : 'none',
-                        }}
-                      >
-                        {b.label}
-                      </span>
-                    ))}
+                    {rec.penaltyBadges.map((b, i) => {
+                      const cleanLabel = (b.label || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+                      return (
+                        <span
+                          key={i}
+                          style={{
+                            ...styles.penaltyBadge,
+                            backgroundColor: rec.isPenaltyExcused ? '#f1f5f9' : b.bg,
+                            color: rec.isPenaltyExcused ? '#64748b' : b.color,
+                            textDecoration: rec.isPenaltyExcused ? 'line-through' : 'none',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {cleanLabel}
+                        </span>
+                      );
+                    })}
                     {rec.isPenaltyExcused && (
                       <span style={styles.excusedBadge}>참작면제(0점)</span>
                     )}

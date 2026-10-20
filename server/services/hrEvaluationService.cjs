@@ -174,6 +174,7 @@ async function getHrEvaluationData(params = {}) {
       attendanceRows,
       manualDailyRows,
       scoringRules: scoringSettings?.autoPenalty,
+      workHours: scoringSettings?.workHours,
     });
 
     const monthlyEvalsMap = {};
@@ -298,6 +299,7 @@ async function getHrAnnualData(params = {}) {
       attendanceRows: mAtt,
       manualDailyRows: mDaily,
       scoringRules: scoringSettings?.autoPenalty,
+      workHours: scoringSettings?.workHours,
     });
 
     const monthWorkersRecord = {};

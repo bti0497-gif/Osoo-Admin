@@ -59,9 +59,9 @@ export function HrCalendarDayDetailPanel({
       return `🏖️ 쉬게 된 사유 (${activeDayMeta.isLeave ? '필수 기재 권장' : '월차·연차·경조사·병가 등'})`;
     }
     if (selectedReasonType === 'lateReason') {
-      return `⏰ 지각 사유 (출근 시각: ${activeDay.checkIn || '미입력'})`;
+      return '⏰ 지각 사유';
     }
-    return `🚪 조퇴 · 20시 자동퇴근 사유 (퇴근 시각: ${activeDay.checkOut || '미입력'})`;
+    return '🚪 조퇴 · 20시 자동퇴근 사유';
   };
 
   const getPlaceholder = () => {
@@ -156,22 +156,22 @@ export function HrCalendarDayDetailPanel({
           />
         </div>
 
-        {/* 우측: 벌점 면제 참작 체크박스 */}
+        {/* 우측: 벌점 면제 참작 체크박스 타일 */}
         <div style={styles.excuseCol}>
-          <label style={styles.excuseCheckboxLabel}>
-            <input
-              type="checkbox"
-              checked={Boolean(activeDay.isPenaltyExcused)}
-              onChange={(e) =>
-                onUpdateDayRecord(activeDay.date, { isPenaltyExcused: e.target.checked })
-              }
-              style={styles.checkbox}
-            />
-            <span>사유 참작하여 당일 벌점 면제 (0점 처리)</span>
-          </label>
-          <span style={styles.excuseSubText}>
-            체크 시 자동벌점({activeDay.autoPenaltyPoints}점)이 면제되어 우측 인사고과 점수와 순위가 즉시 상승합니다.
-          </span>
+          <label style={styles.inputLabel}>벌점 감면:</label>
+          <div style={styles.excuseTile}>
+            <label style={styles.excuseCheckboxLabel}>
+              <input
+                type="checkbox"
+                checked={Boolean(activeDay.isPenaltyExcused)}
+                onChange={(e) =>
+                  onUpdateDayRecord(activeDay.date, { isPenaltyExcused: e.target.checked })
+                }
+                style={styles.checkbox}
+              />
+              <span>사유 참작하여 당일 벌점 면제 (0점 처리)</span>
+            </label>
+          </div>
         </div>
       </div>
     </div>

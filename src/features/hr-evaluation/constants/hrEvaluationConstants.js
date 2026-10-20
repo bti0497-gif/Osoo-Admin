@@ -4,11 +4,11 @@
 
 export const DAY_TYPE_OPTIONS = [
   { value: 'work', label: '정상근무', shortLabel: '근무', bg: '#dcfce7', color: '#15803d', border: '#86efac', isLeave: false, leaveWeight: 0 },
+  { value: 'early_leave', label: '조퇴 (신청)', shortLabel: '조퇴', bg: '#ffe4e6', color: '#e11d48', border: '#fda4af', isLeave: false, leaveWeight: 0, isEarlyLeave: true },
   { value: 'regular_off', label: '정기휴무', shortLabel: '정기휴무', bg: '#f1f5f9', color: '#475569', border: '#cbd5e1', isLeave: false, leaveWeight: 0 },
+  { value: 'sub_leave', label: '대체휴무', shortLabel: '대체휴무', bg: '#cffafe', color: '#0e7490', border: '#67e8f9', isLeave: true, leaveWeight: 1 },
   { value: 'monthly_leave', label: '월차', shortLabel: '월차', bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd', isLeave: true, leaveWeight: 1 },
   { value: 'annual_leave', label: '연차', shortLabel: '연차', bg: '#e0e7ff', color: '#4338ca', border: '#a5b4fc', isLeave: true, leaveWeight: 1 },
-  { value: 'half_am', label: '오전반차', shortLabel: '오전반차', bg: '#cffafe', color: '#0e7490', border: '#67e8f9', isLeave: true, leaveWeight: 0.5 },
-  { value: 'half_pm', label: '오후반차', shortLabel: '오후반차', bg: '#ccfbf1', color: '#0f766e', border: '#5eead4', isLeave: true, leaveWeight: 0.5 },
   { value: 'family_leave', label: '경조사', shortLabel: '경조사', bg: '#f3e8ff', color: '#7e22ce', border: '#d8b4fe', isLeave: true, leaveWeight: 1 },
   { value: 'sick_leave', label: '병가', shortLabel: '병가', bg: '#fef3c7', color: '#b45309', border: '#fcd34d', isLeave: true, leaveWeight: 1 },
   { value: 'official_leave', label: '공가', shortLabel: '공가', bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc', isLeave: true, leaveWeight: 1 },
@@ -18,10 +18,12 @@ export const DAY_TYPE_OPTIONS = [
 export const DAY_TYPE_MAP = Object.fromEntries(DAY_TYPE_OPTIONS.map((opt) => [opt.value, opt]));
 
 export const AUTO_PENALTY_RULES = [
-  { id: 'late_minor', label: '경미 지각 (09:01 ~ 09:10)', points: -1, color: '#d97706', bg: '#fef3c7' },
-  { id: 'late_normal', label: '일반 지각 (09:11 ~ 09:30)', points: -2, color: '#ea580c', bg: '#ffedd5' },
-  { id: 'late_severe', label: '심한 지각 (09:31 이후)', points: -3, color: '#dc2626', bg: '#fee2e2' },
-  { id: 'early_leave', label: '조기 퇴근 (17:50 이전)', points: -2, color: '#e11d48', bg: '#ffe4e6' },
+  { id: 'late_10m', label: '지각 10분후 (10분초과~30분)', points: -1, color: '#d97706', bg: '#fef3c7' },
+  { id: 'late_30m', label: '지각 30분후 (30분초과~1시간)', points: -2, color: '#ea580c', bg: '#ffedd5' },
+  { id: 'late_60m', label: '지각 1시간후 (1시간 초과)', points: -3, color: '#dc2626', bg: '#fee2e2' },
+  { id: 'early_10m', label: '퇴근 10분전 (10분전초과~30분전)', points: -1, color: '#f59e0b', bg: '#fef3c7' },
+  { id: 'early_30m', label: '퇴근 30분전 (30분전초과~1시간전)', points: -2, color: '#ea580c', bg: '#ffedd5' },
+  { id: 'early_60m', label: '퇴근 1시간전 (1시간 초과 일찍퇴근)', points: -3, color: '#dc2626', bg: '#fee2e2' },
   { id: 'auto_logout', label: '퇴근 미체크 (20:00 자동퇴근)', points: -2, color: '#ea580c', bg: '#ffedd5' },
   { id: 'absent', label: '무단 결근 (사전보고 없음)', points: -10, color: '#991b1b', bg: '#fecaca' },
 ];
@@ -45,18 +47,18 @@ export function getGradeInfo(percentage, customCriteria = null) {
 
 export const REWARD_PENALTY_PRESETS = {
   reward: [
-    { id: 'r_repair', title: '긴급수리 우수대응', points: 3, defaultReason: '폭기조 브로워 및 펌프 돌발 고장 시 신속한 자체 수리로 정상 가동 유지' },
-    { id: 'r_report', title: '점검보고 우수', points: 2, defaultReason: '일일 수질·유량·약품 대장 및 실험사진 정시 완벽 등록' },
-    { id: 'r_support', title: '타현장 지원', points: 3, defaultReason: '인근 휴게소 오수처리장 결원/긴급점검 시 현장 기술 지원 수행' },
-    { id: 'r_water', title: '방류수질 최우수 관리', points: 4, defaultReason: '월간 수질성적서 5대 항목 모두 기준치 대비 20% 이내 안정 유지' },
+    { id: 'r_repair', title: '긴급수리 우수대응', points: 3, defaultReason: '' },
+    { id: 'r_report', title: '점검보고 우수', points: 2, defaultReason: '' },
+    { id: 'r_support', title: '타현장 지원', points: 3, defaultReason: '' },
+    { id: 'r_water', title: '방류수질 최우수 관리', points: 4, defaultReason: '' },
     { id: 'r_custom', title: '직접 입력 (포상)', points: 2, defaultReason: '' },
   ],
   penalty: [
-    { id: 'p_apology', title: '시말서 징구 (중대 과실)', points: -5, defaultReason: '약품 투입 및 침전조 슬러지 유출 관련 주의의무 태만에 따른 시말서 제출' },
-    { id: 'p_delay', title: '일지·사진 등록 지연', points: -2, defaultReason: '일일점검 기록 및 정산용 필수 사진 마감 기한 경과 후 지연 등록' },
-    { id: 'p_facility', title: '시설점검 소홀', points: -3, defaultReason: '기계실/탈수기실 일상 점검 미흡 및 청소 상태 불량 지적' },
-    { id: 'p_safety', title: '안전수칙 미준수', points: -5, defaultReason: '약품 투입 및 슬러지 반출 작업 시 안전장구 착용·안전수칙 미준수' },
-    { id: 'p_remote', title: '원격접속 규정위반', points: -5, defaultReason: '사전 승인 없는 외부 원격 프로그램 접속 탐지' },
+    { id: 'p_apology', title: '시말서 징구 (중대 과실)', points: -5, defaultReason: '' },
+    { id: 'p_delay', title: '일지·사진 등록 지연', points: -2, defaultReason: '' },
+    { id: 'p_facility', title: '시설점검 소홀', points: -3, defaultReason: '' },
+    { id: 'p_safety', title: '안전수칙 미준수', points: -5, defaultReason: '' },
+    { id: 'p_remote', title: '원격접속 규정위반', points: -5, defaultReason: '' },
     { id: 'p_custom', title: '직접 입력 (징계/감점)', points: -2, defaultReason: '' },
   ],
 };
@@ -73,15 +75,28 @@ export const DEFAULT_FIELD_WORKERS = [
 
 /**
  * 출퇴근 시각과 근무형태에 따른 자동 벌점 계산
+ * - 조퇴(신청)는 벌점 부과 없이 0점, 조퇴 건수로만 집계
+ * - 일반 근무일의 조기 퇴근은 지정 퇴근시간 기준 10분/30분/1시간 전 구간 감점 적용
  */
-export function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRules = null) {
-  const rules = customRules || {
-    lateMinor: -1,
-    lateNormal: -2,
-    lateSevere: -3,
-    earlyLeave: -2,
+export function computeAutoPenalty(
+  { dayType, checkIn, checkOut, autoLogout },
+  customRules = null,
+  customWorkHours = null
+) {
+  const rules = customRules?.autoPenalty || customRules || {
+    late10m: -1,
+    late30m: -2,
+    late60m: -3,
+    early10m: -1,
+    early30m: -2,
+    early60m: -3,
     autoLogout: -2,
     absent: -10,
+  };
+
+  const workHours = customWorkHours || customRules?.workHours || {
+    workStartTime: '09:00',
+    workEndTime: '17:00',
   };
 
   if (dayType === 'absent') {
@@ -94,8 +109,18 @@ export function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, c
     };
   }
 
-  // 정상근무 또는 반차인 경우에만 출퇴근 시각 벌점 계산
-  if (dayType !== 'work' && dayType !== 'half_am' && dayType !== 'half_pm') {
+  // 조퇴(신청): 관리자가 조퇴로 지정한 날은 벌점 0점 부과 및 조퇴 건수만 집계
+  if (dayType === 'early_leave') {
+    return {
+      autoPenaltyPoints: 0,
+      lateType: null,
+      earlyType: '조퇴신청',
+      penaltyBadges: [{ label: '조퇴(신청)', color: '#e11d48', bg: '#ffe4e6' }],
+    };
+  }
+
+  // 정상근무인 경우에만 출퇴근 시각 벌점 계산
+  if (dayType !== 'work') {
     return {
       autoPenaltyPoints: 0,
       lateType: null,
@@ -104,49 +129,74 @@ export function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, c
     };
   }
 
+  const [sH, sM] = String(workHours.workStartTime || '09:00').split(':').map(Number);
+  const [eH, eM] = String(workHours.workEndTime || '17:00').split(':').map(Number);
+  const startMin = (Number.isNaN(sH) ? 9 : sH) * 60 + (Number.isNaN(sM) ? 0 : sM);
+  const endMin = (Number.isNaN(eH) ? 17 : eH) * 60 + (Number.isNaN(eM) ? 0 : eM);
+
   let points = 0;
   let lateType = null;
   let earlyType = null;
   const penaltyBadges = [];
 
-  if (checkIn && checkIn !== '-' && dayType !== 'half_am') {
+  // 출근 판정 (10분까지는 봐줌 = 0점)
+  if (checkIn && checkIn !== '-') {
     const [hh, mm] = checkIn.split(':').map(Number);
     if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
-      const totalMin = hh * 60 + mm;
-      if (totalMin > 9 * 60 + 30) {
-        const p = rules.lateSevere !== undefined ? rules.lateSevere : -3;
+      const inMin = hh * 60 + mm;
+      if (inMin > startMin + 60) {
+        // 1시간 초과 지각
+        const p = rules.late60m ?? rules.lateSevere ?? -3;
         points += p;
         lateType = '심한지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#dc2626', bg: '#fee2e2' });
-      } else if (totalMin > 9 * 60 + 10) {
-        const p = rules.lateNormal !== undefined ? rules.lateNormal : -2;
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#dc2626', bg: '#fee2e2' });
+      } else if (inMin > startMin + 30) {
+        // 30분 초과 ~ 1시간 이하 지각
+        const p = rules.late30m ?? rules.lateNormal ?? -2;
         points += p;
         lateType = '일반지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#ea580c', bg: '#ffedd5' });
-      } else if (totalMin >= 9 * 60 + 1) {
-        const p = rules.lateMinor !== undefined ? rules.lateMinor : -1;
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#ea580c', bg: '#ffedd5' });
+      } else if (inMin > startMin + 10) {
+        // 10분 초과 ~ 30분 이하 지각
+        const p = rules.late10m ?? rules.lateMinor ?? -1;
         points += p;
         lateType = '경미지각';
-        penaltyBadges.push({ label: `지각(${checkIn}) ${p}`, color: '#d97706', bg: '#fef3c7' });
+        penaltyBadges.push({ label: `지각 ${p}`, color: '#d97706', bg: '#fef3c7' });
       }
+      // inMin <= startMin + 10: 10분 유예 인정 (0점)
     }
   }
 
+  // 퇴근 판정 (퇴근 10분 전부터 정상 퇴근 인정)
   if (autoLogout || (typeof checkOut === 'string' && checkOut.startsWith('20:00'))) {
     const p = rules.autoLogout !== undefined ? rules.autoLogout : -2;
     points += p;
     earlyType = '20시자동퇴근';
     penaltyBadges.push({ label: `20시자동 ${p}`, color: '#ea580c', bg: '#ffedd5' });
-  } else if (checkOut && checkOut !== '-' && dayType !== 'half_pm') {
+  } else if (checkOut && checkOut !== '-') {
     const [hh, mm] = checkOut.split(':').map(Number);
     if (!Number.isNaN(hh) && !Number.isNaN(mm)) {
-      const totalMin = hh * 60 + mm;
-      if (totalMin < 17 * 60 + 50) {
-        const p = rules.earlyLeave !== undefined ? rules.earlyLeave : -2;
+      const outMin = hh * 60 + mm;
+      if (outMin < endMin - 60) {
+        // 1시간 초과 일찍 퇴근
+        const p = rules.early60m ?? -3;
         points += p;
-        earlyType = '조기퇴근';
-        penaltyBadges.push({ label: `조퇴(${checkOut}) ${p}`, color: '#e11d48', bg: '#ffe4e6' });
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#dc2626', bg: '#fee2e2' });
+      } else if (outMin < endMin - 30) {
+        // 30분 전 초과 ~ 1시간 전 이하
+        const p = rules.early30m ?? rules.earlyLeave ?? -2;
+        points += p;
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#ea580c', bg: '#ffedd5' });
+      } else if (outMin < endMin - 10) {
+        // 10분 전 초과 ~ 30분 전 이하
+        const p = rules.early10m ?? -1;
+        points += p;
+        earlyType = '일찍퇴근';
+        penaltyBadges.push({ label: `일찍퇴근 ${p}`, color: '#f59e0b', bg: '#fef3c7' });
       }
+      // outMin >= endMin - 10: 퇴근 10분 전부터 정상 인정 (0점)
     }
   }
 

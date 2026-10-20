@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { DEFAULT_SCORING_SETTINGS } from '../../constants/hrScoringConstants';
 import { hrScoringModalStyles as styles } from './scoring/hrScoringModalStyles';
 import { HrScoringAutoPenaltyTab } from './scoring/HrScoringAutoPenaltyTab';
+import { HrScoringWorkHoursTab } from './scoring/HrScoringWorkHoursTab';
 import { HrScoringPresetsTab } from './scoring/HrScoringPresetsTab';
 import { HrScoringGradesTab } from './scoring/HrScoringGradesTab';
 
@@ -14,12 +15,23 @@ export function HrScoringSettingsModal({
   currentSettings,
   onSaveSettings,
 }) {
-  const [activeTab, setActiveTab] = useState('autoPenalty'); // 'autoPenalty' | 'presets' | 'grades'
+  const [activeTab, setActiveTab] = useState('workHours'); // 'workHours' | 'autoPenalty' | 'presets' | 'grades'
   const [formData, setFormData] = useState(() => {
     return currentSettings ? JSON.parse(JSON.stringify(currentSettings)) : DEFAULT_SCORING_SETTINGS;
   });
 
   if (!isOpen) return null;
+
+  // 출퇴근 시간 업데이트
+  const handleWorkHoursChange = (field, val) => {
+    setFormData((prev) => ({
+      ...prev,
+      workHours: {
+        ...(prev.workHours || DEFAULT_SCORING_SETTINGS.workHours),
+        [field]: val,
+      },
+    }));
+  };
 
   // 자동 감점 필드 업데이트
   const handleAutoPenaltyChange = (field, val) => {
@@ -105,7 +117,7 @@ export function HrScoringSettingsModal({
             <div>
               <h2 style={styles.title}>인사고과 점수 및 상벌 기준 설정</h2>
               <p style={styles.subtitle}>
-                근태 자동 감점, 관리자 상벌 프리셋 및 S~D등급 컷오프를 설정합니다. 저장 시 즉시 전체 재계산됩니다.
+                출퇴근시간 슬라이더, 근태 자동 감점, 관리자 상벌 프리셋 및 S~D등급 컷오프를 설정합니다.
               </p>
             </div>
           </div>
@@ -116,6 +128,16 @@ export function HrScoringSettingsModal({
 
         {/* 탭 네비게이션 */}
         <div style={styles.tabBar}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('workHours')}
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === 'workHours' ? styles.tabBtnActive : {}),
+            }}
+          >
+            🕒 출퇴근시간 지정
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('autoPenalty')}
@@ -150,6 +172,14 @@ export function HrScoringSettingsModal({
 
         {/* 탭 컨텐츠 */}
         <div style={styles.body}>
+          {activeTab === 'workHours' && (
+            <HrScoringWorkHoursTab
+              formData={formData}
+              onChangeWorkHours={handleWorkHoursChange}
+              styles={styles}
+            />
+          )}
+
           {activeTab === 'autoPenalty' && (
             <HrScoringAutoPenaltyTab
               formData={formData}

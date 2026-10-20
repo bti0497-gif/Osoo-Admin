@@ -52,7 +52,8 @@ export function HrAnnualSummaryCards({ annualSummary }) {
     shortLabel: '최우수',
   };
 
-  const safeWorkersCount = Math.max(1, totalWorkers || 1);
+  const safeWorkersCount = Math.max(Number(annualRank) || 1, Number(totalWorkers) || 1);
+  const safeAnnualRank = Math.min(Number(annualRank) || 1, safeWorkersCount);
 
   const openDetailToast = (type) => {
     if (type === 'attendance') {
@@ -129,7 +130,7 @@ export function HrAnnualSummaryCards({ annualSummary }) {
           { label: '총 휴가 사용일', value: `${annualTotalLeaveDays}일`, color: '#1d4ed8' },
           {
             label: '휴가 세부 내역',
-            value: `연차 ${annualLeaveBreakdown?.annual_leave || 0}일 · 월차 ${annualLeaveBreakdown?.monthly_leave || 0}일 · 반차 ${annualLeaveBreakdown?.half_leave || 0}일 · 경조 ${annualLeaveBreakdown?.family_leave || 0}일 · 병가 ${annualLeaveBreakdown?.sick_leave || 0}일`,
+            value: `연차 ${annualLeaveBreakdown?.annual_leave || 0}일 · 월차 ${annualLeaveBreakdown?.monthly_leave || 0}일 · 대체휴무 ${annualLeaveBreakdown?.sub_leave || 0}일 · 경조 ${annualLeaveBreakdown?.family_leave || 0}일 · 병가 ${annualLeaveBreakdown?.sick_leave || 0}일`,
             color: '#334155',
           },
         ],
@@ -163,8 +164,8 @@ export function HrAnnualSummaryCards({ annualSummary }) {
         </div>
         <div style={{ ...styles.cardFooter, whiteSpace: 'nowrap' }}>
           전국 <strong>{safeWorkersCount}개 현장</strong> 중{' '}
-          <strong style={{ color: '#1d4ed8' }}>{annualRank}위</strong> (상위{' '}
-          {((annualRank / safeWorkersCount) * 100).toFixed(0)}%)
+          <strong style={{ color: '#1d4ed8' }}>{safeAnnualRank}위</strong> (상위{' '}
+          {((safeAnnualRank / safeWorkersCount) * 100).toFixed(0)}%)
         </div>
       </div>
 

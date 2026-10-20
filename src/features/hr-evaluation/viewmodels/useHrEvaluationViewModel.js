@@ -232,7 +232,8 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
                 checkOut: day.checkOut,
                 autoLogout: day.autoLogout,
               },
-              newSettings.autoPenalty
+              newSettings.autoPenalty,
+              newSettings.workHours
             );
 
             const finalPts = day.isPenaltyExcused ? 0 : penaltyInfo.autoPenaltyPoints;
@@ -309,6 +310,7 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
       return b.workingDaysCount - a.workingDaysCount;
     });
 
+    const totalCount = summaries.length;
     const rankedList = [];
     let currentRank = 1;
     for (let index = 0; index < summaries.length; index++) {
@@ -316,7 +318,7 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
       if (index > 0 && item.finalPercentage < summaries[index - 1].finalPercentage) {
         currentRank = index + 1;
       }
-      rankedList.push({ ...item, rank: currentRank });
+      rankedList.push({ ...item, rank: currentRank, totalWorkers: totalCount });
     }
     return rankedList;
   }, [workers, monthlyRecordsMap, scoringSettings]);
@@ -331,11 +333,17 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
   }, [rankedEvaluations, activeUser]);
 
   const currentWorkerEvaluation = useMemo(() => {
-    return (
+    const found =
       rankedEvaluations.find((item) => item.workerId === selectedWorker?.workerId) ||
       rankedEvaluations[0] ||
-      null
-    );
+      null;
+    if (found) {
+      return {
+        ...found,
+        totalWorkers: rankedEvaluations.length,
+      };
+    }
+    return null;
   }, [rankedEvaluations, selectedWorker]);
 
   // 현재 선택된 날짜의 상세 레코드
