@@ -1,9 +1,10 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   calculateAllWorkersAnnualRanking,
   calculateWorkerAnnualSummary,
   saveAnnualWorkerMeta,
 } from '../services/hrAnnualService';
+import { HrEvaluationModel } from '../models/HrEvaluationModel';
 
 /**
  * 📊 연간 종합 인사고과 상태 및 액션 훅
@@ -21,10 +22,25 @@ export function useHrAnnualEvaluationState({
 }) {
   // 연간 평가 메타 상태 (연봉협상 의견, 확정 여부 등)
   const [annualMetaState, setAnnualMetaState] = useState({});
+  const [serverAnnualMonthCache, setServerAnnualMonthCache] = useState(null);
 
   const isAnnualOrRanking = viewMode === 'annual' || viewMode === 'ranking';
 
-  // 연간 종합 고과 및 순위 계산 (1월~12월 취합) - 연간/순위 화면에서만 전체 현장 계산 진행 (캘린더 진입 0ms 고속 로딩)
+  // 연간/순위 화면 진입 시 실제 BigQuery 1~12월 출결/평가 데이터 비동기 조회
+  useEffect(() => {
+    let isMounted = true;
+    if (isAnnualOrRanking) {
+      HrEvaluationModel.fetchAnnualData(year).then((res) => {
+        if (!isMounted || !res?.monthsData) return;
+        setServerAnnualMonthCache(res.monthsData);
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isAnnualOrRanking, year]);
+
+  // 연간 종합 고과 및 순위 계산 (1월~12월 실제 데이터 기반 취합)
   const annualRankingResult = useMemo(() => {
     if (!isAnnualOrRanking) {
       return { rankedList: [], workerMap: {} };
@@ -35,9 +51,19 @@ export function useHrAnnualEvaluationState({
       month,
       monthlyRecordsMap,
       annualMetaState,
-      scoringSettings
+      scoringSettings,
+      serverAnnualMonthCache
     );
-  }, [isAnnualOrRanking, workers, year, month, monthlyRecordsMap, annualMetaState, scoringSettings]);
+  }, [
+    isAnnualOrRanking,
+    workers,
+    year,
+    month,
+    monthlyRecordsMap,
+    annualMetaState,
+    scoringSettings,
+    serverAnnualMonthCache,
+  ]);
 
   const annualRankedList = annualRankingResult.rankedList;
 
@@ -52,11 +78,22 @@ export function useHrAnnualEvaluationState({
         month,
         monthlyRecordsMap?.[selectedWorker.workerId],
         annualMetaState,
-        scoringSettings
+        scoringSettings,
+        serverAnnualMonthCache
       );
     }
     return annualRankedList[0] || null;
-  }, [annualRankingResult, annualRankedList, selectedWorker, year, month, monthlyRecordsMap, annualMetaState, scoringSettings]);
+  }, [
+    annualRankingResult,
+    annualRankedList,
+    selectedWorker,
+    year,
+    month,
+    monthlyRecordsMap,
+    annualMetaState,
+    scoringSettings,
+    serverAnnualMonthCache,
+  ]);
 
   // 연간 총평 코멘트 수정
   const updateAnnualComment = useCallback(

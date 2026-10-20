@@ -2,7 +2,8 @@
  * 인사고과 점수, 벌점/가산점 및 등급 컷오프 설정 상수 및 기본값
  */
 
-export const SCORING_SETTINGS_STORAGE_KEY = 'osoo_hr_scoring_settings_v1';
+export const SCORING_SETTINGS_STORAGE_KEY = 'osoo_hr_scoring_settings_v3_clean';
+
 
 export const DEFAULT_SCORING_SETTINGS = {
   // 1. 자동 근태 감점 기준
@@ -76,30 +77,4 @@ export function saveScoringSettings(settings) {
   } catch (err) {
     console.warn('[hrScoringConstants] saveScoringSettings 실패:', err);
   }
-}
-
-export function generateSampleApologyDoc(worker, year, month, dateStr = '14') {
-  const padMonth = String(month).padStart(2, '0');
-  const padDay = String(dateStr).padStart(2, '0');
-  const wName = worker?.workerName || '김태호';
-  const sName = worker?.siteName || '청주휴게소(서울)';
-  const pos = worker?.position || '현장소장';
-
-  return {
-    hasDoc: true,
-    fileName: `시말서_${wName}_${year}${padMonth}${padDay}.pdf`,
-    fileSize: '428 KB',
-    fileType: 'application/pdf',
-    drivePath: `/오수처리장_인사고과/시말서/${year}/${padMonth}월/${sName}_시말서.pdf`,
-    driveFileId: `drive_apology_${worker?.workerId || 'w_1'}_01`,
-    uploadedAt: `${year}-${padMonth}-${padDay} 15:30`,
-    incidentDate: `${year}-${padMonth}-${padDay} 18:20`,
-    docTitle: '시 말 서 (경 위 서)',
-    workerName: wName,
-    siteName: sName,
-    position: pos,
-    statement: `본인은 ${year}년 ${month}월 ${padDay}일경, 현장 점검 중 밸브 및 센서 잠금 상태를 철저히 확인하지 않아 약품 과투입 및 침전조 슬러지 부유 현상을 유발하였습니다.\n\n현장 관리 책임자로서 중대한 관리 소홀 책임을 깊이 통감하며, 향후 모든 점검 체크리스트를 2중 확인하고 동일한 과실이 재발하지 않도록 각별히 유의할 것을 엄숙히 서약하며 본 시말서를 제출합니다.`,
-    signed: true,
-    sealText: `${wName} (인)`,
-  };
 }

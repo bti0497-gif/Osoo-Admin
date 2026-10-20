@@ -17,23 +17,28 @@ export function HrApologyModal({
 
   if (!isOpen || !penaltyItem) return null;
 
+  const wName = workerEvaluation?.workerName || '근무자';
+  const sName = workerEvaluation?.siteName || '현장';
+  const pos = workerEvaluation?.position || '현장관리자';
+
   const apologyDoc = penaltyItem.apologyDoc || {
-    hasDoc: true,
-    fileName: `시말서_${workerEvaluation?.workerName || '근무자'}_${penaltyItem.date?.replace(/-/g, '') || '20261014'}.pdf`,
-    fileSize: '428 KB',
+    hasDoc: false,
+    fileName: `시말서_${wName}_${penaltyItem.date?.replace(/-/g, '') || ''}.pdf`,
+    fileSize: '-',
     fileType: 'application/pdf',
-    drivePath: `/오수처리장_인사고과/시말서/2026/${penaltyItem.date?.slice(5, 7) || '10'}월/${workerEvaluation?.siteName || '현장'}_시말서.pdf`,
-    driveFileId: 'drive_apology_sample_01',
-    uploadedAt: `${penaltyItem.date || '2026-10-14'} 15:30`,
-    incidentDate: `${penaltyItem.date || '2026-10-14'} 18:20`,
+    drivePath: '',
+    driveFileId: null,
+    uploadedAt: null,
+    incidentDate: penaltyItem.date || '',
     docTitle: '시 말 서 (경 위 서)',
-    workerName: workerEvaluation?.workerName || '김태호',
-    siteName: workerEvaluation?.siteName || '청주휴게소(서울)',
-    position: workerEvaluation?.position || '현장소장',
-    statement: `본인은 ${penaltyItem.date || '2026년 10월 14일'}경, 현장 점검 중 주의의무를 다하지 못하여 ${penaltyItem.reason || penaltyItem.title} 건으로 처리장 운영에 차질을 빚었습니다.\n\n현장 관리 책임자로서 중대한 관리 소홀을 깊이 반성하며, 향후 일일 체크리스트를 철저히 이행하고 동일한 과실이 재발하지 않도록 각별히 유의할 것을 엄숙히 서약하며 본 시말서를 제출합니다.`,
-    signed: true,
-    sealText: `${workerEvaluation?.workerName || '김태호'} (인)`,
+    workerName: wName,
+    siteName: sName,
+    position: pos,
+    statement: `본인은 ${penaltyItem.date || '해당 일자'}경 현장 관리 중 ${penaltyItem.reason || penaltyItem.title || '주의의무 소홀'} 건으로 지적을 받았습니다.\n\n현장 관리 책임자로서 관리 소홀을 반성하며, 향후 동일한 과실이 발생하지 않도록 주의할 것을 서약하며 본 시말서를 제출합니다.`,
+    signed: false,
+    sealText: `${wName} (인)`,
   };
+
 
   const handleZoom = (delta) => {
     setZoomScale((prev) => Math.max(0.7, Math.min(1.6, Number((prev + delta).toFixed(1)))));

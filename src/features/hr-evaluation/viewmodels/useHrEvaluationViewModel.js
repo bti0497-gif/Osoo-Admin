@@ -3,8 +3,7 @@ import { useSiteMaster } from '../../certificate/hooks/useSiteMaster';
 import {
   computeAutoPenalty,
   mergeWorkersWithSiteMaster,
-  generateWorkerMonthlyRecord,
-  getWorkerBoardPosts,
+  createEmptyWorkerMonthlyRecord,
 } from '../constants/hrEvaluationConstants';
 import { calculateWorkerMonthlySummary } from '../services/hrAnnualService';
 import { useHrAnnualEvaluationState } from '../hooks/useHrAnnualEvaluationState';
@@ -37,23 +36,25 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const workers = useMemo(
-    () => mergeWorkersWithSiteMaster(allSites && allSites.length > 0 ? allSites : siteMaster),
-    [allSites, siteMaster]
-  );
+  const [serverWorkers, setServerWorkers] = useState(null);
+
+  const workers = useMemo(() => {
+    if (serverWorkers && serverWorkers.length > 0) return serverWorkers;
+    return mergeWorkersWithSiteMaster(allSites && allSites.length > 0 ? allSites : siteMaster);
+  }, [serverWorkers, allSites, siteMaster]);
 
   const assignedWorkers = useMemo(() => {
     return filterSitesForUser(workers, activeUser, (w) => w.siteName || w.workerName || w.workerId);
   }, [workers, activeUser]);
 
   const [selectedWorkerId, setSelectedWorkerId] = useState(
-    () => assignedWorkers[0]?.workerId || workers[0]?.workerId || 'w_cheongju_s'
+    () => assignedWorkers[0]?.workerId || workers[0]?.workerId || ''
   );
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'list' | 'annual' | 'ranking'
   const [selectedDate, setSelectedDate] = useState(() => {
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}-14`;
+    return `${y}-${m}-01`;
   });
   const [showBoardRefDrawer, setShowBoardRefDrawer] = useState(false);
   const [serverBoardPosts, setServerBoardPosts] = useState([]);
@@ -155,31 +156,43 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
       setYear(nextYear);
       setMonth(nextMonth);
       setMonthlyRecordsMap(buildInitialMonthMap(workers, nextYear, nextMonth));
-      const defaultDay = '14';
+      const defaultDay = '01';
       setSelectedDate(`${nextYear}-${String(nextMonth).padStart(2, '0')}-${defaultDay}`);
     },
     [workers]
   );
 
-  // 대상 연월 백엔드 BigQuery 및 소통게시판 사유 데이터 조회 (비동기 병합)
+  // 대상 연월 백엔드 BigQuery 및 소통게시판 실제 데이터 조회 (비동기 병합)
   useEffect(() => {
     let isMounted = true;
 
     HrEvaluationModel.fetchHrData(year, month).then((serverData) => {
       if (!isMounted || !serverData) return;
       if (serverData.boardPosts) setServerBoardPosts(serverData.boardPosts);
+      if (serverData.workers && serverData.workers.length > 0) setServerWorkers(serverData.workers);
 
       if (serverData.dailyRecords && Object.keys(serverData.dailyRecords).length > 0) {
         setMonthlyRecordsMap((prev) => {
           const next = { ...prev };
           Object.keys(serverData.dailyRecords).forEach((wId) => {
-            if (!next[wId]) return;
+            const serverWorkerDaily = serverData.dailyRecords[wId];
+            const serverEval = serverData.monthlyEvaluations?.[wId] || {};
             next[wId] = {
-              ...next[wId],
+              ...(next[wId] || {}),
+              workerId: wId,
               dailyRecords: {
-                ...next[wId].dailyRecords,
-                ...serverData.dailyRecords[wId],
+                ...(next[wId]?.dailyRecords || {}),
+                ...serverWorkerDaily,
               },
+              rewardPenaltyList: serverEval.rewardPenaltyList || next[wId]?.rewardPenaltyList || [],
+              evaluatorComment:
+                serverEval.evaluatorComment !== undefined
+                  ? serverEval.evaluatorComment
+                  : next[wId]?.evaluatorComment || '',
+              isConfirmed:
+                serverEval.isConfirmed !== undefined
+                  ? serverEval.isConfirmed
+                  : Boolean(next[wId]?.isConfirmed),
             };
           });
           return next;
@@ -258,15 +271,29 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
     [year, month, viewMode]
   );
 
-  // 현재 월 시뮬레이션 초기화 (원복)
+  // 현재 월 초기화 (BigQuery 서버 데이터 재동기화)
   const resetCurrentMonthSimulation = useCallback(() => {
-    const fresh = {};
-    for (const w of workers) {
-      fresh[w.workerId] = generateWorkerMonthlyRecord(w, year, month);
-    }
-    setMonthlyRecordsMap(fresh);
-    saveMonthMapToStorage(year, month, fresh);
-    handleManualSaveNow();
+    HrEvaluationModel.fetchHrData(year, month).then((serverData) => {
+      if (!serverData) return;
+      if (serverData.dailyRecords) {
+        const fresh = {};
+        for (const w of workers) {
+          const wId = w.workerId;
+          fresh[wId] = {
+            workerId: wId,
+            dailyRecords:
+              serverData.dailyRecords[wId] ||
+              createEmptyWorkerMonthlyRecord(w, year, month).dailyRecords,
+            rewardPenaltyList: serverData.monthlyEvaluations?.[wId]?.rewardPenaltyList || [],
+            evaluatorComment: serverData.monthlyEvaluations?.[wId]?.evaluatorComment || '',
+            isConfirmed: Boolean(serverData.monthlyEvaluations?.[wId]?.isConfirmed),
+          };
+        }
+        setMonthlyRecordsMap(fresh);
+        saveMonthMapToStorage(year, month, fresh);
+        handleManualSaveNow();
+      }
+    });
   }, [workers, year, month, handleManualSaveNow]);
 
   // 전체 현장 실시간 당월 점수 및 전국 순위 계산
@@ -294,7 +321,7 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
     return rankedList;
   }, [workers, monthlyRecordsMap, scoringSettings]);
 
-  // 중앙관리자 담당 현장 기준 상단 드롭다운 목록 필터링 (전체 순위표는 39개 전체 유지)
+  // 중앙관리자 담당 현장 기준 상단 드롭다운 목록 필터링
   const dropdownEvaluations = useMemo(() => {
     return filterSitesForUser(
       rankedEvaluations,
@@ -302,7 +329,6 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
       (item) => item.siteName || item.workerName || item.workerId
     );
   }, [rankedEvaluations, activeUser]);
-
 
   const currentWorkerEvaluation = useMemo(() => {
     return (
@@ -335,13 +361,54 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
     });
   }, [rankedEvaluations, rankingGradeFilter, rankingSearch]);
 
-  // 소통게시판 참고글 목록 (서버 데이터 + 로컬 시뮬레이션 병합)
+  // 소통게시판 참고글 목록 (100% 실제 소통게시판 게시글 필터링)
   const boardReasonPosts = useMemo(() => {
-    const workerRec = monthlyRecordsMap[selectedWorker?.workerId];
-    const generated = getWorkerBoardPosts(selectedWorker, year, month, workerRec);
-    if (!serverBoardPosts || serverBoardPosts.length === 0) return generated;
-    return [...serverBoardPosts, ...generated];
-  }, [selectedWorker, year, month, monthlyRecordsMap, serverBoardPosts]);
+    if (!serverBoardPosts || serverBoardPosts.length === 0 || !selectedWorker) return [];
+
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    const cleanWorkerName = String(selectedWorker.workerName || '').trim();
+    const cleanSiteName = String(selectedWorker.siteName || '').trim();
+    const siteKeyword = cleanSiteName.replace(/휴게소.*$/, '').trim();
+
+    return serverBoardPosts
+      .filter((post) => {
+        const postDate = String(post.createdAt || '').slice(0, 7);
+        if (postDate && postDate !== ym) return false;
+
+        if (cleanWorkerName && post.author === cleanWorkerName) return true;
+
+        const sites = [
+          post.targetSite,
+          ...(Array.isArray(post.targetSites) ? post.targetSites : []),
+          ...(Array.isArray(post.visibleSites) ? post.visibleSites : []),
+        ].filter(Boolean);
+
+        const isSiteTargeted = sites.some(
+          (s) => s === cleanSiteName || (siteKeyword && s.includes(siteKeyword))
+        );
+        if (isSiteTargeted) {
+          if (sites.length === 1 && sites[0] === 'ALL') return false;
+          return true;
+        }
+
+        if (siteKeyword && post.title && post.title.includes(siteKeyword)) {
+          if (!sites.includes('ALL')) return true;
+        }
+
+        return false;
+      })
+      .map((post) => {
+        const createdDateStr = String(post.createdAt || '').slice(0, 10);
+        const postDay = Number(createdDateStr.slice(8, 10)) || 1;
+        return {
+          ...post,
+          day: postDay,
+          targetDate: createdDateStr,
+          writtenAt: String(post.createdAt || '').slice(0, 16).replace('T', ' '),
+          siteName: post.targetSite || cleanSiteName,
+        };
+      });
+  }, [selectedWorker, year, month, serverBoardPosts]);
 
   return {
     year,
@@ -368,33 +435,32 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
     rankingPeriodMode,
     setRankingPeriodMode,
     annualRankedList,
-    filteredAnnualRankingList,
     currentWorkerAnnualSummary,
-    rankingSearch,
-    setRankingSearch,
-    rankingGradeFilter,
-    setRankingGradeFilter,
+    filteredAnnualRankingList,
+    changeYearMonth,
     updateDayRecord,
     addRewardPenalty,
     removeRewardPenalty,
+    updateApologyDoc,
     updateEvaluatorComment,
     toggleConfirmEvaluation,
-    resetCurrentMonthSimulation,
     updateAnnualComment,
     updateSalaryRecommendation,
     toggleConfirmAnnualEvaluation,
     showScoringSettingsModal,
     setShowScoringSettingsModal,
-    selectedApologyPenalty,
-    setSelectedApologyPenalty,
     scoringSettings,
     updateScoringSettings,
-    updateApologyDoc,
-    changeYearMonth,
-    // ☁️ 백그라운드 서버/Drive 동기화 상태 및 수동 저장
+    selectedApologyPenalty,
+    setSelectedApologyPenalty,
+    resetCurrentMonthSimulation,
     syncStatus,
     pendingCount,
     lastSyncedTime,
     handleManualSaveNow,
+    rankingSearch,
+    setRankingSearch,
+    rankingGradeFilter,
+    setRankingGradeFilter,
   };
 }

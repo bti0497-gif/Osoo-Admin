@@ -32,46 +32,54 @@ export function HrBoardRefDrawer({
         </button>
       </div>
 
-      <div style={styles.boardCardsGrid}>
-        {boardReasonPosts.map((post) => {
-          const isDateActive = selectedDate === post.targetDate;
-          const monthDayLabel = `${String(month).padStart(2, '0')}/${String(post.day).padStart(2, '0')}`;
-          return (
-            <div
-              key={post.id}
-              style={{
-                ...styles.boardCard,
-                borderColor: isDateActive ? '#2563eb' : '#bfdbfe',
-                boxShadow: isDateActive ? '0 0 0 2px rgba(37, 99, 235, 0.15)' : 'none',
-              }}
-            >
-              <div style={styles.boardCardTop}>
-                <strong style={styles.boardSiteText}>
-                  ✍️ {post.siteName} · {post.author}
-                </strong>
-                <span style={styles.boardDateText}>작성일: {post.writtenAt}</span>
+      {boardReasonPosts.length === 0 ? (
+        <div style={styles.emptyBoardState}>
+          <span style={styles.emptyBoardIcon}>📭</span>
+          <span>해당 월에 작성된 소통게시판 게시글이 없습니다.</span>
+        </div>
+      ) : (
+        <div style={styles.boardCardsGrid}>
+          {boardReasonPosts.map((post) => {
+            const isDateActive = selectedDate === post.targetDate;
+            const monthDayLabel = `${String(month).padStart(2, '0')}/${String(post.day).padStart(2, '0')}`;
+            return (
+              <div
+                key={post.id}
+                style={{
+                  ...styles.boardCard,
+                  borderColor: isDateActive ? '#2563eb' : '#bfdbfe',
+                  boxShadow: isDateActive ? '0 0 0 2px rgba(37, 99, 235, 0.15)' : 'none',
+                }}
+              >
+                <div style={styles.boardCardTop}>
+                  <strong style={styles.boardSiteText}>
+                    ✍️ {post.siteName} · {post.author}
+                  </strong>
+                  <span style={styles.boardDateText}>작성일: {post.writtenAt}</span>
+                </div>
+                <div style={styles.boardTitleText}>{post.title}</div>
+                <div style={styles.boardBodyText}>{post.content}</div>
+                <div style={styles.boardBottomRow}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectBoardPostDate(post)}
+                    style={{
+                      ...styles.selectDateBtn,
+                      backgroundColor: isDateActive ? '#0f172a' : '#2563eb',
+                    }}
+                  >
+                    {isDateActive
+                      ? `✅ 해당 날짜(${monthDayLabel}) 선택됨 — 달력/목록에서 기록`
+                      : `📅 해당 날짜(${monthDayLabel}) 선택하여 기록`}
+                  </button>
+                </div>
               </div>
-              <div style={styles.boardTitleText}>{post.title}</div>
-              <div style={styles.boardBodyText}>{post.content}</div>
-              <div style={styles.boardBottomRow}>
-                <button
-                  type="button"
-                  onClick={() => onSelectBoardPostDate(post)}
-                  style={{
-                    ...styles.selectDateBtn,
-                    backgroundColor: isDateActive ? '#0f172a' : '#2563eb',
-                  }}
-                >
-                  {isDateActive
-                    ? `✅ 해당 날짜(${monthDayLabel}) 선택됨 — 달력/목록에서 기록`
-                    : `📅 해당 날짜(${monthDayLabel}) 선택하여 기록`}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </section>
+
   );
 }
 
@@ -183,4 +191,22 @@ const styles = {
     textAlign: 'center',
     transition: 'background-color 0.15s ease',
   },
+  emptyBoardState: {
+    padding: '24px 16px',
+    textAlign: 'center',
+    color: '#64748b',
+    fontSize: '12.5px',
+    fontWeight: 600,
+    backgroundColor: '#ffffff',
+    borderRadius: '8px',
+    border: '1px dashed #cbd5e1',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+  },
+  emptyBoardIcon: {
+    fontSize: '16px',
+  },
 };
+

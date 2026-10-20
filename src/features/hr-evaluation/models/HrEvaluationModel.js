@@ -18,6 +18,19 @@ export const HrEvaluationModel = {
   },
 
   /**
+   * 연간 전체(1월~12월) 실제 BigQuery 출결 및 평가 데이터 일괄 조회
+   */
+  async fetchAnnualData(year) {
+    try {
+      const res = await apiClient.get('/api/hr-evaluation/annual-data', { year });
+      return res?.data || null;
+    } catch (err) {
+      console.warn('[HrEvaluationModel] fetchAnnualData 실패:', err.message);
+      return null;
+    }
+  },
+
+  /**
    * 변경된 일별 기록, 월간/연간 평가, 기준 설정을 서버(BigQuery + 서버 캐시)로 일괄 배치 동기화
    */
   async syncHrBatch(payload) {

@@ -2,7 +2,9 @@
  * 연간 종합 고과 (연봉협상 자료) 관련 상수 및 옵션 정의
  */
 
-export const ANNUAL_EVAL_STORAGE_PREFIX = 'osoo_hr_annual_eval_v1';
+export const ANNUAL_EVAL_STORAGE_PREFIX = 'osoo_hr_annual_eval_v3_clean';
+
+
 
 export const SALARY_RECOMMENDATION_OPTIONS = [
   {

@@ -8,7 +8,7 @@
 import {
   DAY_TYPE_MAP,
   getGradeInfo,
-  generateWorkerMonthlyRecord,
+  createEmptyWorkerMonthlyRecord,
 } from '../constants/hrEvaluationConstants';
 import {
   ANNUAL_EVAL_STORAGE_PREFIX,
@@ -16,7 +16,8 @@ import {
   getDefaultAnnualComment,
 } from '../constants/hrAnnualConstants';
 
-const STORAGE_KEY_PREFIX = 'osoo_hr_evaluation_v1';
+const STORAGE_KEY_PREFIX = 'osoo_hr_real_v3_clean';
+
 
 /**
  * 단일 근무자의 월간 기록으로부터 정량 근태 요약 및 인사고과 점수를 계산합니다.
@@ -159,7 +160,7 @@ export function getWorkerMonthRecord(worker, year, targetMonth, currentEditingMo
     console.warn('[hrAnnualService] localStorage 로드 실패:', err);
   }
 
-  return generateWorkerMonthlyRecord(worker, year, targetMonth);
+  return createEmptyWorkerMonthlyRecord(worker, year, targetMonth);
 }
 
 /**
@@ -240,7 +241,7 @@ export function calculateWorkerAnnualSummary(
     }
 
     if (!mRec && worker) {
-      mRec = generateWorkerMonthlyRecord(worker, year, m);
+      mRec = createEmptyWorkerMonthlyRecord(worker, year, m);
     }
     const mSum = calculateWorkerMonthlySummary(worker, mRec, scoringSettings);
     mSum.month = m;
@@ -331,25 +332,37 @@ export function calculateWorkerAnnualSummary(
 /**
  * 전체 현장 근무자들의 연간 누적 고과 순위를 계산합니다.
  */
-export function calculateAllWorkersAnnualRanking(workers, year, currentMonth, monthlyRecordsMap, annualMetaState = {}, scoringSettings = null) {
+export function calculateAllWorkersAnnualRanking(
+  workers,
+  year,
+  currentMonth,
+  monthlyRecordsMap,
+  annualMetaState = {},
+  scoringSettings = null,
+  overrideMonthCache = null
+) {
   if (!Array.isArray(workers) || workers.length === 0) {
     return { rankedList: [], workerMap: {} };
   }
 
-  // 12개 월의 localStorage 데이터를 사전에 1회만 일괄 파싱하여 반복 I/O 및 대량 JSON 파싱 메모리 누수 방지
-  const monthCache = {};
-  for (let m = 1; m <= 12; m++) {
-    if (m === currentMonth && monthlyRecordsMap) {
-      monthCache[m] = monthlyRecordsMap;
-    } else {
-      const storageKey = `${STORAGE_KEY_PREFIX}_${year}_${m}`;
-      try {
-        const saved = localStorage.getItem(storageKey);
-        monthCache[m] = saved ? JSON.parse(saved) : null;
-      } catch {
-        monthCache[m] = null;
+  // 12개 월의 실제 데이터(overrideMonthCache) 또는 localStorage 데이터 사용
+  const monthCache = overrideMonthCache ? { ...overrideMonthCache } : {};
+  if (!overrideMonthCache) {
+    for (let m = 1; m <= 12; m++) {
+      if (m === currentMonth && monthlyRecordsMap) {
+        monthCache[m] = monthlyRecordsMap;
+      } else {
+        const storageKey = `${STORAGE_KEY_PREFIX}_${year}_${m}`;
+        try {
+          const saved = localStorage.getItem(storageKey);
+          monthCache[m] = saved ? JSON.parse(saved) : null;
+        } catch {
+          monthCache[m] = null;
+        }
       }
     }
+  } else if (monthlyRecordsMap) {
+    monthCache[currentMonth] = monthlyRecordsMap;
   }
 
   const summaries = workers.map((w) =>
