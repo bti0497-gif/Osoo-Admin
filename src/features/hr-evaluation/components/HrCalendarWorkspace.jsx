@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { DAY_TYPE_MAP } from '../constants/hrEvaluationConstants';
+import { DAY_TYPE_MAP, getTodayKST } from '../constants/hrEvaluationConstants';
 import { hrCalendarWorkspaceStyles as styles } from './calendar/hrCalendarWorkspaceStyles';
 import { HrCalendarDayDetailPanel } from './calendar/HrCalendarDayDetailPanel';
 
@@ -18,6 +18,7 @@ export function HrCalendarWorkspace({
   selectedDayRecord,
   onUpdateDayRecord,
 }) {
+  const todayStr = useMemo(() => getTodayKST(), []);
   const dailyList = useMemo(() => workerEvaluation?.dailyList || [], [workerEvaluation]);
 
   // 월요일 시작 기준 앞뒤 빈 칸 계산
@@ -86,15 +87,27 @@ export function HrCalendarWorkspace({
             const hasPenalty = rec.autoPenaltyPoints < 0;
             const hasReasons = Boolean(rec.leaveReason || rec.lateReason || rec.earlyLeaveReason);
 
+            const hasCheck = (rec.checkIn && rec.checkIn !== '-') || (rec.checkOut && rec.checkOut !== '-');
+            // 미도래 미래 날짜: 오늘 이후 날짜이면서 출퇴근 기록이 없고, 관리자 수기 휴무/휴가 지정이 없는 날
+            const isPendingFuture = Boolean(
+              (rec.isFuture || (rec.date > todayStr && !hasCheck)) && !rec.hasManualOverride && !hasCheck
+            );
+
             return (
               <div
                 key={rec.date}
                 onClick={() => onSelectDate(rec.date)}
                 style={{
                   ...styles.dayCell,
-                  backgroundColor: isSelected ? '#eff6ff' : dtMeta.bg,
+                  backgroundColor: isSelected
+                    ? '#eff6ff'
+                    : isPendingFuture
+                    ? '#ffffff'
+                    : dtMeta.bg,
                   border: isSelected
                     ? '2px solid #2563eb'
+                    : isPendingFuture
+                    ? '1px solid #e2e8f0'
                     : rec.isPenaltyExcused
                     ? '1.5px dashed #16a34a'
                     : hasPenalty
@@ -102,7 +115,7 @@ export function HrCalendarWorkspace({
                     : `1px solid ${dtMeta.border}`,
                 }}
               >
-                {/* 상단: 일자 + 형태 뱃지 */}
+                {/* 상단: 일자 + 형태 뱃지 (미도래 미래 날짜는 [근무] 배지 미표시) */}
                 <div style={styles.cellTopRow}>
                   <span
                     style={{
@@ -112,48 +125,52 @@ export function HrCalendarWorkspace({
                   >
                     {rec.day}일
                   </span>
-                  <span
-                    style={{
-                      ...styles.dayTypeBadge,
-                      backgroundColor: dtMeta.color,
-                      color: '#ffffff',
-                    }}
-                  >
-                    {dtMeta.shortLabel}
-                  </span>
+                  {!isPendingFuture && (
+                    <span
+                      style={{
+                        ...styles.dayTypeBadge,
+                        backgroundColor: dtMeta.color,
+                        color: '#ffffff',
+                      }}
+                    >
+                      {dtMeta.shortLabel}
+                    </span>
+                  )}
                 </div>
 
-                {/* 출퇴근 시각 */}
-                {rec.dayType === 'work' ? (
-                  <div style={{ ...styles.timeRow, whiteSpace: 'nowrap' }}>
-                    <span
-                      style={{
-                        ...styles.timeText,
-                        color: rec.lateType ? '#dc2626' : '#334155',
-                        fontWeight: rec.lateType ? 700 : 500,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {rec.checkIn}
-                    </span>
-                    <span style={styles.timeArrow}>→</span>
-                    <span
-                      style={{
-                        ...styles.timeText,
-                        color: rec.autoLogout || rec.earlyType ? '#dc2626' : '#334155',
-                        fontWeight: rec.autoLogout || rec.earlyType ? 700 : 500,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {(rec.autoLogout ? '20:00' : (rec.checkOut || '-')).replace(/\s*\([^)]*\)/g, '').trim()}
-                    </span>
-                  </div>
-                ) : (
-                  <div style={styles.noTimeRow}>{dtMeta.label}</div>
+                {/* 출퇴근 시각 (미도래 미래 날짜는 - → - 시간 박스 미표시) */}
+                {!isPendingFuture && (
+                  rec.dayType === 'work' ? (
+                    <div style={{ ...styles.timeRow, whiteSpace: 'nowrap' }}>
+                      <span
+                        style={{
+                          ...styles.timeText,
+                          color: rec.lateType ? '#dc2626' : '#334155',
+                          fontWeight: rec.lateType ? 700 : 500,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {rec.checkIn}
+                      </span>
+                      <span style={styles.timeArrow}>→</span>
+                      <span
+                        style={{
+                          ...styles.timeText,
+                          color: rec.autoLogout || rec.earlyType ? '#dc2626' : '#334155',
+                          fontWeight: rec.autoLogout || rec.earlyType ? 700 : 500,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {(rec.autoLogout ? '20:00' : (rec.checkOut || '-')).replace(/\s*\([^)]*\)/g, '').trim()}
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={styles.noTimeRow}>{dtMeta.label}</div>
+                  )
                 )}
 
                 {/* 벌점 및 참작 배지 */}
-                {hasPenalty && (
+                {!isPendingFuture && hasPenalty && (
                   <div style={styles.penaltyRow}>
                     {rec.penaltyBadges.map((b, i) => {
                       const cleanLabel = (b.label || '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();

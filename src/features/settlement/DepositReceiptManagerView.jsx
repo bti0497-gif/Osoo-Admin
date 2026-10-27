@@ -5,6 +5,7 @@ import { usePdfLoader } from '../certificate/pdf-parser/hooks/usePdfLoader';
 import { VendorManagerModal } from './components/VendorManagerModal';
 import { SiteVendorMappingModal } from './components/SiteVendorMappingModal';
 import { getVendorList, fetchVendorList } from './utils/vendorStorage';
+import { DriveDocDownloadModal } from './components/DriveDocDownloadModal';
 import { apiClient } from '../../core/api/apiClient.js';
 
 export function DepositReceiptManagerView() {
@@ -14,6 +15,7 @@ export function DepositReceiptManagerView() {
   const [pdfFile, setPdfFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
 
   // PDF 파일 선택 / 드롭 처리
   const handlePdfSelect = async (e) => {
@@ -380,8 +382,8 @@ export function DepositReceiptManagerView() {
           >
             {isSyncing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 시트 새로고침
           </button>
-          <button onClick={handleDriveDownload} disabled={isDriveDownloading} style={btnWebappStyle}>
-            {isDriveDownloading ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Drive 입금표 {targetYm} 다운로드
+          <button onClick={() => setDownloadModalOpen(true)} style={btnWebappStyle}>
+            <Download size={14} /> Drive 입금표 다운로드
           </button>
           <button
             onClick={() => setSiteVendorMappingOpen(true)}
@@ -754,6 +756,13 @@ export function DepositReceiptManagerView() {
         onClose={() => setSiteVendorMappingOpen(false)}
         sites={sortedSites}
         vendors={vendorList}
+      />
+      <DriveDocDownloadModal
+        isOpen={downloadModalOpen}
+        onClose={() => setDownloadModalOpen(false)}
+        initialDocType="deposit"
+        initialTargetYm={targetYm}
+        sites={sortedSites}
       />
     </div>
   );

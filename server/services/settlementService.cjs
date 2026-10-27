@@ -47,6 +47,42 @@ function getBundleTemplateDir() {
 }
 
 /**
+ * 템플릿 파일명 상호 호환 매핑 테이블 (safeBaseName과 DEFAULT_SITES 기본 파일명 동기화)
+ */
+const TEMPLATE_ALIASES = {
+  // 청주(서울) HWP 보고서 & 운영일지 XLSM
+  'template_cheongju_report.hwp': ['template_cheongju_seoul.hwp'],
+  'template_cheongju_seoul.hwp': ['template_cheongju_report.hwp'],
+  'template_cheongju_daily_log.xlsm': ['template_cheongju_seoul_sub.xlsm'],
+  'template_cheongju_seoul_sub.xlsm': ['template_cheongju_daily_log.xlsm'],
+
+  // 홍천(양양) 엑셀 & HWP
+  'template_hongcheon_yangyang.xlsx': ['template_hongcheon_yangyang_excel.xlsx'],
+  'template_hongcheon_yangyang_excel.xlsx': ['template_hongcheon_yangyang.xlsx'],
+  'template_hongcheon_yangyang.hwp': ['template_hongcheon_yangyang_hwp.hwp'],
+  'template_hongcheon_yangyang_hwp.hwp': ['template_hongcheon_yangyang.hwp'],
+
+  // 죽암(서울) & 죽암(부산)
+  'template_jukam_seoul.xls': ['template_jukam_seoul.xls'],
+  'template_jukam_busan.xls': ['template_jukam_busan.xls'],
+
+  // 천안(부산)
+  'template_cheonan_busan.xlsx': ['template_cheonan_busan.xlsx'],
+};
+
+function getTemplateNameVariants(fileName) {
+  if (!fileName) return [];
+  const safeName = path.basename(fileName);
+  const variants = [safeName];
+  if (TEMPLATE_ALIASES[safeName]) {
+    for (const alias of TEMPLATE_ALIASES[safeName]) {
+      if (!variants.includes(alias)) variants.push(alias);
+    }
+  }
+  return variants;
+}
+
+/**
  * 특정 템플릿 파일의 실제 존재하는 최우선 경로 탐색 (AppData > 번들)
  */
 function resolveTemplateFilePath(fileName) {
@@ -54,15 +90,76 @@ function resolveTemplateFilePath(fileName) {
   const safeName = path.basename(fileName);
   const writableDir = getWritableTemplateDir();
   const bundleDir = getBundleTemplateDir();
+  const variants = getTemplateNameVariants(safeName);
 
-  const candidates = [
-    path.join(writableDir, safeName),
-    path.join(bundleDir, safeName),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+  // 1순위: AppData (쓰기 가능 폴더)
+  for (const name of variants) {
+    const cand = path.join(writableDir, name);
+    if (fs.existsSync(cand)) return cand;
   }
+
+  // 2순위: 번들 폴더
+  for (const name of variants) {
+    const cand = path.join(bundleDir, name);
+    if (fs.existsSync(cand)) return cand;
+  }
+
+  return null;
+}
+
+/**
+ * 양식 열기 전, 항상 쓰기 가능한 AppData 폴더에 파일이 존재하도록 보장
+ * (없으면 번들 원본을 AppData로 자동 복사 후 해당 AppData 경로 반환)
+ */
+function ensureWritableTemplateFilePath(fileName) {
+  if (!fileName) return null;
+  const safeName = path.basename(fileName);
+  const writableDir = getWritableTemplateDir();
+  const writablePath = path.join(writableDir, safeName);
+  const variants = getTemplateNameVariants(safeName);
+
+  // 1. 이미 AppData에 존재하면 해당 경로 반환
+  if (fs.existsSync(writablePath)) {
+    return writablePath;
+  }
+
+  // 2. 다른 변형 이름으로 AppData에 이미 존재하는 경우, 해당 파일을 safeName으로도 복사하여 동기화 후 반환
+  for (const variant of variants) {
+    const variantPath = path.join(writableDir, variant);
+    if (fs.existsSync(variantPath)) {
+      try {
+        fs.copyFileSync(variantPath, writablePath);
+        return writablePath;
+      } catch (_) {
+        return variantPath;
+      }
+    }
+  }
+
+  // 3. AppData에 없다면 번들(또는 기존 경로)에서 찾아 AppData로 복사
+  const existingPath = resolveTemplateFilePath(safeName);
+  if (existingPath && fs.existsSync(existingPath)) {
+    try {
+      fs.copyFileSync(existingPath, writablePath);
+      console.log(`[settlementService] 양식 파일 AppData로 자동 복사 완료: ${existingPath} -> ${writablePath}`);
+
+      // 호환성을 위해 모든 변형 이름으로도 AppData에 복사하여 두 이름 모두 즉시 준비
+      for (const variant of variants) {
+        const variantTarget = path.join(writableDir, variant);
+        if (!fs.existsSync(variantTarget)) {
+          try {
+            fs.copyFileSync(existingPath, variantTarget);
+          } catch (_) {}
+        }
+      }
+
+      return writablePath;
+    } catch (err) {
+      console.warn('[settlementService] AppData 양식 복사 실패, 원본 경로 반환:', err.message);
+      return existingPath;
+    }
+  }
+
   return null;
 }
 
@@ -206,6 +303,7 @@ function getTemplateFilePath(templateFileName) {
 
 /**
  * 현장 템플릿 파일 교체 및 신규 저장 (항상 쓰기 가능한 AppData 폴더에 저장)
+ * - safeBaseName뿐만 아니라 DEFAULT_SITES 기본 파일명과도 동기화하여 파일명 불일치 방지
  */
 function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
   const sites = loadTemplateConfig();
@@ -219,19 +317,36 @@ function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
   const targetDir = getWritableTemplateDir();
   const targetPath = path.join(targetDir, safeBaseName);
 
-  // 기존 사용자 파일 삭제 (AppData 내)
-  const oldTemplate = isSub ? targetSite.subTemplate : targetSite.template;
-  if (oldTemplate && oldTemplate !== safeBaseName) {
-    const oldPath = path.join(targetDir, oldTemplate);
-    if (fs.existsSync(oldPath)) {
-      try { fs.unlinkSync(oldPath); } catch (e) { console.warn('이전 템플릿 삭제 실패:', e.message); }
+  // 1. 새 파일 쓰기 (safeBaseName)
+  fs.writeFileSync(targetPath, fileBuffer);
+
+  // 2. DEFAULT_SITES의 기본 파일명 확인 및 호환 동기화 저장
+  const defaultSite = DEFAULT_SITES.find(s => s.id === siteId);
+  const defaultFileName = isSub ? defaultSite?.subTemplate : defaultSite?.template;
+  if (defaultFileName && defaultFileName !== safeBaseName) {
+    const defaultTarget = path.join(targetDir, defaultFileName);
+    try {
+      fs.writeFileSync(defaultTarget, fileBuffer);
+    } catch (e) {
+      console.warn('[settlementService] 기본 파일명 호환 동기화 경고:', e.message);
     }
   }
 
-  // 새 파일 쓰기 (AppData)
-  fs.writeFileSync(targetPath, fileBuffer);
+  // 3. safeBaseName 및 defaultFileName의 모든 변형(alias) 파일명에도 동기화
+  const allVariants = new Set([
+    ...getTemplateNameVariants(safeBaseName),
+    ...(defaultFileName ? getTemplateNameVariants(defaultFileName) : []),
+  ]);
+  for (const variant of allVariants) {
+    const vPath = path.join(targetDir, variant);
+    if (vPath !== targetPath) {
+      try {
+        fs.writeFileSync(vPath, fileBuffer);
+      } catch (_) {}
+    }
+  }
 
-  // 메타 정보 갱신
+  // 4. 메타 정보 갱신
   if (isSub) {
     targetSite.subTemplate = safeBaseName;
   } else {
@@ -259,20 +374,30 @@ function deleteTemplateFile(siteId, isSub = false) {
   }
 
   const targetFileName = isSub ? targetSite.subTemplate : targetSite.template;
-  if (targetFileName) {
-    const appDataPath = path.join(getWritableTemplateDir(), targetFileName);
-    if (fs.existsSync(appDataPath)) {
+  const defaultSite = DEFAULT_SITES.find(s => s.id === siteId);
+  const defaultFileName = isSub ? defaultSite?.subTemplate : defaultSite?.template;
+
+  const namesToDelete = new Set([
+    ...(targetFileName ? getTemplateNameVariants(targetFileName) : []),
+    ...(defaultFileName ? getTemplateNameVariants(defaultFileName) : []),
+  ]);
+
+  const targetDir = getWritableTemplateDir();
+  for (const name of namesToDelete) {
+    const p = path.join(targetDir, name);
+    if (fs.existsSync(p)) {
       try {
-        fs.unlinkSync(appDataPath);
+        fs.unlinkSync(p);
       } catch (e) {
         console.warn('템플릿 파일 삭제 실패:', e.message);
       }
     }
-    if (isSub) {
-      targetSite.subTemplate = null;
-    } else {
-      targetSite.template = null;
-    }
+  }
+
+  if (isSub) {
+    targetSite.subTemplate = null;
+  } else {
+    targetSite.template = null;
   }
 
   saveTemplateConfig(sites);
@@ -375,6 +500,8 @@ module.exports = {
   SETTLEMENT_TARGET_SITES: DEFAULT_SITES,
   getTemplateList,
   getTemplateFilePath,
+  ensureWritableTemplateFilePath,
+  resolveTemplateFilePath,
   saveTemplateFile,
   deleteTemplateFile,
   getSettlementSummary,

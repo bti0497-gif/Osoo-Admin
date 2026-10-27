@@ -83,7 +83,16 @@ async function getActiveWorkers() {
 /**
  * 출퇴근 시각 및 근무형태 벌점 계산
  */
-function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, customRules = null, customWorkHours = null) {
+function computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout, isFuture }, customRules = null, customWorkHours = null) {
+  if (isFuture) {
+    return {
+      autoPenaltyPoints: 0,
+      lateType: null,
+      earlyType: null,
+      penaltyBadges: [],
+    };
+  }
+
   const rules = customRules?.autoPenalty || customRules || {
     late10m: -1,
     late30m: -2,
@@ -249,7 +258,7 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dow = new Date(year, month - 1, day).getDay();
-      const isFuture = dateStr > todayKst;
+      const isDateAfterToday = dateStr > todayKst;
 
       let dayType = 'work';
       let checkIn = '-';
@@ -267,13 +276,8 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         bqAttMap.get(`${dateStr}|mem:${worker.workerName}`) ||
         null;
 
-      if (isFuture) {
-        // 미래 날짜: 아직 도래하지 않은 날짜 -> 빈 상태/예정
-        dayType = 'work';
-        checkIn = '-';
-        checkOut = '-';
-      } else if (bqRow && (bqRow.login_time || bqRow.logout_time)) {
-        // 과거/당일 실제 로그인/로그아웃 기록 있음
+      if (bqRow && (bqRow.login_time || bqRow.logout_time)) {
+        // 실제 로그인/로그아웃 기록 있음
         dayType = 'work';
         checkIn = bqRow.login_time ? String(bqRow.login_time).slice(0, 5) : '-';
         if (bqRow.logout_time) {
@@ -287,6 +291,11 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         } else {
           checkOut = '-';
         }
+      } else if (isDateAfterToday) {
+        // 미래 날짜: 아직 도래하지 않은 날짜 -> 빈 상태/예정
+        dayType = 'work';
+        checkIn = '-';
+        checkOut = '-';
       } else {
         // 과거 날짜 중 출근·퇴근 기록이 둘 다 없는 날 = 규정상 휴무일 (regular_off)
         dayType = 'regular_off';
@@ -294,12 +303,11 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         checkOut = '-';
       }
 
-      // 기본 벌점 계산
-      let penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules, workHours);
-
       // 중앙관리자 수기 저장 레코드 오버레이 (휴가 변경, 사유 등록, 참작 면제 등)
+      let hasManualOverride = false;
       const manual = manualMap.get(`${dateStr}|${wId}`) || manualMap.get(`${dateStr}|${worker.siteId}`);
       if (manual) {
+        hasManualOverride = true;
         if (manual.day_type) {
           dayType = (manual.day_type === 'half_am' || manual.day_type === 'half_pm')
             ? 'sub_leave'
@@ -314,12 +322,18 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         lateReason = manual.late_reason || '';
         earlyLeaveReason = manual.early_leave_reason || '';
         isPenaltyExcused = Boolean(manual.is_penalty_excused);
-
-        // 변경된 상태로 재계산
-        penaltyInfo = computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout }, scoringRules, workHours);
       }
 
-      const finalPenaltyPoints = isPenaltyExcused ? 0 : penaltyInfo.autoPenaltyPoints;
+      const hasCheckRecord = (checkIn && checkIn !== '-') || (checkOut && checkOut !== '-');
+      // 오늘 이후(내일부터)이고 출퇴근 기록이 없으며 수기 지정도 없는 날 = 미도래 미래 날짜
+      const isFuture = isDateAfterToday && !hasCheckRecord && !hasManualOverride;
+
+      // 벌점 계산: 미래 날짜는 벌점 0점 및 배지 미부과
+      let penaltyInfo = isFuture
+        ? { autoPenaltyPoints: 0, lateType: null, earlyType: null, penaltyBadges: [] }
+        : computeAutoPenalty({ dayType, checkIn, checkOut, autoLogout, isFuture }, scoringRules, workHours);
+
+      const finalPenaltyPoints = (isFuture || isPenaltyExcused) ? 0 : penaltyInfo.autoPenaltyPoints;
 
       dailyRecordsMap[wId][dateStr] = {
         date: dateStr,
@@ -328,17 +342,18 @@ function buildDailyRecordsMap({ workers, year, month, attendanceRows = [], manua
         dayType,
         checkIn,
         checkOut,
-        autoLogout,
+        autoLogout: isFuture ? false : autoLogout,
         leaveReason,
         lateReason,
         earlyLeaveReason,
-        autoPenaltyPoints: penaltyInfo.autoPenaltyPoints,
+        autoPenaltyPoints: isFuture ? 0 : penaltyInfo.autoPenaltyPoints,
         isPenaltyExcused,
         finalPenaltyPoints,
-        penaltyBadges: penaltyInfo.penaltyBadges,
-        lateType: penaltyInfo.lateType,
-        earlyType: penaltyInfo.earlyType,
+        penaltyBadges: isFuture ? [] : penaltyInfo.penaltyBadges,
+        lateType: isFuture ? null : penaltyInfo.lateType,
+        earlyType: isFuture ? null : penaltyInfo.earlyType,
         isFuture,
+        hasManualOverride,
       };
     }
   }

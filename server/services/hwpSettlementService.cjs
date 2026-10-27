@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
 const sharp = require('sharp');
+const { getTemplateFilePath } = require('./settlementService.cjs');
 
 /**
  * 5가지 약품 입고 사진을 가로 규격(80.3mm)에 맞추고 세로를 5등분하여
@@ -217,17 +218,21 @@ async function generateCheongjuHwpReport({
     || path.join(process.env.APPDATA || os.homedir(), 'Osoo_Admin_App');
 
   // 1. 원본 템플릿 탐색 (양식관리 AppData 최신 양식 우선)
+  const appDataReportHwp = getTemplateFilePath('template_cheongju_report.hwp');
+  const appDataSeoulHwp = getTemplateFilePath('template_cheongju_seoul.hwp');
   const templateCandidates = [
+    configuredTemplatePath,
+    appDataReportHwp,
+    appDataSeoulHwp,
     path.join(appDataRoot, 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
     path.join(appDataRoot, 'templates', 'settlement', 'template_cheongju_report.hwp'),
-    configuredTemplatePath,
     path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_seoul.hwp'),
     path.join(__dirname, '..', 'templates', 'settlement', 'template_cheongju_report.hwp'),
     ...desktopDirs.map(d => path.join(d, '정산양식', 'template_cheongju_seoul.hwp')),
     ...desktopDirs.map(d => path.join(d, '정산양식', 'template_cheongju_report.hwp')),
     path.join(__dirname, '..', '..', 'templates', 'template_cheongju_report.hwp'),
     path.join(process.cwd(), 'templates', 'template_cheongju_report.hwp'),
-  ];
+  ].filter(Boolean);
 
   let templatePath = null;
   for (const cand of templateCandidates) {

@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const JSZip = require('jszip');
 const { getBigQueryClient, DATASET_ID } = require('./bigQueryClientService.cjs');
+const { getTemplateFilePath } = require('./settlementService.cjs');
 
 /**
  * JS Date를 엑셀 시리얼 넘버로 변환 (1900 date system)
@@ -96,13 +97,15 @@ async function generateCheonanBusanExcelReport({
   const targetYm = `${year}${String(month).padStart(2, '0')}`;
   const desktopDirs = getDesktopDirectories();
 
-  // 1. 템플릿 파일 탐색 (우선순위: 바탕화면 정산양식 최신본 -> 앱 번들 템플릿)
+  // 1. 템플릿 파일 탐색 (1순위: AppData 사용자 교체/수정 양식 -> 번들/바탕화면)
+  const appDataTemplate = getTemplateFilePath('template_cheonan_busan.xlsx');
   const templateCandidates = [
-    ...desktopDirs.map(d => path.join(d, '정산양식', `2026년 8월 천안(부산)휴게소 오수정화조 정산내역.xlsx`)),
-    ...desktopDirs.map(d => path.join(d, '정산양식', `${year}년 ${month}월 천안(부산)휴게소 오수정화조 정산내역.xlsx`)),
-    ...desktopDirs.map(d => path.join(d, '정산양식', `천안(부산)_정산양식.xlsx`)),
+    appDataTemplate,
     path.join(__dirname, '../templates/settlement/template_cheonan_busan.xlsx'),
-  ];
+    ...desktopDirs.map(d => path.join(d, '정산양식', `${year}년 ${month}월 천안(부산)휴게소 오수정화조 정산내역.xlsx`)),
+    ...desktopDirs.map(d => path.join(d, '정산양식', `2026년 8월 천안(부산)휴게소 오수정화조 정산내역.xlsx`)),
+    ...desktopDirs.map(d => path.join(d, '정산양식', `천안(부산)_정산양식.xlsx`)),
+  ].filter(Boolean);
 
   let templatePath = null;
   for (const cand of templateCandidates) {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DAY_TYPE_OPTIONS, DAY_TYPE_MAP } from '../constants/hrEvaluationConstants';
+import { DAY_TYPE_OPTIONS, DAY_TYPE_MAP, getTodayKST } from '../constants/hrEvaluationConstants';
 
 const DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -16,6 +16,7 @@ export function HrListWorkspace({
   onSelectDate,
   onUpdateDayRecord,
 }) {
+  const todayStr = useMemo(() => getTodayKST(), []);
   const [filterMode, setFilterMode] = useState('all'); // 'all' | 'penalty' | 'leave' | 'reason'
   const dailyList = useMemo(() => workerEvaluation?.dailyList || [], [workerEvaluation]);
 
@@ -100,6 +101,12 @@ export function HrListWorkspace({
               const isSun = rec.dow === 0;
               const isSat = rec.dow === 6;
 
+              const hasCheck = (rec.checkIn && rec.checkIn !== '-') || (rec.checkOut && rec.checkOut !== '-');
+              // 미도래 미래 날짜: 오늘 이후 날짜이면서 출퇴근 기록이 없고, 관리자 수기 휴무/휴가 지정이 없는 날
+              const isPendingFuture = Boolean(
+                (rec.isFuture || (rec.date > todayStr && !hasCheck)) && !rec.hasManualOverride && !hasCheck
+              );
+
               return (
                 <tr
                   key={rec.date}
@@ -108,9 +115,11 @@ export function HrListWorkspace({
                     ...styles.tr,
                     backgroundColor: isSelected
                       ? '#eff6ff'
-                      : rec.dayType === 'regular_off'
-                        ? '#f8fafc'
-                        : '#ffffff',
+                      : isPendingFuture
+                        ? '#ffffff'
+                        : rec.dayType === 'regular_off'
+                          ? '#f8fafc'
+                          : '#ffffff',
                   }}
                 >
                   {/* 1. 일자(요일) */}
@@ -132,22 +141,27 @@ export function HrListWorkspace({
                       onChange={(e) => onUpdateDayRecord(rec.date, { dayType: e.target.value })}
                       style={{
                         ...styles.dayTypeSelect,
-                        backgroundColor: dtMeta.bg,
-                        color: dtMeta.color,
-                        borderColor: dtMeta.border,
+                        backgroundColor: isPendingFuture ? '#f8fafc' : dtMeta.bg,
+                        color: isPendingFuture ? '#64748b' : dtMeta.color,
+                        borderColor: isPendingFuture ? '#cbd5e1' : dtMeta.border,
+                        fontWeight: isPendingFuture ? 500 : 700,
                       }}
                     >
                       {DAY_TYPE_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
-                          {opt.label}
+                          {isPendingFuture && opt.value === 'work' ? '근무 (예정)' : opt.label}
                         </option>
                       ))}
                     </select>
                   </td>
 
-                  {/* 3. 출퇴근 시각 및 상태 */}
+                  {/* 3. 출퇴근 시각 및 상태 (미도래 미래 날짜는 '예정'으로 차분하게 표시) */}
                   <td style={{ ...styles.td, textAlign: 'center' }}>
-                    {rec.checkIn !== '-' || rec.checkOut !== '-' ? (
+                    {isPendingFuture ? (
+                      <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 500 }}>
+                        예정
+                      </span>
+                    ) : (rec.checkIn !== '-' || rec.checkOut !== '-') ? (
                       <div style={styles.timeCellWrap}>
                         <span style={{ ...styles.monoTime, whiteSpace: 'nowrap' }}>
                           {rec.checkIn} →{' '}
@@ -187,11 +201,11 @@ export function HrListWorkspace({
                       type="text"
                       value={rec.leaveReason || ''}
                       onChange={(e) => onUpdateDayRecord(rec.date, { leaveReason: e.target.value })}
-                      placeholder={dtMeta.isLeave ? '쉬게 된 사유 입력...' : '휴무/휴가 사유'}
+                      placeholder={isPendingFuture ? '휴무/휴가 사전등록 시 입력' : (dtMeta.isLeave ? '쉬게 된 사유 입력...' : '휴무/휴가 사유')}
                       style={{
                         ...styles.inlineInput,
-                        backgroundColor: dtMeta.isLeave && !rec.leaveReason ? '#fffbeb' : '#ffffff',
-                        borderColor: dtMeta.isLeave && !rec.leaveReason ? '#fcd34d' : '#cbd5e1',
+                        backgroundColor: !isPendingFuture && dtMeta.isLeave && !rec.leaveReason ? '#fffbeb' : '#ffffff',
+                        borderColor: !isPendingFuture && dtMeta.isLeave && !rec.leaveReason ? '#fcd34d' : '#cbd5e1',
                       }}
                     />
                   </td>
@@ -202,11 +216,12 @@ export function HrListWorkspace({
                       type="text"
                       value={rec.lateReason || ''}
                       onChange={(e) => onUpdateDayRecord(rec.date, { lateReason: e.target.value })}
-                      placeholder={rec.lateType ? '지각 사유 입력...' : '지각 사유'}
+                      placeholder={isPendingFuture ? '-' : (rec.lateType ? '지각 사유 입력...' : '지각 사유')}
+                      disabled={isPendingFuture}
                       style={{
                         ...styles.inlineInput,
-                        backgroundColor: rec.lateType && !rec.lateReason ? '#fff7ed' : '#ffffff',
-                        borderColor: rec.lateType && !rec.lateReason ? '#fdba74' : '#cbd5e1',
+                        backgroundColor: isPendingFuture ? '#f8fafc' : (rec.lateType && !rec.lateReason ? '#fff7ed' : '#ffffff'),
+                        borderColor: !isPendingFuture && rec.lateType && !rec.lateReason ? '#fdba74' : '#cbd5e1',
                       }}
                     />
                   </td>
@@ -217,11 +232,12 @@ export function HrListWorkspace({
                       type="text"
                       value={rec.earlyLeaveReason || ''}
                       onChange={(e) => onUpdateDayRecord(rec.date, { earlyLeaveReason: e.target.value })}
-                      placeholder={rec.earlyType ? '조퇴/미체크 사유 입력...' : '조퇴·미로그아웃 사유'}
+                      placeholder={isPendingFuture ? '-' : (rec.earlyType ? '조퇴/미체크 사유 입력...' : '조퇴·미로그아웃 사유')}
+                      disabled={isPendingFuture}
                       style={{
                         ...styles.inlineInput,
-                        backgroundColor: rec.earlyType && !rec.earlyLeaveReason ? '#fff1f2' : '#ffffff',
-                        borderColor: rec.earlyType && !rec.earlyLeaveReason ? '#fda4af' : '#cbd5e1',
+                        backgroundColor: isPendingFuture ? '#f8fafc' : (rec.earlyType && !rec.earlyLeaveReason ? '#fff1f2' : '#ffffff'),
+                        borderColor: !isPendingFuture && rec.earlyType && !rec.earlyLeaveReason ? '#fda4af' : '#cbd5e1',
                       }}
                     />
                   </td>
@@ -232,18 +248,18 @@ export function HrListWorkspace({
                       ...styles.td,
                       textAlign: 'center',
                       fontWeight: 700,
-                      color: rec.autoPenaltyPoints < 0 ? '#ea580c' : '#94a3b8',
+                      color: !isPendingFuture && rec.autoPenaltyPoints < 0 ? '#ea580c' : '#94a3b8',
                     }}
                   >
-                    {rec.autoPenaltyPoints < 0 ? `${rec.autoPenaltyPoints}점` : '0'}
+                    {!isPendingFuture && rec.autoPenaltyPoints < 0 ? `${rec.autoPenaltyPoints}점` : '0'}
                   </td>
 
                   {/* 8. 참작면제 체크박스 */}
                   <td style={{ ...styles.td, textAlign: 'center' }}>
                     <input
                       type="checkbox"
-                      disabled={rec.autoPenaltyPoints === 0}
-                      checked={Boolean(rec.isPenaltyExcused)}
+                      disabled={isPendingFuture || rec.autoPenaltyPoints === 0}
+                      checked={!isPendingFuture && Boolean(rec.isPenaltyExcused)}
                       onChange={(e) =>
                         onUpdateDayRecord(rec.date, { isPenaltyExcused: e.target.checked })
                       }
@@ -251,7 +267,7 @@ export function HrListWorkspace({
                       style={{
                         width: '15px',
                         height: '15px',
-                        cursor: rec.autoPenaltyPoints === 0 ? 'not-allowed' : 'pointer',
+                        cursor: (isPendingFuture || rec.autoPenaltyPoints === 0) ? 'not-allowed' : 'pointer',
                       }}
                     />
                   </td>
@@ -262,15 +278,15 @@ export function HrListWorkspace({
                       type="number"
                       max={0}
                       min={-15}
-                      disabled={rec.isPenaltyExcused}
-                      value={rec.finalPenaltyPoints}
+                      disabled={isPendingFuture || rec.isPenaltyExcused}
+                      value={isPendingFuture ? 0 : rec.finalPenaltyPoints}
                       onChange={(e) =>
                         onUpdateDayRecord(rec.date, { finalPenaltyPoints: Number(e.target.value) })
                       }
                       style={{
                         ...styles.penaltyInput,
-                        color: rec.finalPenaltyPoints < 0 ? '#dc2626' : '#15803d',
-                        backgroundColor: rec.isPenaltyExcused ? '#f1f5f9' : '#ffffff',
+                        color: !isPendingFuture && rec.finalPenaltyPoints < 0 ? '#dc2626' : '#15803d',
+                        backgroundColor: (isPendingFuture || rec.isPenaltyExcused) ? '#f1f5f9' : '#ffffff',
                       }}
                     />
                   </td>

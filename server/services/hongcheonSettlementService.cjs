@@ -91,20 +91,22 @@ try {
     }
   }
 
-  # 2. 13개 시트 표시/숨김 제어
+  # 2. 13개 시트 표시/숨김 제어 (연도 2026/2027 및 월 자릿수 호환)
   $targetSheet = "${targetSheetName}"
   $found = $false
   foreach ($sh in $wb.Sheets) {
     $cleanName = $sh.Name.Trim()
-    if ($cleanName -match '^\\d{4}년도\\s*\\d{1,2}월$') {
-      if ($cleanName -eq $targetSheet) {
+    if ($cleanName -match '(?:^\\d{4}년도\\s*)?0?(\\d{1,2})월$') {
+      $mNum = [int]$Matches[1]
+      if ($cleanName -eq $targetSheet -or $mNum -eq ${numMonth}) {
         $sh.Visible = -1 # xlSheetVisible
         $found = $true
+        $targetSheet = $sh.Name
       } else {
         $sh.Visible = 0  # xlSheetHidden
       }
     } elseif ($cleanName -like "*총괄*") {
-      $sh.Visible = -1 # 총괄 시트는 항상 표시
+      $sh.Visible = -1 # 총괄 시트는 항상 표시 (2026년 총괄, 2027년 총괄 모두 호환)
     }
   }
 

@@ -18,6 +18,7 @@ const {
   getSettlementSummary,
   getTemplateList,
   getTemplateFilePath,
+  ensureWritableTemplateFilePath,
   saveTemplateFile,
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
@@ -51,6 +52,7 @@ const {
   generateHongcheonHwpReport,
 } = require('../services/hongcheonHwpService.cjs');
 const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
+const { downloadSettlementDocs } = require('../services/settlementDocDownloadService.cjs');
 
 // 메모리 스토리지 multer 설정 (최대 250MB 허용 - 대용량 HWP 보고서 지원)
 const upload = multer({
@@ -201,11 +203,12 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   /**
    * POST /api/settlement/templates/:filename/open
    * 템플릿 파일을 사용자의 PC 기본 프로그램(Excel, 한글 등)으로 직접 열기
+   * - AppData(쓰기 가능) 폴더에 없으면 번들에서 자동 복사한 후 AppData 내 파일을 열어 즉시 수정/저장 가능
    */
   router.post('/templates/:filename/open', (req, res) => {
     try {
       const { filename } = req.params;
-      const filePath = getTemplateFilePath(filename);
+      const filePath = ensureWritableTemplateFilePath(filename);
       if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ success: false, error: '해당 템플릿 파일을 찾을 수 없습니다.' });
       }
@@ -674,9 +677,9 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
 
         diagnosticStage = '기본 HWP 템플릿 확인';
         const cheongjuTemplate = getTemplateList().find((site) => site.id === 'cheongju_seoul');
-        const templatePath = cheongjuTemplate?.template
-          ? getTemplateFilePath(cheongjuTemplate.template)
-          : null;
+        const templatePath = (cheongjuTemplate?.template ? getTemplateFilePath(cheongjuTemplate.template) : null)
+          || getTemplateFilePath('template_cheongju_report.hwp')
+          || getTemplateFilePath('template_cheongju_seoul.hwp');
 
         if (!templatePath) {
           throw new Error('청주휴게소 정산 한글 양식이 없습니다. 양식관리에서 청주휴게소(서울방향) HWP 양식을 등록해 주세요.');
@@ -941,34 +944,66 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     }
   });
 
-  router.get('/drive-folder-download', async (req, res) => {
+  const handleDocDownloadRequest = async (req, res) => {
     try {
-      const targetYm = normalizeTargetYm(req.query.targetYm);
-      if (!targetYm) return res.status(400).json({ success: false, error: '대상 연월은 YYYYMM 형식이어야 합니다.' });
-      if (!isDriveConfigured()) return res.status(503).json({ success: false, error: 'Google Drive 연동 설정을 찾을 수 없습니다.' });
-
-      const monthlyFolder = await findSettlementMonthlyFolder(targetYm);
-      if (!monthlyFolder) return res.status(404).json({ success: false, error: `Drive에 월정산/${targetYm} 폴더가 없습니다.` });
-
-      const files = (await listFilesFolder(monthlyFolder.id))
-        .filter((file) => file.mimeType !== 'application/vnd.google-apps.folder');
-      if (!files.length) return res.status(404).json({ success: false, error: `Drive의 월정산/${targetYm} 폴더가 비어 있습니다.` });
-
-      const zip = new JSZip();
-      const archiveFolderName = `월정산_${targetYm}`;
-      for (const file of files) {
-        zip.file(`${archiveFolderName}/${file.name}`, await downloadDriveFileBuffer(file.id));
+      const targetYm = normalizeTargetYm(req.query.targetYm || req.body?.targetYm);
+      if (!targetYm) {
+        return res.status(400).json({ success: false, error: '대상 연월은 YYYYMM 형식이어야 합니다.' });
       }
-      const archive = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-      const archiveName = `월정산_${targetYm}.zip`;
+
+      const docType = String(
+        req.query.docType
+        || req.query.documentType
+        || req.body?.docType
+        || req.body?.documentType
+        || 'invoice'
+      ).trim();
+
+      let rawSites = req.body?.sites !== undefined ? req.body.sites : req.query.sites;
+      let sites = [];
+      if (Array.isArray(rawSites)) {
+        sites = rawSites;
+      } else if (typeof rawSites === 'string' && rawSites.trim()) {
+        try {
+          if (rawSites.trim().startsWith('[')) {
+            sites = JSON.parse(rawSites);
+          } else {
+            sites = rawSites.split(',').map((s) => s.trim()).filter(Boolean);
+          }
+        } catch (_) {
+          sites = rawSites.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      }
+
+      const format = String(req.query.format || req.body?.format || 'auto').trim();
+      const result = await downloadSettlementDocs({ docType, targetYm, sites, format });
+
+      if (!result.success) {
+        return res.status(404).json(result);
+      }
+
+      if (result.mode === 'json') {
+        return res.json(result);
+      }
+
+      if (result.mode === 'single') {
+        res.setHeader('Content-Type', result.mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(result.fileName)}`);
+        return res.send(result.buffer);
+      }
+
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(archiveName)}`);
-      return res.send(archive);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(result.archiveName)}`);
+      return res.send(result.buffer);
     } catch (err) {
-      console.error('[settlementRoutes] 계산서 Drive 다운로드 오류:', err);
+      console.error('[settlementRoutes] 계산서/입금표 다운로드 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
     }
-  });
+  };
+
+  router.get('/drive-folder-download', handleDocDownloadRequest);
+  router.post('/drive-folder-download', handleDocDownloadRequest);
+  router.post('/download-selected', handleDocDownloadRequest);
 
   // ROI 영구 설정 조회 (AppData JSON 파일 기반)
   router.get('/roi-config', (req, res) => {

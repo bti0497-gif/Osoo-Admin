@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { computeAutoPenalty } from '../constants/hrEvaluationConstants';
+import { computeAutoPenalty, getTodayKST } from '../constants/hrEvaluationConstants';
 
 /**
  * 🛠️ 월간 근태 일별 기록 및 관리자 상벌점/평가의견 수정 액션 훅
@@ -53,22 +53,33 @@ export function useHrMonthlyEvaluationActions({
           }
         }
 
-        const penaltyInfo = computeAutoPenalty(
-          {
-            dayType: nextDayType,
-            checkIn: nextCheckIn,
-            checkOut: nextCheckOut,
-            autoLogout: nextAutoLogout,
-          },
-          scoringSettings.autoPenalty,
-          scoringSettings.workHours
-        );
+        const todayKst = getTodayKST();
+        const isDateAfterToday = dateStr > todayKst;
+        const hasCheckRecord = (nextCheckIn && nextCheckIn !== '-') || (nextCheckOut && nextCheckOut !== '-');
+        const nextHasManualOverride = patch.hasManualOverride !== undefined
+          ? Boolean(patch.hasManualOverride)
+          : true;
+        const nextIsFuture = isDateAfterToday && !hasCheckRecord && !nextHasManualOverride;
+
+        const penaltyInfo = nextIsFuture
+          ? { autoPenaltyPoints: 0, lateType: null, earlyType: null, penaltyBadges: [] }
+          : computeAutoPenalty(
+              {
+                dayType: nextDayType,
+                checkIn: nextCheckIn,
+                checkOut: nextCheckOut,
+                autoLogout: nextAutoLogout,
+                isFuture: nextIsFuture,
+              },
+              scoringSettings.autoPenalty,
+              scoringSettings.workHours
+            );
 
         const nextIsExcused =
           patch.isPenaltyExcused !== undefined ? Boolean(patch.isPenaltyExcused) : currentDay.isPenaltyExcused;
 
-        let nextFinalPenalty = nextIsExcused ? 0 : penaltyInfo.autoPenaltyPoints;
-        if (patch.finalPenaltyPoints !== undefined && !nextIsExcused) {
+        let nextFinalPenalty = (nextIsFuture || nextIsExcused) ? 0 : penaltyInfo.autoPenaltyPoints;
+        if (patch.finalPenaltyPoints !== undefined && !nextIsExcused && !nextIsFuture) {
           const parsed = Number(patch.finalPenaltyPoints);
           if (!Number.isNaN(parsed)) {
             nextFinalPenalty = parsed > 0 ? -parsed : parsed;
@@ -81,13 +92,15 @@ export function useHrMonthlyEvaluationActions({
           dayType: nextDayType,
           checkIn: nextCheckIn,
           checkOut: nextCheckOut,
-          autoLogout: nextAutoLogout,
-          autoPenaltyPoints: penaltyInfo.autoPenaltyPoints,
+          autoLogout: nextIsFuture ? false : nextAutoLogout,
+          autoPenaltyPoints: nextIsFuture ? 0 : penaltyInfo.autoPenaltyPoints,
           isPenaltyExcused: nextIsExcused,
           finalPenaltyPoints: nextFinalPenalty,
-          penaltyBadges: penaltyInfo.penaltyBadges,
-          lateType: penaltyInfo.lateType,
-          earlyType: penaltyInfo.earlyType,
+          penaltyBadges: nextIsFuture ? [] : penaltyInfo.penaltyBadges,
+          lateType: nextIsFuture ? null : penaltyInfo.lateType,
+          earlyType: nextIsFuture ? null : penaltyInfo.earlyType,
+          hasManualOverride: nextHasManualOverride,
+          isFuture: nextIsFuture,
         };
 
         // 백그라운드 큐에 변경 등록

@@ -9,6 +9,7 @@ import {
   DAY_TYPE_MAP,
   getGradeInfo,
   createEmptyWorkerMonthlyRecord,
+  getTodayKST,
 } from '../constants/hrEvaluationConstants';
 import {
   ANNUAL_EVAL_STORAGE_PREFIX,
@@ -47,7 +48,19 @@ export function calculateWorkerMonthlySummary(worker, workerRecord, scoringSetti
   let excusedPenaltyTotal = 0;
   let finalAttendancePenalty = 0;
 
+  const todayStr = getTodayKST();
+
   for (const rec of dailyList) {
+    const hasCheck = (rec.checkIn && rec.checkIn !== '-') || (rec.checkOut && rec.checkOut !== '-');
+    const isPendingFuture = Boolean(
+      (rec.isFuture || (rec.date > todayStr && !hasCheck)) && !rec.hasManualOverride && !hasCheck
+    );
+
+    // 미도래 미래 날짜(오늘 이후 날짜이면서 출퇴근 기록이 없고 수기 지정이 없는 날)는 실근무일수 및 정기휴무일 집계에서 완전 제외
+    if (isPendingFuture) {
+      continue;
+    }
+
     const dtMeta = DAY_TYPE_MAP[rec.dayType] || DAY_TYPE_MAP.work;
 
     if (rec.dayType === 'work') {

@@ -74,15 +74,37 @@ export const DEFAULT_FIELD_WORKERS = [
 ];
 
 /**
+ * KST(한국 표준시) 기준 오늘 날짜 YYYY-MM-DD 문자열 반환
+ */
+export function getTodayKST() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date());
+  } catch {
+    const now = new Date();
+    const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    return kst.toISOString().split('T')[0];
+  }
+}
+
+/**
  * 출퇴근 시각과 근무형태에 따른 자동 벌점 계산
  * - 조퇴(신청)는 벌점 부과 없이 0점, 조퇴 건수로만 집계
  * - 일반 근무일의 조기 퇴근은 지정 퇴근시간 기준 10분/30분/1시간 전 구간 감점 적용
  */
 export function computeAutoPenalty(
-  { dayType, checkIn, checkOut, autoLogout },
+  { dayType, checkIn, checkOut, autoLogout, isFuture },
   customRules = null,
   customWorkHours = null
 ) {
+  if (isFuture) {
+    return {
+      autoPenaltyPoints: 0,
+      lateType: null,
+      earlyType: null,
+      penaltyBadges: [],
+    };
+  }
+
   const rules = customRules?.autoPenalty || customRules || {
     late10m: -1,
     late30m: -2,
@@ -244,12 +266,14 @@ export function mergeWorkersWithSiteMaster(siteMaster = []) {
  */
 export function createEmptyWorkerMonthlyRecord(worker, year, month) {
   const daysInMonth = new Date(year, month, 0).getDate();
+  const todayStr = getTodayKST();
   const dailyRecords = {};
 
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const d = new Date(year, month - 1, day);
     const dow = d.getDay();
+    const isFuture = dateStr > todayStr;
 
     dailyRecords[dateStr] = {
       date: dateStr,
@@ -268,7 +292,8 @@ export function createEmptyWorkerMonthlyRecord(worker, year, month) {
       penaltyBadges: [],
       lateType: null,
       earlyType: null,
-      isFuture: false,
+      isFuture,
+      hasManualOverride: false,
     };
   }
 

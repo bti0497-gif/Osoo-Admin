@@ -8,6 +8,7 @@ const sharp = require('sharp');
 
 const { getMonthlyReportData, transformToReportData } = require('./monthlyReportService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getTemplateFilePath } = require('./settlementService.cjs');
 
 // 죽암휴게소(부산방향) 구글 시트 / BigQuery 표준 현장 ID
 const JUKAM_BUSAN_SITE_ID = 'fdd44211-5162-4494-838d-fb5f5d6bed69';
@@ -293,13 +294,17 @@ async function generateJukamBusanExcelReport({
   const targetYm = `${year}${String(month).padStart(2, '0')}`;
   const desktopDirs = getDesktopDirectories();
 
-  // 1. 원본 템플릿 파일 탐색
+  // 1. 원본 템플릿 파일 탐색 (1순위: AppData 사용자 교체/수정 양식 -> 번들/바탕화면)
+  const appDataTemplate = getTemplateFilePath('template_jukam_busan.xls');
   const templateCandidates = [
+    appDataTemplate,
+    path.join(process.cwd(), 'server', 'templates', 'settlement', 'template_jukam_busan.xls'),
+    path.join(__dirname, '../templates/settlement', 'template_jukam_busan.xls'),
+    ...desktopDirs.map(d => path.join(d, '정산양식', `${year}년 ${month}월 오수처리비 정산(죽암부산행).xls`)),
     ...desktopDirs.map(d => path.join(d, '정산양식', `2026년 8월 오수처리비 정산(죽암부산행).xls`)),
     ...desktopDirs.map(d => path.join(d, '정산양식', `오수처리비 정산(죽암부산행).xls`)),
-    path.join(process.cwd(), 'server', 'templates', 'settlement', 'template_jukam_busan.xls'),
     ...desktopDirs.map(d => path.join(d, '월정산', '죽암마감자료', `2026년 8월 오수처리비 정산(죽암부산행).xls`)),
-  ];
+  ].filter(Boolean);
 
   let templatePath = null;
   for (const cand of templateCandidates) {
@@ -1060,13 +1065,17 @@ async function generateJukamSeoulExcelReport({
   const targetYm = `${year}${String(month).padStart(2, '0')}`;
   const desktopDirs = getDesktopDirectories();
 
-  // 1. 원본 템플릿 파일 탐색
+  // 1. 원본 템플릿 파일 탐색 (1순위: AppData 사용자 교체/수정 양식 -> 번들/바탕화면)
+  const appDataTemplate = getTemplateFilePath('template_jukam_seoul.xls');
   const templateCandidates = [
+    appDataTemplate,
+    path.join(process.cwd(), 'server', 'templates', 'settlement', 'template_jukam_seoul.xls'),
+    path.join(__dirname, '../templates/settlement', 'template_jukam_seoul.xls'),
+    ...desktopDirs.map(d => path.join(d, '정산양식', `죽암(서울)휴게소 오수처리(${year}년 ${month}월).xls`)),
     ...desktopDirs.map(d => path.join(d, '정산양식', `죽암(서울)휴게소 오수처리(2026년 8월).xls`)),
     ...desktopDirs.map(d => path.join(d, '정산양식', `죽암(서울)휴게소 오수처리.xls`)),
-    path.join(process.cwd(), 'server', 'templates', 'settlement', 'template_jukam_seoul.xls'),
     ...desktopDirs.map(d => path.join(d, '월정산', '죽암마감자료', `죽암(서울)휴게소 오수처리(2026년 8월).xls`)),
-  ];
+  ].filter(Boolean);
 
   let templatePath = null;
   for (const cand of templateCandidates) {
@@ -1305,7 +1314,7 @@ try {
     if ($wsProof) {
       # 운영보고서 타이틀
       try {
-        $wb.Names.Item("운영보고서월").RefersToRange.Value2 = "2026년 휴게소 오수처리시설 운영일지($($data.month)월) 죽암(서울)"
+        $wb.Names.Item("운영보고서월").RefersToRange.Value2 = "$($data.year)년 휴게소 오수처리시설 운영일지($($data.month)월) 죽암(서울)"
       } catch { LogMsg "운영보고서월 error: $($_.Exception.Message)" }
 
       # 일별 데이터 바인딩

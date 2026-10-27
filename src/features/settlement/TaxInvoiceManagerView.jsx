@@ -8,11 +8,13 @@ import { getVendorList, fetchVendorList } from './utils/vendorStorage';
 import RoiCalibrationModal from './components/RoiCalibrationModal';
 import { RoiCropPreview } from './components/RoiCropPreview';
 import { DEFAULT_ROI_CONFIG, fetchSettlementRoiConfig, getSettlementRoiConfigSync, saveSettlementRoiConfig } from './utils/settlementRoiConfig';
+import { DriveDocDownloadModal } from './components/DriveDocDownloadModal';
 import { apiClient } from '../../core/api/apiClient.js';
 
 export function TaxInvoiceManagerView() {
   const { siteMaster = [], loading: sitesLoading, invalidateCache: refreshSiteMaster } = useSiteMaster();
   const [siteVendorMappingOpen, setSiteVendorMappingOpen] = useState(false);
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // 실제 PDF 파서 로더 훅 연동
@@ -748,12 +750,10 @@ export function TaxInvoiceManagerView() {
             {isSyncing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 시트 새로고침
           </button>
           <button
-            onClick={handleDownloadDriveFolder}
+            onClick={() => setDownloadModalOpen(true)}
             style={btnWebappStyle}
-            disabled={isDriveDownloading}
           >
-            {isDriveDownloading ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
-            Drive 계산서 {targetYm} 다운로드
+            <Download size={14} /> Drive 계산서 다운로드
           </button>
           <button
             onClick={() => setSiteVendorMappingOpen(true)}
@@ -896,39 +896,38 @@ export function TaxInvoiceManagerView() {
 
         {/* ── 2열: (상단) 현장명/상단 크롭 뷰 (110px 고정) + (하단) 남은 현장 리스트 ── */}
         <div style={col2Style}>
-          {/* 상단: 크롭 뷰포트 (고정 높이 235px, 2분할 듀얼 뷰포트) */}
+          {/* 상단: 크롭 뷰포트 (고정 높이 235px) */}
           <div style={cropHeaderViewportStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>🔍 P.{activePage?.pageNum || 1} 2분할 듀얼 확대 뷰포트</span>
-                <button
-                  onClick={() => {
-                    setRoiEditingProfile(invoiceType);
-                    setShowRoiCalibrator(true);
-                  }}
-                  style={{
-                    padding: '2px 6px', borderRadius: '4px', border: '1px solid #3b82f6',
-                    background: '#eff6ff',
-                    color: '#2563eb',
-                    fontSize: '10px', fontWeight: 800, cursor: 'pointer'
-                  }}
-                >
-                  🛠️ ROI 정밀 교정 열기
-                </button>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {/* 계산서 종류 셀렉터 (매출계산서 / 일반계산서) */}
-                <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '2px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '6px', flexWrap: 'nowrap', overflowX: 'auto' }}>
+              <button
+                onClick={() => {
+                  setRoiEditingProfile(invoiceType);
+                  setShowRoiCalibrator(true);
+                }}
+                style={{
+                  padding: '2px 7px', borderRadius: '4px', border: '1px solid #3b82f6',
+                  background: '#eff6ff',
+                  color: '#2563eb',
+                  fontSize: '10px', fontWeight: 800, cursor: 'pointer',
+                  whiteSpace: 'nowrap', flexShrink: 0,
+                }}
+              >
+                🛠️ 정밀 교정 열기
+              </button>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'nowrap', flexShrink: 0 }}>
+                {/* 계산서 종류 셀렉터 (매출계산서 / 매입계산서) */}
+                <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '2px', borderRadius: '6px', border: '1px solid #cbd5e1', flexWrap: 'nowrap' }}>
                   <button
                     onClick={() => setInvoiceType('sales')}
                     style={{
                       padding: '2px 7px', borderRadius: '4px', border: 'none',
                       background: invoiceType === 'sales' ? '#2563eb' : 'transparent',
                       color: invoiceType === 'sales' ? '#ffffff' : '#475569',
-                      fontSize: '10px', fontWeight: 800, cursor: 'pointer'
+                      fontSize: '10px', fontWeight: 800, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    🏢 매출계산서
+                    매출계산서
                   </button>
                   <button
                     onClick={() => setInvoiceType('purchase')}
@@ -936,23 +935,25 @@ export function TaxInvoiceManagerView() {
                       padding: '2px 7px', borderRadius: '4px', border: 'none',
                       background: invoiceType === 'purchase' ? '#059669' : 'transparent',
                       color: invoiceType === 'purchase' ? '#ffffff' : '#475569',
-                      fontSize: '10px', fontWeight: 800, cursor: 'pointer'
+                      fontSize: '10px', fontWeight: 800, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    📄 일반계산서(매입)
+                    매입계산서
                   </button>
                 </div>
-                <div style={{ display: 'flex', gap: '3px' }}>
+                <div style={{ display: 'flex', gap: '3px', flexWrap: 'nowrap' }}>
                   <button
                     onClick={() => setRoiPreset('dual')}
                     style={{
                       padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1',
                       background: roiPreset === 'dual' ? '#2563eb' : '#ffffff',
                       color: roiPreset === 'dual' ? '#ffffff' : '#475569',
-                      fontSize: '10px', fontWeight: 700, cursor: 'pointer'
+                      fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    📱 듀얼 뷰
+                    듀얼뷰
                   </button>
                   <button
                     onClick={() => setRoiPreset('top')}
@@ -960,10 +961,11 @@ export function TaxInvoiceManagerView() {
                       padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1',
                       background: roiPreset === 'top' ? '#2563eb' : '#ffffff',
                       color: roiPreset === 'top' ? '#ffffff' : '#475569',
-                      fontSize: '10px', fontWeight: 700, cursor: 'pointer'
+                      fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    🏢 상호명
+                    상호
                   </button>
                   <button
                     onClick={() => setRoiPreset('middle')}
@@ -971,10 +973,11 @@ export function TaxInvoiceManagerView() {
                       padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1',
                       background: roiPreset === 'middle' ? '#2563eb' : '#ffffff',
                       color: roiPreset === 'middle' ? '#ffffff' : '#475569',
-                      fontSize: '10px', fontWeight: 700, cursor: 'pointer'
+                      fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    📦 품목명
+                    품목
                   </button>
                 </div>
               </div>
@@ -1548,6 +1551,15 @@ export function TaxInvoiceManagerView() {
           const saved = await saveSettlementRoiConfig(newConfig);
           setRoiSettings(saved);
         }}
+      />
+
+      {/* Drive 계산서 월별·현장별 선택 다운로드 모달 */}
+      <DriveDocDownloadModal
+        isOpen={downloadModalOpen}
+        onClose={() => setDownloadModalOpen(false)}
+        initialDocType="invoice"
+        initialTargetYm={targetYm}
+        sites={sortedSites}
       />
     </div>
   );

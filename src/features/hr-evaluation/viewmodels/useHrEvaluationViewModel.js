@@ -225,25 +225,28 @@ export function useHrEvaluationViewModel({ currentUser } = {}) {
           const nextDaily = { ...wRec.dailyRecords };
           Object.keys(nextDaily).forEach((dStr) => {
             const day = nextDaily[dStr];
-            const penaltyInfo = computeAutoPenalty(
-              {
-                dayType: day.dayType,
-                checkIn: day.checkIn,
-                checkOut: day.checkOut,
-                autoLogout: day.autoLogout,
-              },
-              newSettings.autoPenalty,
-              newSettings.workHours
-            );
+            const penaltyInfo = day.isFuture
+              ? { autoPenaltyPoints: 0, lateType: null, earlyType: null, penaltyBadges: [] }
+              : computeAutoPenalty(
+                  {
+                    dayType: day.dayType,
+                    checkIn: day.checkIn,
+                    checkOut: day.checkOut,
+                    autoLogout: day.autoLogout,
+                    isFuture: day.isFuture,
+                  },
+                  newSettings.autoPenalty,
+                  newSettings.workHours
+                );
 
-            const finalPts = day.isPenaltyExcused ? 0 : penaltyInfo.autoPenaltyPoints;
+            const finalPts = (day.isFuture || day.isPenaltyExcused) ? 0 : penaltyInfo.autoPenaltyPoints;
             nextDaily[dStr] = {
               ...day,
-              autoPenaltyPoints: penaltyInfo.autoPenaltyPoints,
+              autoPenaltyPoints: day.isFuture ? 0 : penaltyInfo.autoPenaltyPoints,
               finalPenaltyPoints: finalPts,
-              penaltyBadges: penaltyInfo.penaltyBadges,
-              lateType: penaltyInfo.lateType,
-              earlyType: penaltyInfo.earlyType,
+              penaltyBadges: day.isFuture ? [] : penaltyInfo.penaltyBadges,
+              lateType: day.isFuture ? null : penaltyInfo.lateType,
+              earlyType: day.isFuture ? null : penaltyInfo.earlyType,
             };
           });
           updated[wId] = { ...wRec, dailyRecords: nextDaily };
