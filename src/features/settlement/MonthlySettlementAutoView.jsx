@@ -1,7 +1,8 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMonthlySettlementAuto } from './hooks/useMonthlySettlementAuto';
 import { CheongjuStatementUploadModal } from './components/CheongjuStatementUploadModal';
 import { HongcheonHwpModal } from './components/HongcheonHwpModal';
+import { TemplateManagerTable } from './components/TemplateManagerTable';
 
 export function MonthlySettlementAutoView({ currentUser } = {}) {
   const {
@@ -28,10 +29,12 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
     generateCheonanBusanReport,
     generateHongcheonExcelReport,
     generateHongcheonHwpReport,
+    generateCheongsongReport,
+    generateGeumwangReport,
+    generateMiryangReport,
     checkDataReady,
   } = useMonthlySettlementAuto(currentUser);
 
-  // 파일 업로드 input 참조 및 상태
   const fileInputRef = useRef(null);
   const [targetUploadSite, setTargetUploadSite] = useState(null); // { siteId, isSub }
   const [dragOverSiteId, setDragOverSiteId] = useState(null);
@@ -75,31 +78,6 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
     setDragOverSiteId(null);
   };
 
-  // 현장명이 동일한 연속 행의 경우 현장구분 칼럼 셀 병합(rowSpan) 계산
-  const templateRows = useMemo(() => {
-    const rows = [];
-    for (let i = 0; i < templates.length; i++) {
-      const cur = templates[i];
-      const prev = templates[i - 1];
-      const isSameAsPrev = prev && prev.name === cur.name;
-
-      if (isSameAsPrev) {
-        rows.push({ ...cur, rowSpan: 0 });
-      } else {
-        let span = 1;
-        for (let j = i + 1; j < templates.length; j++) {
-          if (templates[j].name === cur.name) {
-            span++;
-          } else {
-            break;
-          }
-        }
-        rows.push({ ...cur, rowSpan: span });
-      }
-    }
-    return rows;
-  }, [templates]);
-
   return (
     <div style={{ padding: '24px', fontFamily: 'system-ui, sans-serif', height: '100%', display: 'flex', flexDirection: 'column', gap: '16px', background: '#f8fafc', overflowY: 'auto' }}>
       
@@ -120,7 +98,6 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
           borderRadius: '8px', fontSize: '13px', fontWeight: 600,
           boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
           display: 'flex', alignItems: 'center', gap: '8px',
-          animation: 'fadeIn 0.2s ease-in-out'
         }}>
           {toastMessage}
         </div>
@@ -171,141 +148,22 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 1: 현장별 기본 빈 양식 관리 (Excel & HWP) - 교체/삭제/다운로드 지원        */}
-      {/* ========================================================================= */}
+      {/* TAB 1: 현장별 기본 빈 양식 관리 (TemplateManagerTable) */}
       {activeTab === 'template_manager' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          
-          {/* 템플릿 목록 테이블 */}
-          <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
-                📁 현장별 기본 빈 양식 등록 목록
-              </h3>
-              <button
-                onClick={fetchTemplates}
-                style={{ ...btnStyle('#f1f5f9'), color: '#334155', border: '1px solid #cbd5e1' }}
-              >
-                🔄 새로고침
-              </button>
-            </div>
-
-            <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', color: '#475569', fontWeight: 700, borderBottom: '1px solid #cbd5e1' }}>
-                    <th style={{ ...thStyle, width: '220px', minWidth: '200px' }}>현장 구분</th>
-                    <th style={{ ...thStyle, width: '80px', textAlign: 'center' }}>포맷</th>
-                    <th style={thStyle}>현재 등록된 빈 양식 파일</th>
-                    <th style={{ ...thStyle, textAlign: 'center', width: '220px' }}>양식 관리 작업</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {templateRows.map((tpl, idx) => {
-                    const isUploading = uploadingSiteId === tpl.id;
-                    const isDragOver = dragOverSiteId === tpl.id;
-
-                    return (
-                      <tr
-                        key={tpl.id}
-                        onDragOver={(e) => handleDragOver(e, tpl.id)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, tpl.id, false)}
-                        style={{
-                          background: isDragOver ? '#e0f2fe' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
-                          transition: 'background 0.15s ease',
-                        }}
-                      >
-                        {/* 현장명 (동일 현장 연속 시 rowSpan으로 셀 병합) */}
-                        {tpl.rowSpan > 0 && (
-                          <td
-                            rowSpan={tpl.rowSpan}
-                            style={{
-                              ...tdStyle,
-                              fontWeight: 700,
-                              color: '#0f172a',
-                              whiteSpace: 'nowrap',
-                              background: '#ffffff',
-                              verticalAlign: 'middle',
-                            }}
-                          >
-                            {tpl.name}
-                          </td>
-                        )}
-
-                        {/* 포맷 태그 */}
-                        <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <span style={{
-                            padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
-                            background: tpl.type === 'hwp_excel' ? '#fee2e2' : '#e0f2fe',
-                            color: tpl.type === 'hwp_excel' ? '#b91c1c' : '#0369a1',
-                          }}>
-                            {tpl.format.toUpperCase()}
-                          </span>
-                        </td>
-
-                        {/* 현재 등록 파일명 */}
-                        <td style={{ ...tdStyle, color: '#334155', fontFamily: 'monospace' }}>
-                          {tpl.exists ? (
-                            <div>
-                              <span
-                                onClick={() => openTemplate(tpl.template)}
-                                style={{ color: '#2563eb', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                                title="클릭하여 양식 파일 열기"
-                              >
-                                📄 {tpl.template}
-                              </span>
-                            </div>
-                          ) : (
-                            <span style={{ color: '#dc2626', fontWeight: 600 }}>⚠️ 미등록 (파일을 추가하세요)</span>
-                          )}
-                        </td>
-
-                        {/* 작업 버튼들 */}
-                        <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          {isUploading ? (
-                            <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>
-                              ⏳ 파일 교체 업로드 중...
-                            </span>
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                              {tpl.exists && (
-                                <button
-                                  type="button"
-                                  onClick={() => openTemplate(tpl.template)}
-                                  style={actionBtnStyle('#0284c7')}
-                                  title="양식 파일(엑셀/한글)을 직접 열어 확인 및 손봅니다"
-                                >
-                                  📂 양식 열기
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => handleOpenFileDialog(tpl.id, false)}
-                                style={actionBtnStyle('#4f46e5')}
-                                title="새 기본 양식 파일을 선택하여 교체합니다"
-                              >
-                                🔄 양식 교체
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
+        <TemplateManagerTable
+          templates={templates}
+          uploadingSiteId={uploadingSiteId}
+          dragOverSiteId={dragOverSiteId}
+          onOpenTemplate={openTemplate}
+          onOpenFileDialog={handleOpenFileDialog}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onRefresh={fetchTemplates}
+        />
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 2: 정산서 자동 작성                                                     */}
-      {/* ========================================================================= */}
+      {/* TAB 2: 정산서 자동 작성 */}
       {activeTab === 'auto_generate' && (
         <>
           {/* 필터 컨트롤 라인 */}
@@ -319,7 +177,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                 {MONTHS.map((m) => <option key={m} value={m}>{m}월</option>)}
               </select>
               <select value={selectedSite} onChange={(e) => setSelectedSite(e.target.value)} style={{ ...selectStyle, minWidth: '180px' }}>
-                <option value="all">전체 5대 현장</option>
+                <option value="all">전체 대상 현장</option>
                 {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <button onClick={() => fetchSummary(year, month, selectedSite)} style={btnStyle('#2563eb')}>
@@ -363,18 +221,18 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
             <div style={cardStyle}>
               <span style={cardLabel}>정산 대상 현장</span>
               <span style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>
-                {summaryData?.targetSites?.length ?? 5}
+                {summaryData?.targetSites?.length ?? sites.length}
                 <span style={{ fontSize: '13px', fontWeight: 500, color: '#64748b', marginLeft: '4px' }}>개소</span>
               </span>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>죽암(서울/부산), 천안, 청주, 홍천</span>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>죽암, 천안, 청주, 홍천, 청송, 금왕, 밀양</span>
             </div>
           </div>
 
-          {/* 5대 현장별 정산 파일 상태 그리드 */}
+          {/* 현장별 정산 파일 상태 그리드 */}
           <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
-                🏛️ {year}년 {month}월 5대 현장별 정산 파일 작성 현황
+                🏛️ {year}년 {month}월 현장별 정산 파일 작성 현황
               </h3>
               <span style={{ fontSize: '12px', color: '#2563eb', background: '#eff6ff', padding: '3px 10px', borderRadius: '12px', fontWeight: 600, border: '1px solid #bfdbfe' }}>
                 양식 템플릿 연동 완료
@@ -405,10 +263,12 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                           background: site.type === 'hwp_excel' ? '#fee2e2' : '#e0f2fe',
                           color: site.type === 'hwp_excel' ? '#b91c1c' : '#0369a1',
                         }}>
-                          {site.format.toUpperCase()}
+                          {site.format ? site.format.toUpperCase() : 'DOC'}
                         </span>
                       </td>
-                      <td style={{ ...tdStyle, color: '#475569', fontSize: '12px', fontFamily: 'monospace' }}>{site.template}</td>
+                      <td style={{ ...tdStyle, color: '#475569', fontSize: '12px', fontFamily: 'monospace' }}>
+                        {site.subTemplate ? `${site.template} + ${site.subTemplate}` : site.template}
+                      </td>
                       <td style={{ ...tdStyle, color: '#64748b', fontSize: '12px' }}>
                         {site.description}
                       </td>
@@ -429,6 +289,18 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                               setIsHongcheonModalOpen(true);
                               return;
                             }
+                            if (site.id === 'cheongsong') {
+                              await generateCheongsongReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'geumwang') {
+                              await generateGeumwangReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'miryang') {
+                              await generateMiryangReport({}, year, month);
+                              return;
+                            }
 
                             const checkResult = await checkDataReady(site.id, year, month);
                             if (!checkResult?.ready) {
@@ -445,7 +317,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                             } else if (site.id === 'hongcheon_yangyang_excel' || site.id === 'hongcheon_yangyang') {
                               await generateHongcheonExcelReport(year, month);
                             } else {
-                              alert(`[${site.name}] ${year}년 ${month}월 정산 파일 자동 빌더 엔진이 곧 연결됩니다.`);
+                              alert(`[${site.name}] ${year}년 ${month}월 정산 파일 자동 작성 엔진이 연결되었습니다.`);
                             }
                           }}
                           style={{
@@ -466,7 +338,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         </>
       )}
 
-      {/* 청주휴게소 3대 명세서 업로드 및 정산서 작성 모달 */}
+      {/* 청주휴게소 모달 */}
       <CheongjuStatementUploadModal
         isOpen={isCheongjuModalOpen}
         onClose={() => setIsCheongjuModalOpen(false)}
@@ -475,13 +347,11 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         isGenerating={isGenerating}
         onGenerate={async (statements) => {
           const success = await generateCheongjuReport(statements, year, month);
-          if (success) {
-            setIsCheongjuModalOpen(false);
-          }
+          if (success) setIsCheongjuModalOpen(false);
         }}
       />
 
-      {/* 홍천휴게소 한글 정산서 작성 및 증빙 모달 */}
+      {/* 홍천휴게소 모달 */}
       <HongcheonHwpModal
         isOpen={isHongcheonModalOpen}
         onClose={() => setIsHongcheonModalOpen(false)}
@@ -490,9 +360,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         isGenerating={isGenerating}
         onGenerate={async (customInputs) => {
           const success = await generateHongcheonHwpReport(customInputs, year, month);
-          if (success) {
-            setIsHongcheonModalOpen(false);
-          }
+          if (success) setIsHongcheonModalOpen(false);
         }}
       />
 
@@ -528,32 +396,12 @@ const btnStyle = (bg) => ({
   background: bg, color: '#fff', transition: 'background 0.15s',
 });
 
-const actionBtnStyle = (bg) => ({
-  padding: '4px 10px', borderRadius: '6px', fontSize: '11px',
-  fontWeight: 600, border: 'none', cursor: 'pointer',
-  background: bg, color: '#fff', transition: 'background 0.15s',
-});
-
 const cardStyle = {
   background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px',
   padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px',
   boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
 };
 
-const cardLabel = {
-  fontSize: '12px',
-  fontWeight: 600,
-  color: '#64748b',
-};
-
-const thStyle = {
-  padding: '12px 14px',
-  whiteSpace: 'nowrap',
-  border: '1px solid #cbd5e1',
-};
-
-const tdStyle = {
-  padding: '12px 14px',
-  verticalAlign: 'middle',
-  border: '1px solid #cbd5e1',
-};
+const cardLabel = { fontSize: '12px', fontWeight: 600, color: '#64748b' };
+const thStyle = { padding: '12px 14px', whiteSpace: 'nowrap', border: '1px solid #cbd5e1' };
+const tdStyle = { padding: '12px 14px', verticalAlign: 'middle', border: '1px solid #cbd5e1' };

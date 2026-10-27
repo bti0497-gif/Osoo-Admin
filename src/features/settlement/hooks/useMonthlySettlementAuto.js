@@ -106,9 +106,8 @@ export function useMonthlySettlementAuto(currentUser = null) {
   // 템플릿 파일 다운로드
   const downloadTemplate = useCallback((filename) => {
     if (!filename) return;
-    const url = `${getApiBase()}/api/settlement/templates/${encodeURIComponent(filename)}/download`;
     const a = document.createElement('a');
-    a.href = url;
+    a.href = `${getApiBase()}/api/settlement/templates/${encodeURIComponent(filename)}/download`;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
@@ -119,13 +118,9 @@ export function useMonthlySettlementAuto(currentUser = null) {
   const openTemplate = useCallback(async (filename) => {
     if (!filename) return;
     try {
-      const res = await fetch(`${getApiBase()}/api/settlement/templates/${encodeURIComponent(filename)}/open`, {
-        method: 'POST',
-      });
+      const res = await fetch(`${getApiBase()}/api/settlement/templates/${encodeURIComponent(filename)}/open`, { method: 'POST' });
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || '양식 파일을 여는 데 실패했습니다.');
-      }
+      if (!res.ok || !data.success) throw new Error(data.error || '양식 파일을 여는 데 실패했습니다.');
       showToast(`📂 [${filename}] 양식을 프로그램으로 열었습니다.`);
     } catch (err) {
       console.error('[useMonthlySettlementAuto] 양식 열기 오류:', err);
@@ -377,13 +372,84 @@ export function useMonthlySettlementAuto(currentUser = null) {
     }
   }, [year, month, showToast]);
 
+  // 청송휴게소(상주방향) 한글(HWPX) 정산서 자동 생성
+  const generateCheongsongReport = useCallback(async (customInputs = {}, targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [청송휴게소(상주방향)] ${targetYear}년 ${targetMonth}월 한글 정산서 자동 생성을 시작합니다...`);
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/cheongsong`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth, customInputs }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '청송(상주방향) 한글 정산서 생성 실패');
+      showToast(`🎉 [${data.fileName}] 청송(상주방향) 한글 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 청송(상주) 한글 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
+  // 금왕휴게소(평택방향) 한글(HWPX) 정산서 자동 생성
+  const generateGeumwangReport = useCallback(async (customInputs = {}, targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [금왕휴게소(평택방향)] ${targetYear}년 ${targetMonth}월 한글 정산서 자동 생성을 시작합니다...`);
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/geumwang`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth, customInputs }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '금왕(평택방향) 한글 정산서 생성 실패');
+      showToast(`🎉 [${data.fileName}] 금왕(평택방향) 한글 정산서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 금왕(평택) 한글 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
+  // 밀양영남루(울산방향) 한글(HWPX) + 엑셀(XLSX) 정산서 동시 자동 생성
+  const generateMiryangReport = useCallback(async (customInputs = {}, targetYear = year, targetMonth = month) => {
+    setIsGenerating(true);
+    setError(null);
+    try {
+      showToast(`⏳ [밀양영남루(울산)] ${targetYear}년 ${targetMonth}월 정산서(한글+엑셀) 자동 생성을 시작합니다...`);
+      const res = await fetch(`${getApiBase()}/api/settlement/generate/miryang`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year: targetYear, month: targetMonth, customInputs }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '밀양영남루 정산서 생성 실패');
+      showToast(`🎉 [${data.fileName}] 밀양영남루 한글 정산서 및 엑셀 명세서가 성공적으로 작성되었습니다!`);
+      return true;
+    } catch (err) {
+      console.error('[useMonthlySettlementAuto] 밀양 정산서 생성 오류:', err);
+      setError(err.message);
+      return false;
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [year, month, showToast]);
+
   // 데이터관리 다운로드 사전 검사
   const checkDataReady = useCallback(async (siteId, targetYear = year, targetMonth = month) => {
     try {
       const res = await fetch(`${getApiBase()}/api/settlement/check-data-ready?siteId=${encodeURIComponent(siteId)}&year=${targetYear}&month=${targetMonth}`);
-      if (!res.ok) return { ready: true }; // 네트워크 실패 시 작업 방해 방지용 fallback
-      const data = await res.json();
-      return data;
+      if (!res.ok) return { ready: true };
+      return await res.json();
     } catch {
       return { ready: true };
     }
@@ -424,6 +490,9 @@ export function useMonthlySettlementAuto(currentUser = null) {
     generateCheonanBusanReport,
     generateHongcheonExcelReport,
     generateHongcheonHwpReport,
+    generateCheongsongReport,
+    generateGeumwangReport,
+    generateMiryangReport,
     checkDataReady,
   };
 }

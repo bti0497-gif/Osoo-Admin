@@ -51,6 +51,20 @@ const {
   saveHongcheonEvidence,
   generateHongcheonHwpReport,
 } = require('../services/hongcheonHwpService.cjs');
+const {
+  getCheongsongEvidenceStatus,
+  generateCheongsongHwpReport,
+} = require('../services/cheongsongSettlementService.cjs');
+const {
+  getGeumwangEvidenceStatus,
+  generateGeumwangHwpReport,
+} = require('../services/geumwangSettlementService.cjs');
+const {
+  getMiryangEvidenceStatus,
+  generateMiryangExcelReport,
+  generateMiryangHwpReport,
+  generateMiryangAllReports,
+} = require('../services/miryangSettlementService.cjs');
 const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
 const { downloadSettlementDocs } = require('../services/settlementDocDownloadService.cjs');
 
@@ -637,6 +651,156 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       return res.json({ success: true, ...result });
     } catch (err) {
       console.error('[settlementRoutes] generate/hongcheon-hwp 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/cheongsong/status
+   * 청송휴게소 계산서 4종 상태 조회 및 Drive 자동 동기화
+   */
+  router.get('/cheongsong/status', async (req, res) => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const status = await getCheongsongEvidenceStatus(year, month);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] cheongsong/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/cheongsong
+   * 청송휴게소 도로공사 정산 서류(한글 HWPX) 자동 생성
+   */
+  router.post('/generate/cheongsong', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+
+      console.log(`[settlementRoutes] 청송(상주) ${year}년 ${month}월 정산 한글(HWPX) 생성 요청 시작`);
+      const result = await generateCheongsongHwpReport(year, month, customInputs);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[청송휴게소(상주방향)] ${year}년 ${month}월 도로공사 정산 서류가 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/cheongsong 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/geumwang/status
+   * 금왕휴게소 계산서 5종 및 증빙 상태 조회 (Drive 자동 동기화 포함)
+   */
+  router.get('/geumwang/status', async (req, res) => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const status = await getGeumwangEvidenceStatus(year, month);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] geumwang/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/geumwang
+   * 금왕휴게소 도로공사 정산 서류(한글 HWPX) 자동 생성
+   */
+  router.post('/generate/geumwang', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+
+      console.log(`[settlementRoutes] 금왕(평택) ${year}년 ${month}월 정산 한글(HWPX) 생성 요청 시작`);
+      const result = await generateGeumwangHwpReport(year, month, customInputs);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[금왕휴게소(평택방향)] ${year}년 ${month}월 도로공사 정산 서류가 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/geumwang 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/miryang/status
+   * 밀양영남루휴게소 계산서 및 증빙 상태 조회 (Drive 자동 동기화 포함)
+   */
+  router.get('/miryang/status', async (req, res) => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const status = await getMiryangEvidenceStatus(year, month);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] miryang/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/miryang
+   * 밀양영남루휴게소 도로공사 정산 서류(한글 HWPX) + 오수처리비정산(엑셀 XLSX) 일괄 자동 생성
+   */
+  router.post('/generate/miryang', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+
+      console.log(`[settlementRoutes] 밀양영남루(울산) ${year}년 ${month}월 정산 (한글+엑셀) 생성 요청 시작`);
+      const result = await generateMiryangAllReports(year, month, customInputs);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[밀양영남루(울산)휴게소] ${year}년 ${month}월 정산 한글 서류 및 엑셀 명세서가 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/miryang 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/miryang-hwp
+   * 밀양영남루휴게소 도로공사 정산 서류(한글 HWPX) 단독 생성
+   */
+  router.post('/generate/miryang-hwp', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+      const result = await generateMiryangHwpReport(year, month, customInputs);
+      return res.json({ success: true, ...result, message: `[밀양영남루(울산)] ${year}년 ${month}월 한글 정산 서류 작성 완료` });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/miryang-hwp 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/miryang-excel
+   * 밀양영남루휴게소 오수처리비정산(엑셀 XLSX) 단독 생성
+   */
+  router.post('/generate/miryang-excel', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const result = await generateMiryangExcelReport(year, month);
+      return res.json({ success: true, ...result, message: `[밀양영남루(울산)] ${year}년 ${month}월 엑셀 명세서 작성 완료` });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/miryang-excel 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
