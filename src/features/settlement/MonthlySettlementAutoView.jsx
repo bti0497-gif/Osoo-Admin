@@ -32,6 +32,11 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
     generateCheongsongReport,
     generateGeumwangReport,
     generateMiryangReport,
+    generateGochangReport,
+    generateGochangSeoulReport,
+    generateAndongReport,
+    generateSeonsanChangwonReport,
+    generateSeonsanYangpyeongReport,
     checkDataReady,
   } = useMonthlySettlementAuto(currentUser);
 
@@ -224,7 +229,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                 {summaryData?.targetSites?.length ?? sites.length}
                 <span style={{ fontSize: '13px', fontWeight: 500, color: '#64748b', marginLeft: '4px' }}>개소</span>
               </span>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>죽암, 천안, 청주, 홍천, 청송, 금왕, 밀양</span>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>죽암, 천안, 청주, 홍천, 청송, 금왕, 밀양, 고창, 안동, 선산</span>
             </div>
           </div>
 
@@ -299,6 +304,26 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                             }
                             if (site.id === 'miryang') {
                               await generateMiryangReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'gochang_mokpo') {
+                              await generateGochangReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'gochang_seoul') {
+                              await generateGochangSeoulReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'andong') {
+                              await generateAndongReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'seonsan_changwon') {
+                              await generateSeonsanChangwonReport({}, year, month);
+                              return;
+                            }
+                            if (site.id === 'seonsan_yangpyeong') {
+                              await generateSeonsanYangpyeongReport({}, year, month);
                               return;
                             }
 

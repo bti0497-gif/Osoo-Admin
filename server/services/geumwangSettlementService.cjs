@@ -166,11 +166,12 @@ async function getGeumwangEvidenceStatus(year, month) {
   // 2. 위탁관리비입금표 (선택적)
   const salesReceipt = findFile(searchDirs, f => fileMatches(f, ['금왕'], ['용역비', '위탁', '관리비'], ['매출계산서', '계산서']) && (f.includes('입금') || f.includes('이체')));
 
-  // 3. 약품비계산서: 매입계산서 (영일과학상사 / 영일) - 매출 제외
-  const chemical = findFile(searchDirs, f => !f.startsWith('매출') && fileMatches(f, ['금왕'], ['영일', '약품']) && f.includes('계산서'));
+  // 3. 약품비계산서: 매입계산서 (영일과학상사 / 에이치디이앤씨 / 약품) - 매출 제외
+  const chemical = findFile(searchDirs, f => !f.startsWith('매출') && fileMatches(f, ['금왕'], ['영일과학상사', '영일과학', '영일', '에이치디이앤씨', '에이치디이엔씨', '에이치디', '에이치', '약품']) && f.includes('계산서'))
+    || findFile(searchDirs, f => !f.startsWith('매출') && fileMatches(f, ['금왕'], ['영일', '에이치', '약품']));
 
   // 4. 약품비입금표
-  const chemicalReceipt = findFile(searchDirs, f => fileMatches(f, ['금왕'], ['영일', '약품'], ['계산서']) && (f.includes('입금') || f.includes('이체')));
+  const chemicalReceipt = findFile(searchDirs, f => fileMatches(f, ['금왕'], ['영일과학상사', '영일과학', '영일', '에이치디이앤씨', '에이치디이엔씨', '에이치디', '에이치', '약품'], ['계산서']) && (f.includes('입금') || f.includes('이체')));
 
   // 5. 분석키트계산서: 매입계산서 (케이엠에스씨 / 케이엠) - 매출 제외
   const kit = findFile(searchDirs, f => !f.startsWith('매출') && fileMatches(f, ['금왕'], ['케이엠', '키트']) && f.includes('계산서'));
@@ -217,7 +218,7 @@ async function getGeumwangEvidenceStatus(year, month) {
   // 필수 항목 (청소필증/입금표/성적서는 Optional 처리되어 생성을 막지 않음)
   const missing = [];
   if (!salesService) missing.push('매출계산서(용역비)');
-  if (!chemical) missing.push('약품비계산서(영일)');
+  if (!chemical) missing.push('약품비계산서(에이치디이앤씨/영일과학상사)');
   if (!kit) missing.push('분석키트계산서(케이엠)');
   if (!waterQuality) missing.push('수질분석비계산서(대신)');
   if (!sludge) missing.push('슬러지처리비계산서(충북위생사)');
@@ -303,8 +304,8 @@ async function generateGeumwangHwpReport(year, month, customInputs = {}) {
   const replacements = [
     { id: 'image3', filePath: invMap.salesService, name: '위탁관리비계산서(용역비)' },
     { id: 'image4', filePath: invMap.salesReceipt, name: '위탁관리비입금표' },
-    { id: 'image5', filePath: invMap.chemical, name: '약품비계산서(영일)' },
-    { id: 'image6', filePath: invMap.chemicalReceipt, name: '약품비입금표(영일)' },
+    { id: 'image5', filePath: invMap.chemical, name: '약품비계산서(에이치디이앤씨/영일과학상사)' },
+    { id: 'image6', filePath: invMap.chemicalReceipt, name: '약품비입금표(에이치디이앤씨/영일과학상사)' },
     { id: 'image7', filePath: invMap.kit, name: '분석키트계산서(케이엠)' },
     { id: 'image8', filePath: invMap.kitReceipt, name: '분석키트입금표(케이엠)' },
     { id: 'image9', filePath: invMap.waterQuality, name: '수질분석계산서(대신)' },
@@ -367,6 +368,7 @@ async function generateGeumwangHwpReport(year, month, customInputs = {}) {
 
   const finalYmHwpx = path.join(targetFolderYm, outputFileName);
   const finalMonthHwpx = path.join(targetFolderMonth, outputFileName);
+  const finalSimpleHwpx = path.join(targetFolderSimple, outputFileName);
   const finalDesktopHwpx = path.join(desktop, outputFileName);
   const finalDesktopHwp = path.join(desktop, outputHwpFileName);
 
@@ -374,14 +376,18 @@ async function generateGeumwangHwpReport(year, month, customInputs = {}) {
   fs.writeFileSync(path.join(targetFolderYm, outputHwpFileName), outputBuffer);
   fs.writeFileSync(finalMonthHwpx, outputBuffer);
   fs.writeFileSync(path.join(targetFolderMonth, outputHwpFileName), outputBuffer);
+  fs.writeFileSync(finalSimpleHwpx, outputBuffer);
+  fs.writeFileSync(path.join(targetFolderSimple, outputHwpFileName), outputBuffer);
   fs.writeFileSync(finalDesktopHwpx, outputBuffer);
   fs.writeFileSync(finalDesktopHwp, outputBuffer);
 
-  console.log(`[geumwangSettlement] 금왕 정산서 작성 완료! 저장: ${finalYmHwpx}`);
+  console.log(`[geumwangSettlement] 금왕 정산서 작성 완료! 저장: ${finalSimpleHwpx}`);
 
   return {
     success: true,
-    filePath: finalYmHwpx,
+    filePath: finalSimpleHwpx,
+    monthPath: finalSimpleHwpx,
+    ymPath: finalYmHwpx,
     desktopPath: finalDesktopHwpx,
     fileName: outputFileName,
     targetYm,

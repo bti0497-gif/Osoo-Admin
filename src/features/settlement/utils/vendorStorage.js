@@ -1,5 +1,13 @@
 import { apiClient } from '../../../core/api/apiClient.js';
 export const getVendorList = () => [];
+export const MEDICINE_VENDOR_KEYWORDS = ['에이치디이앤씨', '에이치디이엔씨', '에이치디', '영일과학상사', '영일과학', '약품'];
+export const MEDICINE_VENDOR_DISPLAY = '에이치디이앤씨/영일과학상사';
+
+export function isMedicineVendor(name) {
+  if (!name) return false;
+  return MEDICINE_VENDOR_KEYWORDS.some(k => name.includes(k));
+}
+
 export async function fetchVendorList() {
   try {
     const data = await apiClient.get('/api/vendors', {}, { timeout: 15000 });

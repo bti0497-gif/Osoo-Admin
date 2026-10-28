@@ -156,9 +156,9 @@ async function getCheongsongEvidenceStatus(year, month) {
     || findLocalImageFile(searchDirs, /용역비|관리비/i, { mustStartWith: '매출' })
     || findLocalImageFile(searchDirs, /청송.*매출/i, { mustStartWith: '매출' });
 
-  // - Pic #3 (약품비계산서): 매입계산서 (에이치디이앤씨 / 에이치 / 약품) - 매출 제외
-  const chemical = findLocalImageFile(searchDirs, /청송.*(?:에이치|약품)|(?:에이치|약품).*청송/i, { excludePattern: /^매출/i })
-    || findLocalImageFile(searchDirs, /에이치|약품계산서/i, { excludePattern: /^매출/i });
+  // - Pic #3 (약품비계산서): 매입계산서 (에이치디이앤씨 / 영일과학상사 / 약품) - 매출 제외
+  const chemical = findLocalImageFile(searchDirs, /청송.*(?:에이치디이앤씨|에이치디이엔씨|에이치디|에이치|영일과학상사|영일과학|영일|약품)|(?:에이치디이앤씨|에이치디이엔씨|에이치디|에이치|영일과학상사|영일과학|영일|약품).*청송/i, { excludePattern: /^매출/i })
+    || findLocalImageFile(searchDirs, /에이치디이앤씨|에이치디이엔씨|에이치디|에이치|영일과학상사|영일과학|영일|약품/i, { excludePattern: /^매출/i });
 
   // - Pic #4 (분석키트계산서): 매입계산서 (케이엠 / 분석키트) - 매출 제외
   const kit = findLocalImageFile(searchDirs, /청송.*(?:케이엠|키트)|(?:케이엠|키트).*청송/i, { excludePattern: /^매출/i })
@@ -177,7 +177,7 @@ async function getCheongsongEvidenceStatus(year, month) {
 
   const missing = [];
   if (!salesService) missing.push('매출계산서(용역비)');
-  if (!chemical) missing.push('약품비계산서(에이치)');
+  if (!chemical) missing.push('약품비계산서(에이치디이앤씨/영일과학상사)');
   if (!kit) missing.push('분석키트계산서(케이엠)');
   if (!waterQuality) missing.push('수질분석비계산서(대신)');
 
@@ -251,7 +251,7 @@ async function generateCheongsongHwpReport(year, month, customInputs = {}) {
 
   const replacements = [
     { id: 'image2', filePath: invMap.salesService, name: '위탁관리비계산서(용역비)' },
-    { id: 'image3', filePath: invMap.chemical, name: '약품비계산서(에이치)' },
+    { id: 'image3', filePath: invMap.chemical, name: '약품비계산서(에이치디이앤씨/영일과학상사)' },
     { id: 'image4', filePath: invMap.kit, name: '분석키트계산서(케이엠)' },
     { id: 'image5', filePath: invMap.waterQuality, name: '수질분석비계산서(대신)' },
   ];
@@ -321,11 +321,13 @@ async function generateCheongsongHwpReport(year, month, customInputs = {}) {
   fs.writeFileSync(finalDesktopHwpx, outputBuffer);
   fs.writeFileSync(finalDesktopHwp, outputBuffer);
 
-  console.log(`[cheongsongSettlement] 청송 정산서 작성 완료! 저장 위치: ${finalYmHwpx}`);
+  console.log(`[cheongsongSettlement] 청송 정산서 작성 완료! 저장 위치: ${finalMonthHwpx}`);
 
   return {
     success: true,
-    filePath: finalYmHwpx,
+    filePath: finalMonthHwpx,
+    monthPath: finalMonthHwpx,
+    ymPath: finalYmHwpx,
     desktopPath: finalDesktopHwpx,
     fileName: outputFileName,
     targetYm,

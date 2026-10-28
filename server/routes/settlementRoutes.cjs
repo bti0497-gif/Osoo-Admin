@@ -65,6 +65,22 @@ const {
   generateMiryangHwpReport,
   generateMiryangAllReports,
 } = require('../services/miryangSettlementService.cjs');
+const {
+  getGochangEvidenceStatus,
+  generateGochangExcelReport,
+  generateGochangAllReports,
+} = require('../services/gochangSettlementService.cjs');
+const {
+  getAndongEvidenceStatus,
+  generateAndongHwpReport,
+  generateAndongExcelReport,
+  generateAndongAllReports,
+} = require('../services/andongSettlementService.cjs');
+const {
+  getSeonsanEvidenceStatus,
+  generateSeonsanHwpReport,
+  generateSeonsanAllReports,
+} = require('../services/seonsanSettlementService.cjs');
 const { getMonthlyPhotoSummary } = require('../services/photoExportService.cjs');
 const { downloadSettlementDocs } = require('../services/settlementDocDownloadService.cjs');
 
@@ -804,6 +820,159 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       return res.status(500).json({ success: false, error: err.message });
     }
   });
+
+  /**
+   * GET /api/settlement/gochang/status (및 /gochang-seoul/status)
+   * 고창고인돌(목포/서울) 계산서 및 증빙 상태 조회
+   */
+  const handleGochangStatus = async (req, res, defaultDir = 'mokpo') => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const direction = req.query?.direction || defaultDir;
+      const status = await getGochangEvidenceStatus(year, month, direction);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] gochang/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  };
+  router.get('/gochang/status', (req, res) => handleGochangStatus(req, res, 'mokpo'));
+  router.get('/gochang-seoul/status', (req, res) => handleGochangStatus(req, res, 'seoul'));
+
+  /**
+   * POST /api/settlement/generate/gochang (및 /generate/gochang-seoul)
+   * 고창고인돌(목포/서울) 정산서 엑셀(운영일지/증빙 포함) 자동 생성
+   */
+  const handleGochangGenerate = async (req, res, defaultDir = 'mokpo') => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const customInputs = req.body?.customInputs || {};
+      const direction = req.body?.direction || defaultDir;
+
+      console.log(`[settlementRoutes] 고창고인돌(${direction}) ${year}년 ${month}월 정산서(엑셀) 생성 요청`);
+      const result = await generateGochangAllReports(year, month, customInputs, direction);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[${result.excel?.siteName || '고창고인돌휴게소'}] ${year}년 ${month}월 정산 엑셀 파일이 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/gochang 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  };
+  router.post('/generate/gochang', (req, res) => handleGochangGenerate(req, res, req.body?.direction || 'mokpo'));
+  router.post('/generate/gochang-seoul', (req, res) => handleGochangGenerate(req, res, 'seoul'));
+
+  /**
+   * GET /api/settlement/andong/status
+   * 안동휴게소(부산방향) 계산서 및 증빙 상태 조회
+   */
+  router.get('/andong/status', async (req, res) => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const status = await getAndongEvidenceStatus(year, month);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] andong/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/andong
+   * 안동휴게소(부산방향) 정산 보고서(한글 HWP) + 정산보고서(엑셀 XLSX 증빙) 일괄 자동 생성
+   */
+  router.post('/generate/andong', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      console.log(`[settlementRoutes] 안동휴게소(부산) ${year}년 ${month}월 정산 (한글+엑셀) 생성 요청`);
+      const result = await generateAndongAllReports(year, month);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[안동휴게소(부산방향)] ${year}년 ${month}월 한글 정산 보고서 및 엑셀 증빙이 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/andong 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/andong-hwp
+   * 안동휴게소(부산방향) 한글(HWP) 정산 보고서 단독 생성
+   */
+  router.post('/generate/andong-hwp', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const result = await generateAndongHwpReport(year, month);
+      return res.json({ success: true, ...result, message: `[안동휴게소(부산)] ${year}년 ${month}월 한글 정산 보고서 작성 완료` });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/andong-hwp 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/settlement/generate/andong-excel
+   * 안동휴게소(부산방향) 엑셀(XLSX) 정산 증빙 단독 생성
+   */
+  router.post('/generate/andong-excel', async (req, res) => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const result = await generateAndongExcelReport(year, month);
+      return res.json({ success: true, ...result, message: `[안동휴게소(부산)] ${year}년 ${month}월 엑셀 정산 증빙 작성 완료` });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/andong-excel 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  const handleSeonsanStatus = async (req, res, defaultDir = 'changwon') => {
+    try {
+      const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      const direction = req.query?.direction || defaultDir;
+      const status = await getSeonsanEvidenceStatus(year, month, direction);
+      return res.json({ success: true, ...status });
+    } catch (err) {
+      console.error('[settlementRoutes] seonsan/status 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  const handleSeonsanGenerate = async (req, res, defaultDir = 'changwon') => {
+    try {
+      const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
+      const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      const direction = req.body?.direction || defaultDir;
+      const customInputs = req.body?.customInputs || {};
+      const result = await generateSeonsanHwpReport(year, month, direction, customInputs);
+      return res.json({
+        success: true,
+        ...result,
+        message: `[${result.siteName}] ${year}년 ${month}월 도로공사 정산 서류가 성공적으로 작성되었습니다.`,
+      });
+    } catch (err) {
+      console.error('[settlementRoutes] generate/seonsan 오류:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  router.get('/seonsan/status', (req, res) => handleSeonsanStatus(req, res, req.query?.direction || 'changwon'));
+  router.get('/seonsan-changwon/status', (req, res) => handleSeonsanStatus(req, res, 'changwon'));
+  router.get('/seonsan-yangpyeong/status', (req, res) => handleSeonsanStatus(req, res, 'yangpyeong'));
+  router.post('/generate/seonsan', (req, res) => handleSeonsanGenerate(req, res, req.body?.direction || 'changwon'));
+  router.post('/generate/seonsan-changwon', (req, res) => handleSeonsanGenerate(req, res, 'changwon'));
+  router.post('/generate/seonsan-yangpyeong', (req, res) => handleSeonsanGenerate(req, res, 'yangpyeong'));
+  router.post('/generate/seonsan-hwp', (req, res) => handleSeonsanGenerate(req, res, req.body?.direction || 'changwon'));
 
   /**
    * POST /api/settlement/generate/cheongju
