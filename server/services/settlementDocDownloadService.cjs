@@ -3,10 +3,11 @@
 /**
  * settlementDocDownloadService.cjs
  * =====================================================================
- * 계산서·입금표 Drive 및 로컬 점검준비 폴더 월별·현장별 선택 다운로드 서비스
- * - 1개 현장 개별 다운로드 및 로컬 점검준비 폴더 자동 저장 지원
- * - 2개 이상 현장 JSZip 압축 다운로드 지원
- * - 방향별 현장명(서울/부산/상행/하행) 정밀 매칭 지원
+ * 계산서·입금표 Drive 및 로컬 점검준비 폴더 월별(단일월 및 시작월~종료월 기간)·현장별 선택 다운로드 서비스
+ * - 단일 월 / 다중 월(시작월 ~ 종료월) 기간 일괄 수집 및 로컬 점검준비 폴더 자동 동기화
+ * - 1개 현장 & 1개월 선택 시 개별 파일 다운로드 지원
+ * - 다중 월 또는 2개 이상 현장 선택 시 월별 폴더 구조(계산서_YYYYMM/...)로 JSZip 압축 다운로드 지원
+ * - 양방향 현장명(서울/부산, 춘천/부산, 목포/서울, 창원/양평 등) 정밀 분리 매칭 지원
  */
 
 const fs = require('fs');
@@ -20,6 +21,22 @@ const {
   listFilesFolder,
   downloadDriveFileBuffer,
 } = require('./driveService.cjs');
+
+const DIRECTION_KEYWORDS = [
+  '서울', '부산', '상행', '하행', '순천', '춘천', '양양',
+  '목포', '창원', '양평', '상주', '울산', '평택', '포항', '인천', '대전',
+];
+
+const OPPOSITE_DIRECTIONS = {
+  '서울': ['부산', '목포'],
+  '부산': ['서울', '춘천'],
+  '춘천': ['부산'],
+  '목포': ['서울'],
+  '창원': ['양평'],
+  '양평': ['창원'],
+  '상행': ['하행'],
+  '하행': ['상행'],
+};
 
 function getDesktopDirectories() {
   const home = os.homedir();
@@ -42,6 +59,43 @@ function getDesktopDirectories() {
   return dirs;
 }
 
+function normalizeYm(val) {
+  const digits = String(val || '').replace(/[^0-9]/g, '');
+  return /^\d{6}$/.test(digits) ? digits : '';
+}
+
+function expandYmRange({ targetYm, startYm, endYm, targetYms }) {
+  if (Array.isArray(targetYms) && targetYms.length > 0) {
+    const valid = Array.from(new Set(targetYms.map(normalizeYm).filter(Boolean))).sort();
+    if (valid.length > 0) return valid;
+  }
+
+  const sYm = normalizeYm(startYm || targetYm);
+  const eYm = normalizeYm(endYm || startYm || targetYm);
+  if (!sYm && !eYm) return [];
+  if (!sYm) return [eYm];
+  if (!eYm || sYm === eYm) return [sYm];
+
+  const [firstYm, lastYm] = sYm <= eYm ? [sYm, eYm] : [eYm, sYm];
+  let y = parseInt(firstYm.slice(0, 4), 10);
+  let m = parseInt(firstYm.slice(4, 6), 10);
+  const endY = parseInt(lastYm.slice(0, 4), 10);
+  const endM = parseInt(lastYm.slice(4, 6), 10);
+
+  const list = [];
+  let guard = 0;
+  while ((y < endY || (y === endY && m <= endM)) && guard < 60) {
+    list.push(`${y}${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    guard += 1;
+  }
+  return list;
+}
+
 function extractSiteMatchTokens(siteInput) {
   const name = typeof siteInput === 'string'
     ? siteInput
@@ -50,19 +104,20 @@ function extractSiteMatchTokens(siteInput) {
 
   const raw = String(name).trim();
   let direction = '';
-  if (/서울/i.test(raw)) direction = '서울';
-  else if (/부산/i.test(raw)) direction = '부산';
-  else if (/상행/i.test(raw)) direction = '상행';
-  else if (/하행/i.test(raw)) direction = '하행';
-  else if (/순천/i.test(raw)) direction = '순천';
-  else if (/춘천/i.test(raw)) direction = '춘천';
-  else if (/양양/i.test(raw)) direction = '양양';
+  for (const dir of DIRECTION_KEYWORDS) {
+    if (raw.includes(dir)) {
+      direction = dir;
+      break;
+    }
+  }
 
+  const dirRegex = new RegExp(DIRECTION_KEYWORDS.join('|'), 'g');
   const stem = raw
     .replace(/[\s\-_/()（）\[\]]/g, '')
     .replace(/휴게소/g, '')
     .replace(/방향/g, '')
-    .replace(/서울|부산|상행|하행|순천|춘천|양양/g, '');
+    .replace(/고인돌|영남루|예당호/g, '')
+    .replace(dirRegex, '');
 
   return { raw, stem, direction };
 }
@@ -80,13 +135,7 @@ function doesFileMatchSite(fileName, siteInput) {
   if (!normFile.includes(normStem)) return false;
 
   if (tokens.direction) {
-    const oppDirections = {
-      '서울': ['부산'],
-      '부산': ['서울'],
-      '상행': ['하행'],
-      '하행': ['상행'],
-    };
-    const opposites = oppDirections[tokens.direction] || [];
+    const opposites = OPPOSITE_DIRECTIONS[tokens.direction] || [];
     for (const opp of opposites) {
       if (normFile.includes(opp)) return false;
     }
@@ -110,8 +159,8 @@ function matchesDocType(fileName, docType) {
 }
 
 async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [] }) {
-  const normalizedYm = String(targetYm || '').replace(/[^0-9]/g, '');
-  if (!/^\d{6}$/.test(normalizedYm)) {
+  const normalizedYm = normalizeYm(targetYm);
+  if (!normalizedYm) {
     throw new Error('대상 연월은 YYYYMM(6자리) 형식이어야 합니다.');
   }
 
@@ -136,6 +185,7 @@ async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [
               const buffer = await downloadDriveFileBuffer(df.id);
               fileMap.set(df.name, {
                 name: df.name,
+                ym: normalizedYm,
                 buffer,
                 mimeType: df.mimeType || 'image/jpeg',
                 size: buffer.length,
@@ -174,6 +224,7 @@ async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [
             const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
             fileMap.set(lf, {
               name: lf,
+              ym: normalizedYm,
               buffer,
               mimeType,
               size: buffer.length,
@@ -188,16 +239,18 @@ async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [
   // 3. 로컬 바탕화면 점검준비 폴더에 동기화 저장
   const primaryDesktopDir = desktopDirs[0];
   const primaryTargetDir = path.join(primaryDesktopDir, '점검준비', docFolder, normalizedYm);
-  try {
-    fs.mkdirSync(primaryTargetDir, { recursive: true });
-    for (const file of fileMap.values()) {
-      const destPath = path.join(primaryTargetDir, file.name);
-      if (!fs.existsSync(destPath)) {
-        fs.writeFileSync(destPath, file.buffer);
+  if (fileMap.size > 0) {
+    try {
+      fs.mkdirSync(primaryTargetDir, { recursive: true });
+      for (const file of fileMap.values()) {
+        const destPath = path.join(primaryTargetDir, file.name);
+        if (!fs.existsSync(destPath)) {
+          fs.writeFileSync(destPath, file.buffer);
+        }
       }
+    } catch (syncErr) {
+      console.warn('[settlementDocDownload] 로컬 점검준비 폴더 동기화 경고:', syncErr.message);
     }
-  } catch (syncErr) {
-    console.warn('[settlementDocDownload] 로컬 점검준비 폴더 동기화 경고:', syncErr.message);
   }
 
   const items = Array.from(fileMap.values());
@@ -212,20 +265,42 @@ async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [
   };
 }
 
-async function downloadSettlementDocs({ docType = 'invoice', targetYm, sites = [], format = 'auto' }) {
-  const { items, targetDir, targetYm: ym, docType: dt, docFolder } = await collectSettlementFiles({
-    docType,
-    targetYm,
-    sites,
-  });
+async function downloadSettlementDocs({
+  docType = 'invoice',
+  targetYm,
+  startYm,
+  endYm,
+  targetYms,
+  sites = [],
+  format = 'auto',
+}) {
+  const ymList = expandYmRange({ targetYm, startYm, endYm, targetYms });
+  if (ymList.length === 0) {
+    throw new Error('대상 연월은 YYYYMM(6자리) 형식이어야 합니다.');
+  }
 
-  if (items.length === 0) {
-    const docLabel = dt === 'deposit' ? '입금표' : '계산서';
+  const docFolder = docType === 'deposit' ? '입금표' : '계산서';
+  const allItems = [];
+  let lastTargetDir = '';
+
+  for (const ym of ymList) {
+    const res = await collectSettlementFiles({ docType, targetYm: ym, sites });
+    lastTargetDir = res.targetDir;
+    for (const item of res.items) {
+      allItems.push(item);
+    }
+  }
+
+  const periodLabel = ymList.length === 1
+    ? ymList[0]
+    : `${ymList[0]}~${ymList[ymList.length - 1]}(${ymList.length}개월)`;
+
+  if (allItems.length === 0) {
     const siteMsg = sites.length > 0 ? `선택한 ${sites.length}개 현장의 ` : '';
     return {
       success: false,
-      error: `해당 연월(${ym})에 ${siteMsg}${docLabel} 파일을 찾을 수 없습니다.`,
-      targetDir,
+      error: `선택한 기간(${periodLabel})에 ${siteMsg}${docFolder} 파일을 찾을 수 없습니다.`,
+      targetDir: lastTargetDir,
     };
   }
 
@@ -233,13 +308,15 @@ async function downloadSettlementDocs({ docType = 'invoice', targetYm, sites = [
     return {
       success: true,
       mode: 'json',
-      docType: dt,
-      targetYm: ym,
-      targetDir,
-      count: items.length,
+      docType,
+      targetYm: ymList[0],
+      targetYms: ymList,
+      targetDir: lastTargetDir,
+      count: allItems.length,
       siteCount: sites.length,
-      files: items.map((item) => ({
+      files: allItems.map((item) => ({
         name: item.name,
+        ym: item.ym,
         mimeType: item.mimeType,
         size: item.size,
         base64: item.buffer.toString('base64'),
@@ -247,26 +324,33 @@ async function downloadSettlementDocs({ docType = 'invoice', targetYm, sites = [
     };
   }
 
-  if (items.length === 1 && (sites.length === 1 || format === 'single')) {
-    const single = items[0];
+  if (ymList.length === 1 && allItems.length === 1 && (sites.length === 1 || format === 'single')) {
+    const single = allItems[0];
     return {
       success: true,
       mode: 'single',
       fileName: single.name,
       mimeType: single.mimeType,
       buffer: single.buffer,
-      targetDir,
+      targetDir: lastTargetDir,
     };
   }
 
   const zip = new JSZip();
-  const folderInZip = `${docFolder}_${ym}`;
-  for (const item of items) {
+  for (const item of allItems) {
+    const folderInZip = `${docFolder}_${item.ym}`;
     zip.file(`${folderInZip}/${item.name}`, item.buffer);
   }
   const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  const siteSuffix = sites.length > 0 ? `${sites.length}개현장` : `${items.length}건`;
-  const archiveName = `${docFolder}_${ym}_${siteSuffix}.zip`;
+  const siteSuffix = sites.length === 1
+    ? String(sites[0]).replace(/[\\/:*?"<>|]/g, '_')
+    : sites.length > 1
+      ? `${sites.length}개현장`
+      : `${allItems.length}건`;
+  const ymFileSegment = ymList.length === 1
+    ? ymList[0]
+    : `${ymList[0]}_${ymList[ymList.length - 1]}`;
+  const archiveName = `${docFolder}_${ymFileSegment}_${siteSuffix}.zip`;
 
   return {
     success: true,
@@ -274,14 +358,16 @@ async function downloadSettlementDocs({ docType = 'invoice', targetYm, sites = [
     archiveName,
     mimeType: 'application/zip',
     buffer: zipBuffer,
-    targetDir,
-    fileCount: items.length,
+    targetDir: lastTargetDir,
+    fileCount: allItems.length,
     siteCount: sites.length,
+    monthCount: ymList.length,
   };
 }
 
 module.exports = {
   getDesktopDirectories,
+  expandYmRange,
   collectSettlementFiles,
   downloadSettlementDocs,
   extractSiteMatchTokens,

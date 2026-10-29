@@ -1280,7 +1280,13 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   const handleDocDownloadRequest = async (req, res) => {
     try {
       const targetYm = normalizeTargetYm(req.query.targetYm || req.body?.targetYm);
-      if (!targetYm) {
+      const startYm = normalizeTargetYm(req.query.startYm || req.body?.startYm || targetYm);
+      const endYm = normalizeTargetYm(req.query.endYm || req.body?.endYm || startYm || targetYm);
+      const rawTargetYms = req.body?.targetYms || req.query.targetYms;
+      const targetYms = Array.isArray(rawTargetYms)
+        ? rawTargetYms.map(normalizeTargetYm).filter(Boolean)
+        : [];
+      if (!targetYm && !startYm && targetYms.length === 0) {
         return res.status(400).json({ success: false, error: '대상 연월은 YYYYMM 형식이어야 합니다.' });
       }
 
@@ -1309,7 +1315,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       }
 
       const format = String(req.query.format || req.body?.format || 'auto').trim();
-      const result = await downloadSettlementDocs({ docType, targetYm, sites, format });
+      const result = await downloadSettlementDocs({ docType, targetYm: targetYm || startYm, startYm, endYm, targetYms, sites, format });
 
       if (!result.success) {
         return res.status(404).json(result);
