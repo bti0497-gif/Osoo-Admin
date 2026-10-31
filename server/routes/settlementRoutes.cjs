@@ -7,6 +7,7 @@ const JSZip = require('jszip');
 const {
   isDriveConfigured,
   getDriveRootFolderId,
+  getOrCreateFolder,
   getOrCreateFolderPath,
   uploadBufferToFolder,
   listFilesFolder,
@@ -1438,11 +1439,13 @@ async function uploadSettlementFilesToDrive(localFolder, targetYm, fileNames) {
     const sourcePath = path.join(localFolder, fileName);
     if (!fs.existsSync(sourcePath)) continue;
 
+    const ext = path.extname(fileName).toLowerCase();
+    const mimeType = ext === '.png' ? 'image/png' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg';
     await uploadBufferToFolder({
       folderId: targetFolder.id,
       fileName,
       buffer: fs.readFileSync(sourcePath),
-      mimeType: 'image/jpeg',
+      mimeType,
     });
   }
   console.log(`[settlementRoutes] Drive 월정산 전송 완료: 월정산/${targetYm} (${fileNames.length}개 파일)`);
