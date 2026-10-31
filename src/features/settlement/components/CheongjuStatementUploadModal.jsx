@@ -20,43 +20,53 @@ export function CheongjuStatementUploadModal({ isOpen, onClose, year, month, onG
     chemical: useRef(null),
   };
 
-  // 모달 오픈 시 로컬 폴더에 이미 저장된 명세서 3종 자동 감지 및 프리필
+  // 모달 오픈 및 년/월 변경 시 로컬 폴더에 이미 저장된 해당 월의 명세서 3종 감지 및 프리필
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setStatements({ waterQuality: null, kit: null, chemical: null });
+      return;
+    }
+    let isCancelled = false;
     const fetchExisting = async () => {
+      // 새로운 년/월을 조회할 때는 이전 달의 명세서 잔재를 먼저 비움
+      setStatements({ waterQuality: null, kit: null, chemical: null });
       try {
         const targetYm = `${year}${String(month).padStart(2, '0')}`;
         const res = await fetch(`${getApiBase()}/api/settlement/cheongju-statements-status?targetYm=${targetYm}`);
         if (!res.ok) return;
         const data = await res.json();
+        if (isCancelled) return;
         if (data.success && data.statements) {
-          const previewBaseUrl = `${getApiBase()}/api/settlement/cheongju-statements-preview?targetYm=${targetYm}`;
-          setStatements((prev) => ({
-            waterQuality: prev.waterQuality || (data.statements.waterQuality?.exists ? {
+          const previewBaseUrl = `${getApiBase()}/api/settlement/cheongju-statements-preview?targetYm=${targetYm}&t=${Date.now()}`;
+          setStatements({
+            waterQuality: data.statements.waterQuality?.exists ? {
               name: data.statements.waterQuality.fileName,
               path: data.statements.waterQuality.path,
               previewUrl: `${previewBaseUrl}&type=waterQuality`,
               isExisting: true,
-            } : null),
-            kit: prev.kit || (data.statements.kit?.exists ? {
+            } : null,
+            kit: data.statements.kit?.exists ? {
               name: data.statements.kit.fileName,
               path: data.statements.kit.path,
               previewUrl: `${previewBaseUrl}&type=kit`,
               isExisting: true,
-            } : null),
-            chemical: prev.chemical || (data.statements.chemical?.exists ? {
+            } : null,
+            chemical: data.statements.chemical?.exists ? {
               name: data.statements.chemical.fileName,
               path: data.statements.chemical.path,
               previewUrl: `${previewBaseUrl}&type=chemical`,
               isExisting: true,
-            } : null),
-          }));
+            } : null,
+          });
         }
       } catch {
         return;
       }
     };
     fetchExisting();
+    return () => {
+      isCancelled = true;
+    };
   }, [isOpen, year, month]);
 
   if (!isOpen) return null;

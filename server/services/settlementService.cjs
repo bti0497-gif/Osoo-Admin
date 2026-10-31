@@ -61,6 +61,10 @@ const TEMPLATE_ALIASES = {
   'template_seonsan_changwon.hwp': ['template_seonsan_changwon.hwpx'],
   'template_seonsan_yangpyeong.hwpx': ['template_seonsan_yangpyeong.hwp'],
   'template_seonsan_yangpyeong.hwp': ['template_seonsan_yangpyeong.hwpx'],
+  'template_hoengseong_gangneung.hwpx': ['template_hoengseong_gangneung.hwp'],
+  'template_hoengseong_gangneung.hwp': ['template_hoengseong_gangneung.hwpx'],
+  'template_hoengseong_incheon.hwpx': ['template_hoengseong_incheon.hwp'],
+  'template_hoengseong_incheon.hwp': ['template_hoengseong_incheon.hwpx'],
 };
 
 function getTemplateNameVariants(fileName) {
@@ -148,6 +152,8 @@ const DEFAULT_SITES = [
   { id: 'andong', name: '안동휴게소(부산방향)', shortName: '안동(부산)', type: 'hwp_excel', format: 'hwp + xlsx', template: 'template_andong.hwp', subTemplate: 'template_andong_excel.xlsx', description: '오수처리비 정산 보고서(한글 HWP) + 오수처리비 정산보고서(엑셀 XLSX 증빙)', sheets: ['정산보고서.hwp', '정산보고서.xlsx'] },
   { id: 'seonsan_changwon', name: '선산휴게소(창원방향)', shortName: '선산(창원)', type: 'hwp', format: 'hwpx', template: 'template_seonsan_changwon.hwpx', description: '도로공사 정산 서류(한글 HWPX) + 계산서/입금표 4종 + 성적서 4종 증빙', sheets: ['정산서류.hwpx'] },
   { id: 'seonsan_yangpyeong', name: '선산휴게소(양평방향)', shortName: '선산(양평)', type: 'hwp', format: 'hwpx', template: 'template_seonsan_yangpyeong.hwpx', description: '도로공사 정산 서류(한글 HWPX) + 계산서/입금표 4종 + 성적서 4종 증빙', sheets: ['정산서류.hwpx'] },
+  { id: 'hoengseong_gangneung', name: '횡성휴게소(강릉방향)', shortName: '횡성(강릉)', type: 'hwp', format: 'hwpx', template: 'template_hoengseong_gangneung.hwpx', description: '도로공사 정산 서류(한글 HWPX) + 계약서 + 계산서/입금표 + 성적서 증빙', sheets: ['정산서류.hwpx'] },
+  { id: 'hoengseong_incheon', name: '횡성휴게소(인천방향)', shortName: '횡성(인천)', type: 'hwp', format: 'hwpx', template: 'template_hoengseong_incheon.hwpx', description: '도로공사 정산 서류(한글 HWPX) + 계약서 + 계산서/입금표 + 성적서 증빙', sheets: ['정산서류.hwpx'] },
 ];
 
 function loadTemplateConfig() {
@@ -223,6 +229,26 @@ function getTemplateFilePath(templateFileName) {
   return resolveTemplateFilePath(templateFileName);
 }
 
+async function ensureTemplateFileAsync(fileName) {
+  if (!fileName) return null;
+  const localCand = resolveTemplateFilePath(fileName);
+  if (localCand && fs.existsSync(localCand)) return localCand;
+
+  // 로컬에 없으면 구글 드라이브 '정산양식' 폴더에서 검색하여 자동 다운로드
+  try {
+    const templateDriveService = require('./settlementTemplateDriveService.cjs');
+    const variants = getTemplateNameVariants(fileName);
+    const downloaded = await templateDriveService.ensureTemplateFromDrive(fileName, variants);
+    if (downloaded && fs.existsSync(downloaded)) {
+      return downloaded;
+    }
+  } catch (err) {
+    console.warn('[settlementService] 드라이브 양식 자동 동기화 실패:', err.message);
+  }
+
+  return null;
+}
+
 function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
   const sites = loadTemplateConfig();
   const targetSite = sites.find(s => s.id === siteId);
@@ -265,6 +291,19 @@ function saveTemplateFile(siteId, fileBuffer, originalName, isSub = false) {
   }
 
   saveTemplateConfig(sites);
+
+  // 구글 드라이브 '정산양식' 폴더로 자동 비동기 업로드 (모든 중앙관리자 즉시 공유)
+  try {
+    const templateDriveService = require('./settlementTemplateDriveService.cjs');
+    templateDriveService.uploadTemplateToDrive({
+      fileName: safeBaseName,
+      buffer: fileBuffer,
+      mimeType: ext.includes('xls') ? 'application/vnd.ms-excel' : (ext.includes('hwp') ? 'application/x-hwp' : 'application/octet-stream')
+    }).catch(err => console.warn('[settlementService] 양식 구글 드라이브 업로드 비동기 실패:', err.message));
+  } catch (err) {
+    console.warn('[settlementService] 양식 구글 드라이브 업로드 호출 실패:', err.message);
+  }
+
   return { site: targetSite, fileName: safeBaseName };
 }
 
@@ -366,6 +405,7 @@ module.exports = {
   getTemplateFilePath,
   ensureWritableTemplateFilePath,
   resolveTemplateFilePath,
+  ensureTemplateFileAsync,
   saveTemplateFile,
   deleteTemplateFile,
   getSettlementSummary,

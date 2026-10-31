@@ -3,10 +3,9 @@ import { getApiBase } from '../../../core/api/serverConfig';
 import { filterSitesForUser } from '../../../core/auth/siteAccessHelper';
 
 const now = new Date();
-const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 const CURRENT_YEAR = now.getFullYear();
-const DEFAULT_YEAR = prevMonthDate.getFullYear();
-const DEFAULT_MONTH = prevMonthDate.getMonth() + 1;
+const DEFAULT_YEAR = now.getFullYear();
+const DEFAULT_MONTH = now.getMonth() + 1;
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 

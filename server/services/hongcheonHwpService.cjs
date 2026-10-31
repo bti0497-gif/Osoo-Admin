@@ -395,10 +395,10 @@ async function generateHongcheonHwpReport(year, month, customInputs = {}) {
   const invMap = status.invoiceMap || {};
 
   if (!cleanCert) {
-    throw new Error('청소필증 이미지가 등록되지 않았습니다. 모달에서 청소필증을 업로드해 주세요.');
+    console.warn('[hongcheonHwpService] 청소필증 이미지가 없어 빈 슬롯으로 유지합니다.');
   }
   if (!sludgePhoto) {
-    throw new Error('반출사진 이미지가 등록되지 않았습니다. 모달에서 반출사진을 업로드해 주세요.');
+    console.warn('[hongcheonHwpService] 반출사진 이미지가 없어 빈 슬롯으로 유지합니다.');
   }
 
   console.log(`[hongcheonHwpService] 1. 템플릿에서 HWPML2X XML 추출 시작: ${tplPath}`);
@@ -435,9 +435,9 @@ async function generateHongcheonHwpReport(year, month, customInputs = {}) {
     '4': invMap.test,         // Pic #6: 매입계산서 대신(자가측정)
     '5': invMap.kit,          // Pic #7: 매입계산서 케이엠(키트)
     '6': invMap.sludge,       // Pic #8: 매입계산서 준명(슬러지)
-    // 슬러지 반출사진 & 청소필증
-    '7': sludgePhoto,         // Pic #9: 슬러지반출사진
-    '8': cleanCert,           // Pic #10: 청소필증
+    // 슬러지 반출사진 & 청소필증 (없으면 빈 슬롯으로 유지)
+    '7': sludgePhoto || 'EMPTY',         // Pic #9: 슬러지반출사진
+    '8': cleanCert || 'EMPTY',           // Pic #10: 청소필증
     // 수질성적서 4장
     '9': certs[0] || null,    // Pic #13: 성적서 1
     '10': certs[1] || null,   // Pic #14: 성적서 2

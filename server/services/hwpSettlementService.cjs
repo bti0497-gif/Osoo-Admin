@@ -4,6 +4,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { getTemplateFilePath } = require('./settlementService.cjs');
+const { ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 /**
  * 5가지 약품 입고 사진을 가로 규격(80.3mm)에 맞추고 세로를 5등분하여
@@ -213,6 +214,14 @@ async function generateCheongjuHwpReport({
 } = {}) {
   const shortYear = String(year).slice(-2);
   const targetYm = `${year}${String(month).padStart(2, '0')}`;
+
+  // ★ 정산 증빙(계산서, 명세서, 입금표, 성적서/MLSS, 사진) 로컬 및 Google Drive 자동 동기화
+  try {
+    await ensureSettlementEvidence({ siteName: '청주휴게소(서울방향)', year, month, targetYm });
+  } catch (syncErr) {
+    console.warn('[hwpSettlementService] 증빙 동기화 경고 (로컬 증빙으로 진행):', syncErr.message);
+  }
+
   const desktopDirs = getDesktopDirectories();
   const appDataRoot = process.env.APP_DATA_PATH
     || path.join(process.env.APPDATA || os.homedir(), 'Osoo_Admin_App');
@@ -556,7 +565,7 @@ async function generateCheongjuHwpReport({
       bookmarks: ['슬러지계산서', '슬러지_계산서', '슬러지처리비_계산서', 'sludge_invoice'],
       keywords: ['슬러지처리비(계산서)', '슬러지계산서', '슬러지(계산서)', '슬러지처리비'],
       files: findFiles(invoiceDirs, '국민환경', true).filter(file => path.basename(file).startsWith('계산서_')),
-      required: true,
+      required: false,
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 51.6
     },
@@ -565,7 +574,7 @@ async function generateCheongjuHwpReport({
       bookmarks: ['슬러지입금표', '슬러지_입금증', 'sludge_deposit'],
       keywords: ['슬러지처리비(입금증)', '슬러지(입금증)', '슬러지입금표'],
       files: mergeUnique(findFiles(depositDirs, '국민환경', true), findFiles(depositDirs, '슬러지', true)),
-      required: true,
+      required: false,
       isCertGrid: false, isVertical: false,
       imgWidthMm: 80.3, imgHeightMm: 28.0
     },
@@ -974,8 +983,7 @@ try {
   }
 
   if ($bindingFailures.Count -gt 0) {
-    LogMsg "ERROR: Required evidence bindings failed: $($bindingFailures -join '; ')"
-    throw "증빙 이미지 바인딩 실패: $($bindingFailures -join '; ')"
+    LogMsg "WARN: Some evidence bindings were not inserted into template: $($bindingFailures -join '; ') (proceeding with clean template state)"
   }
 
   # 4. 저장

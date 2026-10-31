@@ -20,10 +20,13 @@ const {
   getTemplateList,
   getTemplateFilePath,
   ensureWritableTemplateFilePath,
+  ensureTemplateFileAsync,
   saveTemplateFile,
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
+const { ensureSettlementEvidence } = require('../services/settlementEvidenceSyncService.cjs');
+const templateDriveService = require('../services/settlementTemplateDriveService.cjs');
 const { getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 const {
   getReportSiteList,
@@ -199,8 +202,12 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/templates
    * 현장별 기본 빈 양식(Excel / HWP) 목록 및 상태 조회
    */
-  router.get('/templates', (req, res) => {
+  router.get('/templates', async (req, res) => {
     try {
+      // 드라이브에 등록된 최신 양식 자동 동기화
+      await templateDriveService.syncAllTemplatesFromDrive().catch((e) => {
+        console.warn('[settlementRoutes] 양식 드라이브 동기화 경고:', e.message);
+      });
       const templates = getTemplateList();
       res.json({
         success: true,
@@ -216,10 +223,13 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/templates/:filename/download
    * 템플릿 원본 파일 다운로드
    */
-  router.get('/templates/:filename/download', (req, res) => {
+  router.get('/templates/:filename/download', async (req, res) => {
     try {
       const { filename } = req.params;
-      const filePath = getTemplateFilePath(filename);
+      let filePath = getTemplateFilePath(filename);
+      if (!filePath) {
+        filePath = await ensureTemplateFileAsync(filename);
+      }
       if (!filePath) {
         return res.status(404).json({ success: false, error: '해당 템플릿 파일을 찾을 수 없습니다.' });
       }
@@ -234,12 +244,15 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
   /**
    * POST /api/settlement/templates/:filename/open
    * 템플릿 파일을 사용자의 PC 기본 프로그램(Excel, 한글 등)으로 직접 열기
-   * - AppData(쓰기 가능) 폴더에 없으면 번들에서 자동 복사한 후 AppData 내 파일을 열어 즉시 수정/저장 가능
+   * - AppData(쓰기 가능) 폴더에 없으면 번들/드라이브에서 자동 복사한 후 AppData 내 파일을 열어 즉시 수정/저장 가능
    */
-  router.post('/templates/:filename/open', (req, res) => {
+  router.post('/templates/:filename/open', async (req, res) => {
     try {
       const { filename } = req.params;
-      const filePath = ensureWritableTemplateFilePath(filename);
+      let filePath = ensureWritableTemplateFilePath(filename);
+      if (!filePath || !fs.existsSync(filePath)) {
+        filePath = await ensureTemplateFileAsync(filename);
+      }
       if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({ success: false, error: '해당 템플릿 파일을 찾을 수 없습니다.' });
       }
@@ -479,13 +492,19 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/cheongju-statements-status
    * 청주 3대 거래명세서(수질분석-대신, 키트-케이엠, 약품-에이치디이앤씨) 기존 등록 여부 조회
    */
-  router.get('/cheongju-statements-status', (req, res) => {
+  router.get('/cheongju-statements-status', async (req, res) => {
     try {
       const targetYm = normalizeTargetYm(req.query.targetYm) || `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      const numYear = parseInt(targetYm.slice(0, 4), 10);
+      const numMonth = parseInt(targetYm.slice(4, 6), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '청주휴게소(서울방향)', year: numYear, month: numMonth, targetYm });
+      } catch (_) {}
+
       const statementsDir = getCheongjuStatementsDir(targetYm);
-      const waterQualityPath = findCheongjuStatementFile(statementsDir, targetYm, '대신');
-      const kitPath = findCheongjuStatementFile(statementsDir, targetYm, '케이엠');
-      const chemicalPath = findCheongjuStatementFile(statementsDir, targetYm, '에이치디이앤씨');
+      const waterQualityPath = findCheongjuStatementFile(statementsDir, targetYm, ['대신', '대신환경기술']);
+      const kitPath = findCheongjuStatementFile(statementsDir, targetYm, ['케이엠', '케이엠에스']);
+      const chemicalPath = findCheongjuStatementFile(statementsDir, targetYm, ['에이치디이앤씨', '에이치디이엔씨', '에이치디', '에이치', '영일과학상사', '영일']);
 
       const statements = {
         waterQuality: waterQualityPath ? { exists: true, fileName: path.basename(waterQualityPath), path: waterQualityPath } : { exists: false },
@@ -512,17 +531,16 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const targetYm = normalizeTargetYm(req.query.targetYm);
       const type = String(req.query.type || '');
       const keywordByType = {
-        waterQuality: '대신',
-        kit: '케이엠',
-        chemical: '에이치',
+        waterQuality: ['대신', '대신환경기술'],
+        kit: ['케이엠', '케이엠에스'],
+        chemical: ['에이치디이앤씨', '에이치디이엔씨', '에이치디', '에이치', '영일과학상사', '영일'],
       };
-      const keyword = keywordByType[type];
-      if (!targetYm || !keyword) {
+      const vendorTokens = keywordByType[type];
+      if (!targetYm || !vendorTokens) {
         return res.status(400).json({ success: false, error: '유효하지 않은 명세서 미리보기 요청입니다.' });
       }
 
-      const vendor = type === 'chemical' ? '에이치디이앤씨' : keyword;
-      const file = findCheongjuStatementFile(getCheongjuStatementsDir(targetYm), targetYm, vendor);
+      const file = findCheongjuStatementFile(getCheongjuStatementsDir(targetYm), targetYm, vendorTokens);
       if (file) return res.sendFile(file);
 
       return res.status(404).json({ success: false, error: '명세서 이미지를 찾을 수 없습니다.' });
@@ -551,6 +569,37 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       fs.mkdirSync(targetDir, { recursive: true });
       const fileName = `명세서_${targetYm}_청주휴게소(서울방향) ${label}${extension}`;
       fs.writeFileSync(path.join(targetDir, fileName), req.file.buffer);
+
+      // 점검준비/명세서 폴더에도 동기화 복사
+      try {
+        const desktopDirs = getDesktopDirectories();
+        const altDir = path.join(desktopDirs[0] || targetDir, '점검준비', '명세서', targetYm);
+        fs.mkdirSync(altDir, { recursive: true });
+        fs.writeFileSync(path.join(altDir, fileName), req.file.buffer);
+      } catch (_) {}
+
+      // Google Drive 월정산 폴더로 자동 업로드 (타 관리자 PC 공유)
+      if (isDriveConfigured()) {
+        void (async () => {
+          try {
+            const monthlyRoot = await getSingleSettlementRootFolder();
+            if (monthlyRoot?.id) {
+              const monthFolder = await getOrCreateFolder(monthlyRoot.id, targetYm);
+              if (monthFolder?.id) {
+                await uploadBufferToFolder({
+                  folderId: monthFolder.id,
+                  fileName,
+                  buffer: req.file.buffer,
+                  mimeType: req.file.mimetype || 'image/jpeg',
+                });
+                console.log(`[settlementRoutes] 청주 명세서 Drive 자동 전송 완료: ${fileName}`);
+              }
+            }
+          } catch (driveErr) {
+            console.warn('[settlementRoutes] 청주 명세서 Drive 전송 경고:', driveErr.message);
+          }
+        })();
+      }
 
       return res.json({
         success: true,
@@ -680,6 +729,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '청송휴게소(상주방향)', year, month });
+        await ensureTemplateFileAsync('template_cheongsong.hwpx');
+      } catch (_) {}
       const status = await getCheongsongEvidenceStatus(year, month);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -698,6 +751,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
       const customInputs = req.body?.customInputs || {};
 
+      try {
+        await ensureSettlementEvidence({ siteName: '청송휴게소(상주방향)', year, month });
+        await ensureTemplateFileAsync('template_cheongsong.hwpx');
+      } catch (_) {}
       console.log(`[settlementRoutes] 청송(상주) ${year}년 ${month}월 정산 한글(HWPX) 생성 요청 시작`);
       const result = await generateCheongsongHwpReport(year, month, customInputs);
       return res.json({
@@ -719,6 +776,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '금왕휴게소(평택방향)', year, month });
+        await ensureTemplateFileAsync('template_geumwang.hwpx');
+      } catch (_) {}
       const status = await getGeumwangEvidenceStatus(year, month);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -737,6 +798,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
       const customInputs = req.body?.customInputs || {};
 
+      try {
+        await ensureSettlementEvidence({ siteName: '금왕휴게소(평택방향)', year, month });
+        await ensureTemplateFileAsync('template_geumwang.hwpx');
+      } catch (_) {}
       console.log(`[settlementRoutes] 금왕(평택) ${year}년 ${month}월 정산 한글(HWPX) 생성 요청 시작`);
       const result = await generateGeumwangHwpReport(year, month, customInputs);
       return res.json({
@@ -758,6 +823,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '밀양영남루휴게소(울산방향)', year, month });
+        await ensureTemplateFileAsync('template_miryang.hwpx');
+        await ensureTemplateFileAsync('template_miryang_sub.xlsx');
+      } catch (_) {}
       const status = await getMiryangEvidenceStatus(year, month);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -776,6 +846,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
       const customInputs = req.body?.customInputs || {};
 
+      try {
+        await ensureSettlementEvidence({ siteName: '밀양영남루휴게소(울산방향)', year, month });
+        await ensureTemplateFileAsync('template_miryang.hwpx');
+        await ensureTemplateFileAsync('template_miryang_sub.xlsx');
+      } catch (_) {}
       console.log(`[settlementRoutes] 밀양영남루(울산) ${year}년 ${month}월 정산 (한글+엑셀) 생성 요청 시작`);
       const result = await generateMiryangAllReports(year, month, customInputs);
       return res.json({
@@ -831,6 +906,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
       const direction = req.query?.direction || defaultDir;
+      try {
+        await ensureSettlementEvidence({ siteName: `고창고인돌휴게소(${direction === 'mokpo' ? '목포' : '서울'}방향)`, year, month });
+        await ensureTemplateFileAsync(`template_gochang_${direction}.xlsx`);
+      } catch (_) {}
       const status = await getGochangEvidenceStatus(year, month, direction);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -852,6 +931,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const customInputs = req.body?.customInputs || {};
       const direction = req.body?.direction || defaultDir;
 
+      try {
+        await ensureSettlementEvidence({ siteName: `고창고인돌휴게소(${direction === 'mokpo' ? '목포' : '서울'}방향)`, year, month });
+        await ensureTemplateFileAsync(`template_gochang_${direction}.xlsx`);
+      } catch (_) {}
       console.log(`[settlementRoutes] 고창고인돌(${direction}) ${year}년 ${month}월 정산서(엑셀) 생성 요청`);
       const result = await generateGochangAllReports(year, month, customInputs, direction);
       return res.json({
@@ -875,6 +958,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '안동휴게소(부산방향)', year, month });
+        await ensureTemplateFileAsync('template_andong.hwp');
+        await ensureTemplateFileAsync('template_andong_excel.xlsx');
+      } catch (_) {}
       const status = await getAndongEvidenceStatus(year, month);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -891,6 +979,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.body?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '안동휴게소(부산방향)', year, month });
+        await ensureTemplateFileAsync('template_andong.hwp');
+        await ensureTemplateFileAsync('template_andong_excel.xlsx');
+      } catch (_) {}
       console.log(`[settlementRoutes] 안동휴게소(부산) ${year}년 ${month}월 정산 (한글+엑셀) 생성 요청`);
       const result = await generateAndongAllReports(year, month);
       return res.json({
@@ -941,6 +1034,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const year = parseInt(req.query?.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query?.month || (new Date().getMonth() + 1), 10);
       const direction = req.query?.direction || defaultDir;
+      try {
+        await ensureSettlementEvidence({ siteName: `선산휴게소(${direction === 'changwon' ? '창원' : '양평'}방향)`, year, month });
+        await ensureTemplateFileAsync(`template_seonsan_${direction}.hwpx`);
+      } catch (_) {}
       const status = await getSeonsanEvidenceStatus(year, month, direction);
       return res.json({ success: true, ...status });
     } catch (err) {
@@ -955,6 +1052,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
       const direction = req.body?.direction || defaultDir;
       const customInputs = req.body?.customInputs || {};
+      try {
+        await ensureSettlementEvidence({ siteName: `선산휴게소(${direction === 'changwon' ? '창원' : '양평'}방향)`, year, month });
+        await ensureTemplateFileAsync(`template_seonsan_${direction}.hwpx`);
+      } catch (_) {}
       const result = await generateSeonsanHwpReport(year, month, direction, customInputs);
       return res.json({
         success: true,
@@ -997,16 +1098,28 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         const tempDir = path.join(os.tmpdir(), `osoo_cheongju_stmt_${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
+        diagnosticStage = '증빙자료 로컬 및 Drive 동기화';
+        try {
+          await ensureSettlementEvidence({ siteName: '청주휴게소(서울방향)', year, month, targetYm });
+          await ensureTemplateFileAsync('template_cheongju_report.hwp');
+          await ensureTemplateFileAsync('template_cheongju_daily_log.xlsm');
+        } catch (syncErr) {
+          console.warn('[settlementRoutes] 청주 증빙/양식 동기화 경고:', syncErr.message);
+        }
+
         diagnosticStage = '6_명세서 저장본 확인';
         const statementsDir = getCheongjuStatementsDir(targetYm);
         const statementFiles = {
-          waterQuality: findCheongjuStatementFile(statementsDir, targetYm, '대신'),
-          kit: findCheongjuStatementFile(statementsDir, targetYm, '케이엠'),
-          chemical: findCheongjuStatementFile(statementsDir, targetYm, '에이치디이앤씨'),
+          waterQuality: findCheongjuStatementFile(statementsDir, targetYm, ['대신', '대신환경기술']),
+          kit: findCheongjuStatementFile(statementsDir, targetYm, ['케이엠', '케이엠에스']),
+          chemical: findCheongjuStatementFile(statementsDir, targetYm, ['에이치디이앤씨', '에이치디이엔씨', '에이치디', '에이치', '영일과학상사', '영일']),
         };
-        if (Object.values(statementFiles).some((filePath) => !filePath)) {
-          throw new Error(`청주 거래명세서 3종을 ${statementsDir}에 모두 저장한 뒤 생성해 주세요.`);
-        }
+        // 드라이브/로컬에 없는 명세서는 강제 차단하지 않고 빈 양식(SKIP)으로 보존하여 안전하게 진행
+        console.log('[settlementRoutes] 청주 거래명세서 확인 결과:', {
+          waterQuality: statementFiles.waterQuality ? '준비됨' : '미등록(SKIP)',
+          kit: statementFiles.kit ? '준비됨' : '미등록(SKIP)',
+          chemical: statementFiles.chemical ? '준비됨' : '미등록(SKIP)',
+        });
         const statementWorkingFiles = materializeCheongjuStatementFiles(statementFiles, tempDir);
 
         diagnosticStage = '기본 HWP 템플릿 확인';
@@ -1105,6 +1218,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const year = parseInt(req.body.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
 
+      try {
+        await ensureSettlementEvidence({ siteName: '죽암휴게소(부산방향)', year, month });
+        await ensureTemplateFileAsync('template_jukam_busan.xls');
+      } catch (_) {}
       console.log(`[settlementRoutes] 죽암(부산) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
       const result = await generateJukamBusanExcelReport({
         year,
@@ -1133,6 +1250,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const year = parseInt(req.body.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
 
+      try {
+        await ensureSettlementEvidence({ siteName: '천안휴게소(부산방향)', year, month });
+        await ensureTemplateFileAsync('template_cheonan_busan.xlsx');
+      } catch (_) {}
       console.log(`[settlementRoutes] 천안(부산) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
       const result = await generateCheonanBusanExcelReport({
         year,
@@ -1161,6 +1282,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const year = parseInt(req.body.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
 
+      try {
+        await ensureSettlementEvidence({ siteName: '죽암휴게소(서울방향)', year, month });
+        await ensureTemplateFileAsync('template_jukam_seoul.xls');
+      } catch (_) {}
       console.log(`[settlementRoutes] 죽암(서울) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
       const result = await generateJukamSeoulExcelReport({
         year,
@@ -1188,6 +1313,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.body.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      try {
+        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
+        await ensureTemplateFileAsync('template_hongcheon_yangyang.xlsx');
+      } catch (_) {}
 
       console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 정산 엑셀 생성 요청 시작`);
       const result = await generateHongcheonExcelReport(year, month);
@@ -1260,6 +1390,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const year = parseInt(req.body.year || new Date().getFullYear(), 10);
       const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
+
+      try {
+        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
+        await ensureTemplateFileAsync('template_hongcheon_yangyang.hwp');
+      } catch (_) {}
 
       console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 한글 정산서 생성 요청 시작`);
       const result = await generateHongcheonHwpReport(year, month, req.body.customInputs || {});
@@ -1383,24 +1518,34 @@ function normalizeTargetYm(value) {
 }
 
 function getCheongjuStatementsDir(targetYm) {
-  return path.join(
-    os.homedir(),
-    'OneDrive',
-    '바탕 화면',
-    '월정산',
-    '청주마감자료',
-    targetYm,
-    '6_명세서'
-  );
+  const desktopDirs = getDesktopDirectories();
+  for (const d of desktopDirs) {
+    const candidate = path.join(d, '월정산', '청주마감자료', targetYm, '6_명세서');
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(desktopDirs[0] || os.homedir(), '월정산', '청주마감자료', targetYm, '6_명세서');
 }
 
 function findCheongjuStatementFile(statementsDir, targetYm, vendor) {
   if (!fs.existsSync(statementsDir)) return null;
-  const prefix = `명세서_${targetYm}_청주휴게소(서울방향) ${vendor}`;
-  const fileName = fs.readdirSync(statementsDir).find((name) => (
-    name.startsWith(prefix) && /\.(jpg|jpeg|png)$/i.test(name)
-  ));
-  return fileName ? path.join(statementsDir, fileName) : null;
+  const vendorTokens = Array.isArray(vendor) ? vendor : [vendor];
+  let files = [];
+  try { files = fs.readdirSync(statementsDir); } catch (_) { return null; }
+
+  for (const token of vendorTokens) {
+    const fileName = files.find((name) => {
+      if (!/\.(jpg|jpeg|png)$/i.test(name)) return false;
+      const lower = name.toLowerCase();
+      const tokenLower = String(token).toLowerCase();
+      return (
+        name.startsWith(`명세서_${targetYm}_청주휴게소(서울방향) ${token}`) ||
+        (name.includes(`명세서_${targetYm}`) && lower.includes(tokenLower)) ||
+        (name.includes('명세서') && lower.includes(tokenLower))
+      );
+    });
+    if (fileName) return path.join(statementsDir, fileName);
+  }
+  return null;
 }
 
 function writeCheongjuPreflightFailureLog(targetYm, stage, error) {
@@ -1506,11 +1651,19 @@ async function materializeCheongjuPhotoFiles(summary, tempDir) {
 
 function materializeCheongjuStatementFiles(statementFiles, tempDir) {
   const result = {};
-  for (const [type, sourcePath] of Object.entries(statementFiles)) {
+  for (const [type, sourcePath] of Object.entries(statementFiles || {})) {
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      result[type] = null;
+      continue;
+    }
     const extension = path.extname(sourcePath || '') || '.jpg';
     const targetPath = path.join(tempDir, `statement_${type}${extension}`);
-    fs.copyFileSync(sourcePath, targetPath);
-    result[type] = targetPath;
+    try {
+      fs.copyFileSync(sourcePath, targetPath);
+      result[type] = targetPath;
+    } catch (_) {
+      result[type] = null;
+    }
   }
   return result;
 }

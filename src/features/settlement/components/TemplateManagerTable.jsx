@@ -62,14 +62,19 @@ export function TemplateManagerTable({
   return (
     <div style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
-          📁 현장별 기본 빈 양식 등록 목록
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#1e293b' }}>
+            📁 현장별 기본 빈 양식 등록 목록
+          </h3>
+          <span style={{ fontSize: '11px', color: '#0369a1', background: '#e0f2fe', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>
+            ☁️ 구글 드라이브(정산양식) 자동 공유
+          </span>
+        </div>
         <button
           onClick={onRefresh}
           style={{ height: '32px', padding: '0 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#334155', cursor: 'pointer' }}
         >
-          🔄 새로고침
+          🔄 드라이브 동기화 / 새로고침
         </button>
       </div>
 

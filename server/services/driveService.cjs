@@ -37,6 +37,22 @@ function findServiceAccountKeyFile() {
 }
 
 function createDriveAuth() {
+  if (!process.env.GOOGLE_REFRESH_TOKEN) {
+    const envCandidates = [
+      path.join(__dirname, '../../.env.local'),
+      path.join(process.cwd(), '.env.local'),
+      path.join(__dirname, '../.env.local'),
+    ];
+    for (const cand of envCandidates) {
+      if (fs.existsSync(cand)) {
+        try {
+          require('dotenv').config({ path: cand });
+          break;
+        } catch (_) {}
+      }
+    }
+  }
+
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
   let clientId = process.env.GOOGLE_CLIENT_ID;
   let clientSecret = process.env.GOOGLE_CLIENT_SECRET;
