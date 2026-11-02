@@ -9,6 +9,10 @@ const { decodeUserContextHeader } = require('../utils/httpUserHeaders.cjs');
 const { getBigQueryClient, DATASET_ID } = require('../services/bigQueryClientService.cjs');
 const { syncCertificateCacheForSiteMonth } = require('../services/certificateCacheSyncService.cjs');
 const { logCertDiagnostic } = require('../services/certAuditLogger.cjs');
+const {
+  checkUploadedCertificateSourceFile,
+  recordUploadedCertificateSourceFile,
+} = require('../services/certificateSourceManifestService.cjs');
 
 const router = express.Router();
 
@@ -1714,26 +1718,8 @@ module.exports = function () {
             : compactReportDate;
           const finalFileName = `${prefix}_${dateSegment}_${safeSiteName}.${uploadMeta.ext}`;
 
-          // 구글 드라이브 내 동일 폴더 중복 파일 조회
+          // 구글 드라이브 내 동일 폴더 파일 조회 (기존 파일 존재 시 덮어쓰기 수행)
           const existingFile = await findFileInFolder(monthFolder.id, finalFileName);
-          if (existingFile) {
-            items.push({
-              original_file_name: file.originalname,
-              uploaded_file_name: finalFileName,
-              category: prefix,
-              report_date: reportDate,
-              sample_date: bodySampleDate,
-              year,
-              month,
-              site_id: matched.site_id,
-              site_name: matched.site_name || siteNameRaw,
-              site_name_raw: siteNameRaw,
-              drive_file_id: existingFile.id,
-              drive_web_view_link: existingFile.webViewLink || null,
-              already_exists: true,
-            });
-            continue;
-          }
 
           const uploaded = await uploadBufferToFolder({
             folderId: monthFolder.id,
@@ -1754,6 +1740,7 @@ module.exports = function () {
             yearFolder: year,
             monthFolder: month,
             driveFileId: uploaded.id,
+            overwritten: Boolean(existingFile),
           });
 
           items.push({
@@ -1761,6 +1748,7 @@ module.exports = function () {
             uploaded_file_name: finalFileName,
             category: prefix,
             report_date: reportDate,
+            sample_date: bodySampleDate,
             year,
             month,
             site_id: matched.site_id,
@@ -1770,12 +1758,22 @@ module.exports = function () {
             manual_review_required: Boolean(matched.manual_review_required),
             drive_file_id: uploaded.id,
             drive_web_view_link: uploaded.webViewLink || null,
+            overwritten: Boolean(existingFile),
           });
         } catch (fileErr) {
           errors.push({
             file: file.originalname,
             message: fileErr.message,
           });
+        }
+      }
+
+      // 업로드 성공한 원본 PDF 파일명이 있으면 공유 매니페스트 및 감사 로그에 기록
+      if (sourcePdfName && items.length > 0) {
+        try {
+          await recordUploadedCertificateSourceFile(sourcePdfName, 'pdf', { count: items.length });
+        } catch (recErr) {
+          console.warn('[manual-upload-file] recordUploadedCertificateSourceFile 실패:', recErr.message);
         }
       }
 
@@ -2517,7 +2515,7 @@ module.exports = function () {
     }
   });
 
-  // ── PDF 파일명 중복 체크 API ──────────────────────────────────────────────
+  // ── PDF/엑셀 원본 파일명 중복 체크 API ──────────────────────────────────────
   router.get('/api/certificates/check-duplicate-pdf', async (req, res) => {
     try {
       const pdfName = decodeBase64Utf8(req.query?.pdfNameB64) || String(req.query?.pdfName || '').trim();
@@ -2525,12 +2523,17 @@ module.exports = function () {
         return res.status(400).json({ success: false, message: 'pdfName 파라미터가 필요합니다.' });
       }
 
+      const dupCheck = await checkUploadedCertificateSourceFile(pdfName);
+
       return res.json({
         success: true,
-        exists: false,
-        count: 0,
-        mode: 'drive-file-name',
-        message: '성적서 이미지는 Drive 파일명 기준으로 중복 처리합니다.',
+        exists: Boolean(dupCheck.exists),
+        source: dupCheck.source || null,
+        count: dupCheck.exists ? 1 : 0,
+        mode: 'source-manifest',
+        message: dupCheck.exists
+          ? `'${pdfName}' 원본 파일이 이미 등록되어 있습니다.`
+          : '등록되지 않은 신규 파일입니다.',
       });
     } catch (err) {
       console.error('[check-duplicate-pdf]', err.message);

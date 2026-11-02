@@ -82,7 +82,7 @@ router.get('/api/certificates/water-quality/sites', async (req, res) => {
  */
 router.post('/api/certificates/water-quality/batch-insert', async (req, res) => {
   try {
-    const { rows, replaceFiveItems } = req.body || {};
+    const { rows, replaceFiveItems, sourceFileName, sourceFileNames } = req.body || {};
     
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({
@@ -93,8 +93,31 @@ router.post('/api/certificates/water-quality/batch-insert', async (req, res) => 
 
     // BigQuery에 배치 삽입
     const { insertRows } = require('../services/certificateWaterQualityService.cjs');
+    const { recordUploadedCertificateSourceFile } = require('../services/certificateSourceManifestService.cjs');
     
     const result = await insertRows(rows, { replaceFiveItems: Boolean(replaceFiveItems) });
+
+    // 원본 파일명 매니페스트 및 감사 로그 기록
+    const fileNamesToRecord = new Set();
+    if (sourceFileName) fileNamesToRecord.add(String(sourceFileName).trim());
+    if (Array.isArray(sourceFileNames)) {
+      sourceFileNames.forEach(fn => fn && fileNamesToRecord.add(String(fn).trim()));
+    }
+    rows.forEach(r => {
+      const fn = r.source_pdf_name || r.source_file_name;
+      if (fn) fileNamesToRecord.add(String(fn).trim());
+    });
+
+    for (const name of fileNamesToRecord) {
+      try {
+        await recordUploadedCertificateSourceFile(name, 'excel', {
+          count: result.inserted || rows.length,
+          replacedFiveItems: Boolean(result.replacedFiveItems),
+        });
+      } catch (recErr) {
+        console.warn('[batch-insert] recordUploadedCertificateSourceFile 실패:', recErr.message);
+      }
+    }
     
     res.json({
       success: true,

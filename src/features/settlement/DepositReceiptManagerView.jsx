@@ -23,6 +23,21 @@ export function DepositReceiptManagerView() {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (file.name.toLowerCase().endsWith('.pdf')) {
+      try {
+        const res = await apiClient.get('/api/settlement/check-duplicate-source', {
+          fileName: file.name,
+          documentType: 'deposit',
+          targetYm,
+        });
+        if (res?.exists) {
+          const proceed = window.confirm(`같은 파일('${file.name}')이 이미 등록되어 있습니다.\n재매칭하시겠습니까?`);
+          if (!proceed) {
+            if (e.target) e.target.value = '';
+            return;
+          }
+        }
+      } catch (_) {}
+
       setPdfFile(file);
       setMatchedItems({});
       setSelectedMatchedId(null);
@@ -379,7 +394,12 @@ export function DepositReceiptManagerView() {
       let savedCount = 0;
       let targetDir = '';
       for (const entry of entries) {
-        const result = await apiClient.post('/api/settlement/save-matched-images', { targetYm, documentType: 'deposit', entries: [entry] }, { timeout: 300000 });
+        const result = await apiClient.post('/api/settlement/save-matched-images', {
+          targetYm,
+          documentType: 'deposit',
+          entries: [entry],
+          sourcePdfName: pdfFile?.name || '',
+        }, { timeout: 300000 });
         savedCount += result.savedFiles?.length || 0;
         targetDir = result.targetDir || targetDir;
       }

@@ -6,14 +6,16 @@ export function useCertificateUpload() {
   const [error, setError] = useState(null);
 
   // BigQuery 업로드
-  const uploadToBigQuery = useCallback(async (data) => {
+  const uploadToBigQuery = useCallback(async (data, options = {}) => {
     setLoading(true);
     setError(null);
     
     try {
+      const sourceFileName = options.sourceFileName || options.fileName || null;
       const result = await apiClient.post('/api/certificates/water-quality/batch-insert', {
         rows: data,
         replaceFiveItems: true,
+        sourceFileName,
       });
       
       if (result.success) {

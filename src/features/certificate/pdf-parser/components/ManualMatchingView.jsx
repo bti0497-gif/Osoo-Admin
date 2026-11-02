@@ -10,6 +10,11 @@ import { usePdfLoader } from '../hooks/usePdfLoader';
 import { useManualMatching } from '../hooks/useManualMatching';
 import { extractDatesFromFileName, generateFileName } from '../utils/namingRules';
 import { usePdfTemplate } from '../viewmodels/usePdfTemplate';
+import { getApiBase } from '../../../../core/api/serverConfig';
+
+function toBase64Utf8(value) {
+  return btoa(encodeURIComponent(String(value || '')).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+}
 
 export function ManualMatchingView() {
   const { siteMaster } = useSiteMaster();
@@ -148,6 +153,20 @@ export function ManualMatchingView() {
   const handlePdfDrop = async (file) => {
     console.log('[ManualMatchingView] handlePdfDrop 호출됨:', file);
     try {
+      try {
+        const encoded = toBase64Utf8(file.name);
+        const dupRes = await fetch(`${getApiBase()}/api/certificates/check-duplicate-pdf?pdfNameB64=${encodeURIComponent(encoded)}`, {
+          headers: { 'x-user-role': 'super_admin', 'x-user-name': 'admin' },
+        }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+        if (dupRes?.exists) {
+          const proceed = window.confirm(`같은 파일('${file.name}')이 이미 등록되어 있습니다.\n재매칭하시겠습니까?`);
+          if (!proceed) {
+            return; // 취소 시 건너뜀 (로드하지 않음)
+          }
+        }
+      } catch (_) {}
+
       setPdfFile(file);
       matching.goToPage(0);
       matching.selectSite(null);

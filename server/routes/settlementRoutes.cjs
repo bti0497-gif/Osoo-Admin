@@ -26,6 +26,10 @@ const {
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
 const { ensureSettlementEvidence, getDesktopDirectories, getEvidenceCacheDir } = require('../services/settlementEvidenceSyncService.cjs');
+const {
+  recordUploadedSettlementSourceFile,
+  checkUploadedSettlementSourceFile,
+} = require('../services/settlementSourceManifestService.cjs');
 const templateDriveService = require('../services/settlementTemplateDriveService.cjs');
 const { getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 const {
@@ -367,6 +371,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     try {
       const targetYm = String(req.body?.targetYm || '').replace(/[^0-9]/g, '');
       const documentType = req.body?.documentType === 'deposit' ? 'deposit' : 'invoice';
+      const sourcePdfName = String(req.body?.sourcePdfName || '').trim();
       const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
       if (!/^\d{6}$/.test(targetYm)) return res.status(400).json({ success: false, error: '대상 연월은 YYYYMM 형식이어야 합니다.' });
       if (!entries.length) return res.status(400).json({ success: false, error: '저장할 매칭 이미지가 없습니다.' });
@@ -380,12 +385,15 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       entries.forEach((entry) => {
         const match = String(entry.imageDataUrl || '').match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
         if (!match) throw new Error(`유효하지 않은 JPEG 이미지입니다: ${entry.filename || '이름 없음'}`);
-        const requested = path.basename(String(entry.filename || '계산서.jpg')).replace(/[\\/:*?"<>|]/g, '_');
+        const defaultName = documentType === 'deposit' ? '입금표.jpg' : '계산서.jpg';
+        const requested = path.basename(String(entry.filename || defaultName)).replace(/[\\/:*?"<>|]/g, '_');
         const ext = path.extname(requested) || '.jpg';
         const stem = path.basename(requested, ext);
-        let index = 1;
-        let fileName = `${stem}${ext}`;
-        while (fs.existsSync(path.join(cacheDir, fileName))) fileName = `${stem} (${++index})${ext}`;
+        let fileName = requested;
+        if (entry.overwrite === false) {
+          let index = 1;
+          while (fs.existsSync(path.join(cacheDir, fileName))) fileName = `${stem} (${++index})${ext}`;
+        }
         const buf = Buffer.from(match[1], 'base64');
         fs.writeFileSync(path.join(cacheDir, fileName), buf);
 
@@ -393,11 +401,25 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
         driveEntries.push({ fileName, buffer: buf });
       });
 
-      // Google Drive 월정산/{targetYm} 폴더로 직접 업로드 (기존 동일명 파일 자동 갱신)
+      // Google Drive 월정산/{targetYm} 폴더로 직접 업로드 (기존 동일명 파일 자동 갱신/덮어쓰기)
       try {
         await uploadSettlementBufferEntriesToDrive(targetYm, driveEntries);
       } catch (uploadError) {
         console.error('[settlementRoutes] Drive 업로드 실패:', uploadError.message);
+      }
+
+      // 원본 PDF 파일명이 있으면 공유 매니페스트 및 로컬 캐시에 기록
+      if (sourcePdfName) {
+        try {
+          await recordUploadedSettlementSourceFile({
+            fileName: sourcePdfName,
+            documentType,
+            targetYm,
+            count: entries.length,
+          });
+        } catch (manifestErr) {
+          console.warn('[settlementRoutes] sourcePdfName 매니페스트 저장 실패:', manifestErr.message);
+        }
       }
 
       return res.json({
@@ -409,6 +431,36 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     } catch (err) {
       console.error('[settlementRoutes] 매칭 이미지 저장 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/settlement/check-duplicate-source
+   * 계산서/입금표 원본 PDF 파일명 중복 등록 여부 검사 API
+   */
+  router.get('/check-duplicate-source', async (req, res) => {
+    try {
+      const fileName = String(req.query?.fileName || '').trim();
+      const documentType = String(req.query?.documentType || 'invoice').trim();
+      const targetYm = String(req.query?.targetYm || '').replace(/[^0-9]/g, '');
+
+      if (!fileName) {
+        return res.status(400).json({ success: false, message: 'fileName 파라미터가 필요합니다.' });
+      }
+
+      const dupCheck = await checkUploadedSettlementSourceFile({ fileName, documentType, targetYm });
+
+      return res.json({
+        success: true,
+        exists: Boolean(dupCheck.exists),
+        source: dupCheck.source || null,
+        message: dupCheck.exists
+          ? `'${fileName}' 원본 파일이 이미 등록되어 있습니다.`
+          : '등록되지 않은 신규 파일입니다.',
+      });
+    } catch (err) {
+      console.error('[check-duplicate-source]', err.message);
+      return res.status(500).json({ success: false, message: err.message });
     }
   });
 

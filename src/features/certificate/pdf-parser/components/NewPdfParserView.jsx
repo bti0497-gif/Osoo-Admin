@@ -403,7 +403,7 @@ export function NewPdfParserView() {
       if (checkResult?.success && checkResult.exists) {
         setConfirmModal({
           active: true,
-          message: `'${file.name}' 파일은 이미 업로드된 이력이 존재합니다. 그래도 강제로 다시 분석(Gemini 실행)하여 덮어쓰시겠습니까?`,
+          message: `같은 파일('${file.name}')이 이미 등록되어 있습니다.\n재매칭하시겠습니까?`,
           onConfirm: () => {
             setConfirmModal({ active: false, message: '', onConfirm: null });
             executeProcessAll();

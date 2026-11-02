@@ -541,7 +541,12 @@ export function TaxInvoiceManagerView() {
       let targetDir = '';
       let savedCount = 0;
       for (const entry of entries) {
-        const result = await apiClient.post('/api/settlement/save-matched-images', { targetYm, entries: [entry] }, { timeout: 300000 });
+        const result = await apiClient.post('/api/settlement/save-matched-images', {
+          targetYm,
+          documentType: 'invoice',
+          entries: [entry],
+          sourcePdfName: pdfFile?.name || '',
+        }, { timeout: 300000 });
         savedCount += result.savedFiles.length;
         targetDir = result.targetDir;
       }
@@ -690,7 +695,37 @@ export function TaxInvoiceManagerView() {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (file.name.toLowerCase().endsWith('.pdf')) {
+      // 파일명에서 연월(YYYYMM) 스마트 자동 감지 및 적용
+      let detectedYm = targetYm;
+      const ymMatch1 = file.name.match(/(20\d{2})[-_.]?([01]\d)/);
+      if (ymMatch1 && Number(ymMatch1[2]) >= 1 && Number(ymMatch1[2]) <= 12) {
+        detectedYm = `${ymMatch1[1]}${ymMatch1[2]}`;
+      } else {
+        const ymMatch2 = file.name.match(/(\d{2,4})년\s*(\d{1,2})월/);
+        if (ymMatch2) {
+          const y = ymMatch2[1].length === 2 ? `20${ymMatch2[1]}` : ymMatch2[1];
+          const m = String(ymMatch2[2]).padStart(2, '0');
+          detectedYm = `${y}${m}`;
+        }
+      }
+
+      try {
+        const res = await apiClient.get('/api/settlement/check-duplicate-source', {
+          fileName: file.name,
+          documentType: 'invoice',
+          targetYm: detectedYm,
+        });
+        if (res?.exists) {
+          const proceed = window.confirm(`같은 파일('${file.name}')이 이미 등록되어 있습니다.\n재매칭하시겠습니까?`);
+          if (!proceed) {
+            if (e.target) e.target.value = '';
+            return;
+          }
+        }
+      } catch (_) {}
+
       setPdfFile(file);
+      setTargetYm(detectedYm);
       // 새 PDF는 독립 작업 단위다. 이전 문서의 현장/거래처 매칭 상태를 남기지 않는다.
       resetMatchingWork();
       // 파일명 자동 판단: '매출' 포함 여부
@@ -698,19 +733,6 @@ export function TaxInvoiceManagerView() {
         setInvoiceType('sales');
       } else {
         setInvoiceType('purchase');
-      }
-
-      // 파일명에서 연월(YYYYMM) 스마트 자동 감지 및 적용
-      const ymMatch1 = file.name.match(/(20\d{2})[-_.]?([01]\d)/);
-      if (ymMatch1 && Number(ymMatch1[2]) >= 1 && Number(ymMatch1[2]) <= 12) {
-        setTargetYm(`${ymMatch1[1]}${ymMatch1[2]}`);
-      } else {
-        const ymMatch2 = file.name.match(/(\d{2,4})년\s*(\d{1,2})월/);
-        if (ymMatch2) {
-          const y = ymMatch2[1].length === 2 ? `20${ymMatch2[1]}` : ymMatch2[1];
-          const m = String(ymMatch2[2]).padStart(2, '0');
-          setTargetYm(`${y}${m}`);
-        }
       }
 
       // PDF 69페이지 전체 실제 로드 및 파싱 실행!

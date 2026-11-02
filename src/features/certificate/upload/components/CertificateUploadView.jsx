@@ -19,6 +19,19 @@ export function CertificateUploadView() {
   const { uploadToBigQuery } = useCertificateUpload();
   const { siteMaster } = useSiteMaster();
 
+  // 중복 파일명 확인 헬퍼
+  const checkExcelDuplicate = async (file) => {
+    try {
+      const res = await apiClient.get(`/api/certificates/check-duplicate-pdf?pdfName=${encodeURIComponent(file.name)}`);
+      if (res?.exists) {
+        const proceed = window.confirm(`같은 파일('${file.name}')이 이미 등록되어 있습니다.\n다시 등록하시겠습니까?`);
+        if (!proceed) return null;
+        return { file, reUploadConfirmed: true };
+      }
+    } catch (_) {}
+    return { file, reUploadConfirmed: false };
+  };
+
   // Excel 드래그 앤 드롭
   const handleExcelDrag = useCallback((e) => {
     e.preventDefault();
@@ -30,22 +43,43 @@ export function CertificateUploadView() {
     }
   }, []);
 
-  const handleExcelDrop = useCallback((e) => {
+  const handleExcelDrop = useCallback(async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setExcelDragActive(false);
     
     const files = e.dataTransfer.files;
-    const excelFiles = Array.from(files).filter(f => 
+    const excelCandidates = Array.from(files).filter(f => 
       f.name.endsWith('.xlsx') || f.name.endsWith('.xls')
     );
-    setExcelFiles(prev => [...prev, ...excelFiles]);
+    const acceptedFiles = [];
+    for (const f of excelCandidates) {
+      const check = await checkExcelDuplicate(f);
+      if (check) {
+        f._reUploadConfirmed = check.reUploadConfirmed;
+        acceptedFiles.push(f);
+      }
+    }
+    if (acceptedFiles.length > 0) {
+      setExcelFiles(prev => [...prev, ...acceptedFiles]);
+    }
   }, []);
 
   // 파일 선택
-  const handleExcelSelect = useCallback((e) => {
+  const handleExcelSelect = useCallback(async (e) => {
     const files = Array.from(e.target.files);
-    setExcelFiles(prev => [...prev, ...files]);
+    const acceptedFiles = [];
+    for (const f of files) {
+      const check = await checkExcelDuplicate(f);
+      if (check) {
+        f._reUploadConfirmed = check.reUploadConfirmed;
+        acceptedFiles.push(f);
+      }
+    }
+    if (acceptedFiles.length > 0) {
+      setExcelFiles(prev => [...prev, ...acceptedFiles]);
+    }
+    if (e.target) e.target.value = '';
   }, []);
 
   // 파일 제거
@@ -73,47 +107,56 @@ export function CertificateUploadView() {
           if (parseResult.success) {
             setExcelProgress({ show: true, percent: progress, message: '데이터 변환 중...' });
             const validRows = filterValidRows(parseResult.data);
-            const bigQueryData = transformToBigQueryFormat(validRows, siteMaster);
+            const bigQueryData = transformToBigQueryFormat(validRows, siteMaster).map(row => ({
+              ...row,
+              source_pdf_name: file.name,
+              source_file_name: file.name,
+            }));
 
-            // 날짜 범위에 따른 연/월 목록 추출
-            const yearMonths = [...new Set(bigQueryData.map(d => {
-              if (!d.report_date) return null;
-              const parts = d.report_date.split('-');
-              return `${parts[0]}-${parts[1]}`;
-            }).filter(Boolean))];
+            let finalData = bigQueryData;
 
-            setExcelProgress({ show: true, percent: progress, message: '중복 데이터 검사 중...' });
+            // 이미 등록되어 사용자가 재등록을 승인한 파일이 아닌 경우에만 기존 데이터 중복 필터링
+            if (!file._reUploadConfirmed) {
+              // 날짜 범위에 따른 연/월 목록 추출
+              const yearMonths = [...new Set(bigQueryData.map(d => {
+                if (!d.report_date) return null;
+                const parts = d.report_date.split('-');
+                return `${parts[0]}-${parts[1]}`;
+              }).filter(Boolean))];
 
-            // 각 연/월별로 기존 빅쿼리 데이터 조회
-            let existingRows = [];
-            for (const ym of yearMonths) {
-              const [y, m] = ym.split('-');
-              try {
-                const res = await apiClient.get(`/api/certificates/water-quality?year=${y}&month=${parseInt(m, 10)}`);
-                if (res.success && Array.isArray(res.data)) {
-                  existingRows.push(...res.data);
+              setExcelProgress({ show: true, percent: progress, message: '중복 데이터 검사 중...' });
+
+              // 각 연/월별로 기존 빅쿼리 데이터 조회
+              let existingRows = [];
+              for (const ym of yearMonths) {
+                const [y, m] = ym.split('-');
+                try {
+                  const res = await apiClient.get(`/api/certificates/water-quality?year=${y}&month=${parseInt(m, 10)}`);
+                  if (res.success && Array.isArray(res.data)) {
+                    existingRows.push(...res.data);
+                  }
+                } catch (e) {
+                  console.error('[Excel Upload] 기존 데이터 조회 실패:', e);
                 }
-              } catch (e) {
-                console.error('[Excel Upload] 기존 데이터 조회 실패:', e);
+              }
+
+              // 중복 데이터 필터링
+              finalData = filterDuplicateRows(bigQueryData, existingRows);
+              const dupCount = bigQueryData.length - finalData.length;
+
+              if (dupCount > 0) {
+                console.log(`[Excel Upload] 중복 데이터 ${dupCount}건 제외됨.`);
+              }
+
+              if (finalData.length === 0) {
+                console.log('[Excel Upload] 업로드할 새로운 데이터가 없습니다. (모두 중복)');
+                result.success++;
+                continue;
               }
             }
 
-            // 중복 데이터 필터링
-            const finalData = filterDuplicateRows(bigQueryData, existingRows);
-            const dupCount = bigQueryData.length - finalData.length;
-
-            if (dupCount > 0) {
-              console.log(`[Excel Upload] 중복 데이터 ${dupCount}건 제외됨.`);
-            }
-
-            if (finalData.length === 0) {
-              console.log('[Excel Upload] 업로드할 새로운 데이터가 없습니다. (모두 중복)');
-              result.success++;
-              continue;
-            }
-
             setExcelProgress({ show: true, percent: progress, message: `BigQuery 업로드 중 (${finalData.length}행)...` });
-            const uploadResult = await uploadToBigQuery(finalData);
+            const uploadResult = await uploadToBigQuery(finalData, { sourceFileName: file.name });
             if (uploadResult.success) {
               result.success++;
               result.totalRows += uploadResult.inserted || 0;
