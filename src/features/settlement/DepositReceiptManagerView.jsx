@@ -383,7 +383,7 @@ export function DepositReceiptManagerView() {
         savedCount += result.savedFiles?.length || 0;
         targetDir = result.targetDir || targetDir;
       }
-      alert(`${savedCount}개 입금표를 저장했습니다.\n${targetDir}\nDrive 백그라운드 전송을 시작했습니다.`);
+      alert(`${savedCount}개 입금표 파일을 Google Drive(월정산/${targetYm})에 성공적으로 업로드했습니다!\n저장 경로: ${targetDir}`);
       if (!singleItem) {
         setMatchedItems({});
         setSelectedMatchedId(null);
@@ -769,7 +769,7 @@ export function DepositReceiptManagerView() {
                 {selectedMatchedItem?.filename || getLiveFilename()}
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                경로: 바탕화면/점검준비/입금표/{targetYm}/
+                저장 위치: Google Drive / 월정산 / {targetYm}/
               </div>
             </div>
 
@@ -778,7 +778,7 @@ export function DepositReceiptManagerView() {
               onClick={() => handleSaveWork()}
               style={btnSaveMainStyle}
             >
-              <CheckCircle2 size={16} /> 바탕화면 '점검준비' 폴더로 저장
+              <CheckCircle2 size={16} /> Google Drive로 저장
             </button>
           </div>
         </div>

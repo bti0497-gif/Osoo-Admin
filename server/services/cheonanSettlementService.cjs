@@ -6,6 +6,7 @@ const os = require('os');
 const JSZip = require('jszip');
 const { getBigQueryClient, DATASET_ID } = require('./bigQueryClientService.cjs');
 const { getTemplateFilePath } = require('./settlementService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 /**
  * JS Date를 엑셀 시리얼 넘버로 변환 (1900 date system)
@@ -152,7 +153,7 @@ async function generateCheonanBusanExcelReport({
     ...desktopDirs.map(d => path.join(d, '월정산', '천안마감자료', targetYm, '2_슬러지사진')),
     ...desktopDirs.map(d => path.join(d, '월정산', '천안마감자료', targetYm)),
     ...desktopDirs.map(d => path.join(d, '월정산', '천안(부산)', targetYm)),
-    ...desktopDirs.map(d => path.join(d, '점검준비', '정산서', targetYm)),
+    getEvidenceCacheDir('정산서', targetYm),
   ];
 
   const localSludgePhotos = [];
@@ -223,13 +224,22 @@ async function generateCheonanBusanExcelReport({
 
   // 4. 증빙 이미지(용역비, 슬러지) 파일 탐색
   const invoiceCandidates = [];
+  const cacheInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
+  if (fs.existsSync(cacheInvoiceDir)) {
+    try {
+      const files = fs.readdirSync(cacheInvoiceDir);
+      for (const f of files) {
+        invoiceCandidates.push(path.join(cacheInvoiceDir, f));
+      }
+    } catch (_) {}
+  }
   for (const d of desktopDirs) {
-    const invoiceDir = path.join(d, '점검준비', '계산서', targetYm);
-    if (fs.existsSync(invoiceDir)) {
+    const closedDir = path.join(d, '월정산', '천안마감자료', targetYm);
+    if (fs.existsSync(closedDir)) {
       try {
-        const files = fs.readdirSync(invoiceDir);
+        const files = fs.readdirSync(closedDir);
         for (const f of files) {
-          invoiceCandidates.push(path.join(invoiceDir, f));
+          invoiceCandidates.push(path.join(closedDir, f));
         }
       } catch (_) {}
     }

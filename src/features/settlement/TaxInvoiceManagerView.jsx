@@ -545,7 +545,7 @@ export function TaxInvoiceManagerView() {
         savedCount += result.savedFiles.length;
         targetDir = result.targetDir;
       }
-      alert(`${savedCount}개 계산서 파일을 성공적으로 저장했습니다!\n${targetDir}\n\n바탕화면 '점검준비/계산서/${targetYm}' 폴더를 확인하세요.`);
+      alert(`${savedCount}개 계산서 파일을 Google Drive(월정산/${targetYm})에 성공적으로 업로드했습니다!\n저장 경로: ${targetDir}`);
       if (!singleItem) {
         resetMatchingWork();
       }
@@ -1391,7 +1391,7 @@ export function TaxInvoiceManagerView() {
                 {selectedMatchedItem?.filename || getLiveFilename()}
               </div>
               <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-                경로: 바탕화면/점검준비/계산서/{targetYm}/
+                저장 위치: Google Drive / 월정산 / {targetYm}/
               </div>
             </div>
 
@@ -1400,7 +1400,7 @@ export function TaxInvoiceManagerView() {
               onClick={() => handleSaveWork()}
               style={btnSaveMainStyle}
             >
-              <CheckCircle2 size={16} /> 바탕화면 '점검준비' 폴더로 저장
+              <CheckCircle2 size={16} /> Google Drive로 저장
             </button>
           </div>
         </div>

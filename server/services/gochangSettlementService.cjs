@@ -9,6 +9,7 @@ const JSZip = require('jszip');
 const { resolveTemplateFilePath } = require('./settlementService.cjs');
 const { getBigQueryClient, DATASET_ID } = require('./bigQueryClientService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 const SITES_CONFIG = {
   mokpo: {
@@ -77,12 +78,7 @@ async function ensureGochangInvoicesFromDrive(year, month, direction = 'mokpo') 
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const localInvoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-
-  if (!fs.existsSync(localInvoiceDir)) {
-    try { fs.mkdirSync(localInvoiceDir, { recursive: true }); } catch (_) {}
-  }
+  const localInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
   if (!drive) return;
 
   try {
@@ -121,12 +117,13 @@ async function getGochangEvidenceStatus(year, month, direction = 'mokpo') {
   await ensureGochangInvoicesFromDrive(numYear, numMonth, direction);
 
   const desktopDirs = findDesktopDirectories();
-  const searchDirs = [];
+  const searchDirs = [
+    getEvidenceCacheDir('계산서', targetYm),
+    getEvidenceCacheDir('정산서', targetYm),
+  ];
   desktopDirs.forEach((d) => {
-    searchDirs.push(path.join(d, '점검준비', '계산서', targetYm));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, `${numMonth}월`));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, targetYm));
-    searchDirs.push(path.join(d, '점검준비', '정산서', targetYm));
   });
 
   const dirRegex = new RegExp(`고창.*${dirKey}`, 'i');

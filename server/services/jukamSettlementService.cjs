@@ -9,6 +9,7 @@ const sharp = require('sharp');
 const { getMonthlyReportData, transformToReportData } = require('./monthlyReportService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
 const { getTemplateFilePath } = require('./settlementService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 // 죽암휴게소(부산방향) 구글 시트 / BigQuery 표준 현장 ID
 const JUKAM_BUSAN_SITE_ID = 'fdd44211-5162-4494-838d-fb5f5d6bed69';
@@ -19,10 +20,10 @@ const JUKAM_BUSAN_SITE_ID = 'fdd44211-5162-4494-838d-fb5f5d6bed69';
 async function ensureJukamCertificatesFromDrive(direction = '서울', year, month) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 9;
-  const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktopDirs = getDesktopDirectories();
-  const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), '바탕 화면');
-  const localCertDir = path.join(primaryDesktop, '점검준비', '성적서', targetYm);
+  const mm = String(numMonth).padStart(2, '0');
+  const targetYm = `${numYear}${mm}`;
+  const hyphenYm = `${numYear}-${mm}`;
+  const localCertDir = getEvidenceCacheDir('성적서', targetYm);
 
   if (!fs.existsSync(localCertDir)) {
     try { fs.mkdirSync(localCertDir, { recursive: true }); } catch (_) {}
@@ -35,68 +36,121 @@ async function ensureJukamCertificatesFromDrive(direction = '서울', year, mont
       ? (lower.includes('서울') && !lower.includes('부산'))
       : (lower.includes('부산') && !lower.includes('서울'));
     const isCert = lower.includes('성적서') || lower.includes('mlss');
-    const isExt = /\.(jpe?g|png|bmp)$/i.test(filename);
+    const isExt = /\.(jpe?g|png|bmp|webp)$/i.test(filename);
     return isJukam && isTargetDir && isCert && isExt;
   };
 
-  // 1. 로컬에 이미 4장 이상 존재하는지 확인
+  // Drive가 설정되어 있으면 항상 Drive에서 새로 추가된 성적서가 있는지 검색하여 다운로드
+  if (drive) {
+    try {
+      const dirKeyword = direction === '서울' ? '서울' : '부산';
+      console.log(`[jukamSettlementService] Drive에서 죽암(${dirKeyword}) ${targetYm} 성적서 검색 중...`);
+      const certRootId = String(process.env.CERTIFICATE_DRIVE_FOLDER_ID || '1Po-gd-OKlaeGyL-Ppjc6_wKgSLEM4iX4').trim();
+      const foundDriveFiles = new Map();
+
+      // 1. CERTIFICATE_ROOT_FOLDER_ID / 성적서 / YYYY / MM 폴더 직접 조회
+      try {
+        const rootRes = await drive.files.list({
+          q: `'${certRootId}' in parents and trashed = false`,
+          fields: 'files(id, name, mimeType)',
+          pageSize: 50,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+        const roots = [certRootId];
+        const certSub = (rootRes.data.files || []).find(f => String(f.name || '').trim() === '성적서');
+        if (certSub) roots.push(certSub.id);
+
+        for (const rId of roots) {
+          const yRes = await drive.files.list({
+            q: `'${rId}' in parents and trashed = false`,
+            fields: 'files(id, name, mimeType)',
+            pageSize: 50,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          });
+          const yFolder = (yRes.data.files || []).find(f => f.name.includes(String(numYear)));
+          if (!yFolder) continue;
+
+          const mRes = await drive.files.list({
+            q: `'${yFolder.id}' in parents and trashed = false`,
+            fields: 'files(id, name, mimeType)',
+            pageSize: 50,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          });
+          const mFolder = (mRes.data.files || []).find(f => f.name === mm || f.name === `${numMonth}` || f.name === `${numMonth}월`);
+          if (!mFolder) continue;
+
+          const filesRes = await drive.files.list({
+            q: `'${mFolder.id}' in parents and trashed = false`,
+            fields: 'files(id, name, mimeType, size)',
+            pageSize: 100,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          });
+          for (const df of filesRes.data.files || []) {
+            if (isMatchingCert(df.name)) {
+              foundDriveFiles.set(df.id, df);
+            }
+          }
+        }
+      } catch (folderErr) {
+        console.warn(`[jukamSettlementService] 성적서 폴더 조회 경고:`, folderErr.message);
+      }
+
+      // 2. Drive 쿼리 개별 검색 (구글 드라이브 쿼리 구문 제한 우회)
+      const queries = [
+        `name contains '죽암' and name contains '${dirKeyword}' and name contains 'mlss' and trashed = false`,
+        `name contains '죽암' and name contains '${dirKeyword}' and name contains '성적서' and trashed = false`,
+      ];
+      for (const q of queries) {
+        try {
+          const qRes = await drive.files.list({
+            q,
+            fields: 'files(id, name, mimeType, size)',
+            pageSize: 50,
+            supportsAllDrives: true,
+            includeItemsFromAllDrives: true,
+          });
+          for (const df of qRes.data.files || []) {
+            const n = df.name.toLowerCase();
+            if (isMatchingCert(df.name) && (n.includes(targetYm) || n.includes(hyphenYm))) {
+              foundDriveFiles.set(df.id, df);
+            }
+          }
+        } catch (_) {}
+      }
+
+      console.log(`[jukamSettlementService] Drive 죽암(${dirKeyword}) 성적서 ${foundDriveFiles.size}건 발견`);
+
+      // 3. 로컬에 없는 파일 다운로드
+      for (const [id, df] of foundDriveFiles.entries()) {
+        const destPath = path.join(localCertDir, df.name);
+        if (!fs.existsSync(destPath)) {
+          try {
+            const buf = await downloadDriveFileBuffer(id);
+            fs.writeFileSync(destPath, buf);
+            console.log(`[jukamSettlementService] Drive 성적서 신규 다운로드 완료: ${df.name} (${buf.length} bytes)`);
+          } catch (dlErr) {
+            console.error(`[jukamSettlementService] Drive 성적서 다운로드 실패 (${df.name}):`, dlErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[jukamSettlementService] Drive 성적서 검색/다운로드 에러:`, err.message);
+    }
+  }
+
+  // 4. 로컬 파일 목록 정렬 및 최대 4장 반환
   let localFiles = [];
   try {
     const list = fs.readdirSync(localCertDir);
     localFiles = list.filter(isMatchingCert).map(f => path.join(localCertDir, f));
+    localFiles.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
   } catch (_) {}
 
-  if (localFiles.length >= 4) {
-    localFiles.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
-    return localFiles.slice(0, 4);
-  }
-
-  // 2. Drive 클라이언트가 없으면 로컬 파일 반환
-  if (!drive) {
-    console.warn(`[jukamSettlementService] Drive 클라이언트가 없어 ${direction}방향 성적서 검색을 건너뜁니다.`);
-    return localFiles;
-  }
-
-  // 3. Google Drive에서 죽암 해당 방향 & 월 성적서 파일 검색
-  try {
-    const dirKeyword = direction === '서울' ? '서울' : '부산';
-    console.log(`[jukamSettlementService] Drive에서 죽암(${dirKeyword}) ${targetYm} 성적서 검색 중...`);
-    const q = `name contains '죽암' and name contains '${dirKeyword}' and (name contains '성적서' or name contains 'mlss') and name contains '${targetYm}' and trashed = false`;
-    const res = await drive.files.list({
-      q,
-      fields: 'files(id, name, mimeType, createdTime)',
-      pageSize: 20,
-      spaces: 'drive',
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
-    });
-
-    const driveFiles = res.data.files || [];
-    console.log(`[jukamSettlementService] Drive 죽암(${dirKeyword}) 성적서 검색 결과: ${driveFiles.length}개 발견`);
-
-    for (const df of driveFiles) {
-      const destPath = path.join(localCertDir, df.name);
-      if (!fs.existsSync(destPath)) {
-        try {
-          const buf = await downloadDriveFileBuffer(df.id);
-          fs.writeFileSync(destPath, buf);
-          console.log(`[jukamSettlementService] Drive 성적서 다운로드 완료: ${df.name} (${buf.length} bytes)`);
-        } catch (dlErr) {
-          console.error(`[jukamSettlementService] Drive 성적서 다운로드 실패 (${df.name}):`, dlErr.message);
-        }
-      }
-    }
-
-    // 다운로드 후 다시 로컬 파일 정렬 및 4장 반환
-    const refreshed = fs.readdirSync(localCertDir)
-      .filter(isMatchingCert)
-      .map(f => path.join(localCertDir, f));
-    refreshed.sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
-    return refreshed.slice(0, 4);
-  } catch (err) {
-    console.error(`[jukamSettlementService] Drive 성적서 검색/다운로드 에러:`, err.message);
-    return localFiles;
-  }
+  return localFiles.slice(0, 4);
 }
 
 /**
@@ -388,10 +442,10 @@ async function generateJukamBusanExcelReport({
     }
   });
 
-  // 5. 로컬 사진 및 증빙 파일 탐색
-  const invoiceDirs = desktopDirs.map(d => path.join(d, '점검준비', '계산서', targetYm));
-  const depositDirs = desktopDirs.map(d => path.join(d, '점검준비', '입금표', targetYm));
-  const certDirs = desktopDirs.map(d => path.join(d, '점검준비', '성적서', targetYm));
+  // 5. 임시 캐시 및 마감자료 증빙 파일 탐색
+  const invoiceDirs = [getEvidenceCacheDir('계산서', targetYm)];
+  const depositDirs = [getEvidenceCacheDir('입금표', targetYm)];
+  const certDirs = [getEvidenceCacheDir('성적서', targetYm)];
 
   const settlementPhotoDirs = desktopDirs.flatMap(d => [
     path.join(d, '월정산', '죽암마감자료', targetYm),
@@ -452,7 +506,7 @@ async function generateJukamBusanExcelReport({
   const invChem = findImages(invoiceDirs, '에이치');
   const depChem = findImages(depositDirs, '에이치');
 
-  // 시험성적서 4장 (점검준비 > 성적서 > YYYYMM 폴더 및 Drive 연동)
+  // 시험성적서 4장 (Drive 연동 및 임시 캐시 디렉토리)
   let certImages = await ensureJukamCertificatesFromDrive('부산', year, month);
   if (!certImages || certImages.length === 0) {
     certImages = findImages(certDirs).sort();
@@ -1187,10 +1241,10 @@ async function generateJukamSeoulExcelReport({
     }
   });
 
-  // 5. 로컬 사진 및 증빙 파일 탐색
-  const invoiceDirs = desktopDirs.map(d => path.join(d, '점검준비', '계산서', targetYm));
-  const depositDirs = desktopDirs.map(d => path.join(d, '점검준비', '입금표', targetYm));
-  const certDirs = desktopDirs.map(d => path.join(d, '점검준비', '성적서', targetYm));
+  // 5. 임시 캐시 및 마감자료 증빙 파일 탐색
+  const invoiceDirs = [getEvidenceCacheDir('계산서', targetYm)];
+  const depositDirs = [getEvidenceCacheDir('입금표', targetYm)];
+  const certDirs = [getEvidenceCacheDir('성적서', targetYm)];
 
   const photoBase = path.join(desktopDirs[0] || path.join(os.homedir(), '바탕 화면'), '월정산', '죽암마감자료', targetYm);
   const expPhotoDirs = [path.join(photoBase, '1_실험사진')];
@@ -1244,7 +1298,7 @@ async function generateJukamSeoulExcelReport({
   const invChem = findImages(invoiceDirs, '에이치');
   const depChem = findImages(depositDirs, '에이치');
 
-  // 성적서 4장 확보 (로컬 점검준비/성적서/YYYYMM 폴더 및 Drive 자동 연동)
+  // 성적서 4장 확보 (Drive 자동 연동 및 임시 캐시 디렉토리)
   let certImages = await ensureJukamCertificatesFromDrive('서울', year, month);
   if (!certImages || certImages.length === 0) {
     certImages = findImages(certDirs).sort().slice(0, 4);

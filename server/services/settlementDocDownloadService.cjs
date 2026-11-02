@@ -3,8 +3,8 @@
 /**
  * settlementDocDownloadService.cjs
  * =====================================================================
- * 계산서·입금표 Drive 및 로컬 점검준비 폴더 월별(단일월 및 시작월~종료월 기간)·현장별 선택 다운로드 서비스
- * - 단일 월 / 다중 월(시작월 ~ 종료월) 기간 일괄 수집 및 로컬 점검준비 폴더 자동 동기화
+ * 계산서·입금표 Google Drive 월별(단일월 및 시작월~종료월 기간)·현장별 선택 다운로드 서비스
+ * - Google Drive(월정산/YYYYMM) 단일 원본 기반 수집
  * - 1개 현장 & 1개월 선택 시 개별 파일 다운로드 지원
  * - 다중 월 또는 2개 이상 현장 선택 시 월별 폴더 구조(계산서_YYYYMM/...)로 JSZip 압축 다운로드 지원
  * - 양방향 현장명(서울/부산, 춘천/부산, 목포/서울, 창원/양평 등) 정밀 분리 매칭 지원
@@ -21,6 +21,7 @@ const {
   listFilesFolder,
   downloadDriveFileBuffer,
 } = require('./driveService.cjs');
+const { getEvidenceCacheDir } = require('./settlementEvidenceSyncService.cjs');
 
 const DIRECTION_KEYWORDS = [
   '서울', '부산', '상행', '하행', '순천', '춘천', '양양',
@@ -202,63 +203,43 @@ async function collectSettlementFiles({ docType = 'invoice', targetYm, sites = [
     }
   }
 
-  // 2. 로컬 바탕화면 점검준비 폴더 보강
-  const desktopDirs = getDesktopDirectories();
-  for (const desktopDir of desktopDirs) {
-    const localDir = path.join(desktopDir, '점검준비', docFolder, normalizedYm);
-    if (!fs.existsSync(localDir)) continue;
+  // 2. 임시 캐시 폴더 보강 (보조 조회, 바탕화면 폴더 생성 없음)
+  try {
+    const cacheDir = getEvidenceCacheDir(docFolder, normalizedYm);
+    if (fs.existsSync(cacheDir)) {
+      const cacheFiles = fs.readdirSync(cacheDir);
+      for (const cf of cacheFiles) {
+        if (fileMap.has(cf)) continue;
+        if (!matchesDocType(cf, docType)) continue;
+        if (!matchesAnySite(cf, sites)) continue;
 
-    try {
-      const localFiles = fs.readdirSync(localDir);
-      for (const lf of localFiles) {
-        if (fileMap.has(lf)) continue;
-        if (!matchesDocType(lf, docType)) continue;
-        if (!matchesAnySite(lf, sites)) continue;
-
-        const filePath = path.join(localDir, lf);
+        const filePath = path.join(cacheDir, cf);
         try {
           const stat = fs.statSync(filePath);
           if (stat.isFile()) {
             const buffer = fs.readFileSync(filePath);
-            const ext = path.extname(lf).toLowerCase();
+            const ext = path.extname(cf).toLowerCase();
             const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
-            fileMap.set(lf, {
-              name: lf,
+            fileMap.set(cf, {
+              name: cf,
               ym: normalizedYm,
               buffer,
               mimeType,
               size: buffer.length,
-              source: 'local',
+              source: 'cache',
             });
           }
         } catch (_) {}
       }
-    } catch (_) {}
-  }
-
-  // 3. 로컬 바탕화면 점검준비 폴더에 동기화 저장
-  const primaryDesktopDir = desktopDirs[0];
-  const primaryTargetDir = path.join(primaryDesktopDir, '점검준비', docFolder, normalizedYm);
-  if (fileMap.size > 0) {
-    try {
-      fs.mkdirSync(primaryTargetDir, { recursive: true });
-      for (const file of fileMap.values()) {
-        const destPath = path.join(primaryTargetDir, file.name);
-        if (!fs.existsSync(destPath)) {
-          fs.writeFileSync(destPath, file.buffer);
-        }
-      }
-    } catch (syncErr) {
-      console.warn('[settlementDocDownload] 로컬 점검준비 폴더 동기화 경고:', syncErr.message);
     }
-  }
+  } catch (_) {}
 
   const items = Array.from(fileMap.values());
   items.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 
   return {
     items,
-    targetDir: primaryTargetDir,
+    targetDir: `Google Drive > 월정산 > ${normalizedYm}`,
     targetYm: normalizedYm,
     docType,
     docFolder,

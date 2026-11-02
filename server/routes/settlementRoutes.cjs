@@ -25,7 +25,7 @@ const {
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
-const { ensureSettlementEvidence, getDesktopDirectories } = require('../services/settlementEvidenceSyncService.cjs');
+const { ensureSettlementEvidence, getDesktopDirectories, getEvidenceCacheDir } = require('../services/settlementEvidenceSyncService.cjs');
 const templateDriveService = require('../services/settlementTemplateDriveService.cjs');
 const { getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 const {
@@ -343,7 +343,27 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     }
   });
 
-  router.post('/save-matched-images', (req, res) => {
+  async function uploadSettlementBufferEntriesToDrive(targetYm, entriesWithBuffers) {
+    if (!isDriveConfigured() || !Array.isArray(entriesWithBuffers) || entriesWithBuffers.length === 0) return;
+    const monthlyRoot = await getSingleSettlementRootFolder();
+    if (!monthlyRoot?.id) return;
+    const targetFolder = await getOrCreateFolder(monthlyRoot.id, targetYm);
+    if (!targetFolder?.id) return;
+
+    for (const item of entriesWithBuffers) {
+      const ext = path.extname(item.fileName).toLowerCase();
+      const mimeType = ext === '.png' ? 'image/png' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg';
+      await uploadBufferToFolder({
+        folderId: targetFolder.id,
+        fileName: item.fileName,
+        buffer: item.buffer,
+        mimeType,
+      });
+    }
+    console.log(`[settlementRoutes] Drive 월정산/${targetYm} 직접 업로드 완료: ${entriesWithBuffers.length}개 파일`);
+  }
+
+  router.post('/save-matched-images', async (req, res) => {
     try {
       const targetYm = String(req.body?.targetYm || '').replace(/[^0-9]/g, '');
       const documentType = req.body?.documentType === 'deposit' ? 'deposit' : 'invoice';
@@ -352,36 +372,40 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       if (!entries.length) return res.status(400).json({ success: false, error: '저장할 매칭 이미지가 없습니다.' });
       const documentFolder = documentType === 'deposit' ? '입금표' : '계산서';
 
-      const desktopDirs = getDesktopDirectories();
-      const primaryTargetDir = path.join(desktopDirs[0], '점검준비', documentFolder, targetYm);
+      // 로컬 임시 캐시 디렉토리 (바탕화면 증빙 폴더 미사용, Drive 단일 원본)
+      const cacheDir = getEvidenceCacheDir(documentFolder, targetYm);
       const savedFiles = [];
+      const driveEntries = [];
 
-      for (const desktopDir of desktopDirs) {
-        const targetDir = path.join(desktopDir, '점검준비', documentFolder, targetYm);
-        fs.mkdirSync(targetDir, { recursive: true });
+      entries.forEach((entry) => {
+        const match = String(entry.imageDataUrl || '').match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
+        if (!match) throw new Error(`유효하지 않은 JPEG 이미지입니다: ${entry.filename || '이름 없음'}`);
+        const requested = path.basename(String(entry.filename || '계산서.jpg')).replace(/[\\/:*?"<>|]/g, '_');
+        const ext = path.extname(requested) || '.jpg';
+        const stem = path.basename(requested, ext);
+        let index = 1;
+        let fileName = `${stem}${ext}`;
+        while (fs.existsSync(path.join(cacheDir, fileName))) fileName = `${stem} (${++index})${ext}`;
+        const buf = Buffer.from(match[1], 'base64');
+        fs.writeFileSync(path.join(cacheDir, fileName), buf);
 
-        entries.forEach((entry) => {
-          const match = String(entry.imageDataUrl || '').match(/^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/);
-          if (!match) throw new Error(`유효하지 않은 JPEG 이미지입니다: ${entry.filename || '이름 없음'}`);
-          const requested = path.basename(String(entry.filename || '계산서.jpg')).replace(/[\\/:*?"<>|]/g, '_');
-          const ext = path.extname(requested) || '.jpg';
-          const stem = path.basename(requested, ext);
-          let index = 1;
-          let fileName = `${stem}${ext}`;
-          while (fs.existsSync(path.join(targetDir, fileName))) fileName = `${stem} (${++index})${ext}`;
-          fs.writeFileSync(path.join(targetDir, fileName), Buffer.from(match[1], 'base64'));
+        savedFiles.push(fileName);
+        driveEntries.push({ fileName, buffer: buf });
+      });
 
-          if (desktopDir === desktopDirs[0]) {
-            savedFiles.push(fileName);
-          }
-        });
+      // Google Drive 월정산/{targetYm} 폴더로 직접 업로드 (기존 동일명 파일 자동 갱신)
+      try {
+        await uploadSettlementBufferEntriesToDrive(targetYm, driveEntries);
+      } catch (uploadError) {
+        console.error('[settlementRoutes] Drive 업로드 실패:', uploadError.message);
       }
 
-      // 바탕화면 저장은 즉시 완료 처리하고, Drive 전송은 작업을 막지 않도록 백그라운드로 진행한다.
-      void uploadSettlementFilesToDrive(primaryTargetDir, targetYm, savedFiles, documentType).catch((uploadError) => {
-        console.error('[settlementRoutes] 계산서 Drive 백그라운드 전송 실패:', uploadError.message);
+      return res.json({
+        success: true,
+        targetDir: `Google Drive > 월정산 > ${targetYm}`,
+        savedFiles,
+        driveUploadQueued: isDriveConfigured(),
       });
-      return res.json({ success: true, targetDir: primaryTargetDir, savedFiles, driveUploadQueued: isDriveConfigured() });
     } catch (err) {
       console.error('[settlementRoutes] 매칭 이미지 저장 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
@@ -415,9 +439,8 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       for (const desktopDir of desktopDirs) {
         if (!fs.existsSync(desktopDir)) continue;
 
-        // 월정산/점검준비/현장별 폴더 후보 전체 탐색
+        // 월정산 및 임시 캐시 폴더 후보 전체 탐색 (Drive 단일 원본 및 마감자료 기준)
         const photoFolderCandidates = [
-          // 1. 최신 월정산 저장 경로 (청주마감자료, 천안마감자료, 죽암휴게소 등)
           path.join(desktopDir, '월정산', '청주마감자료', targetYm),
           path.join(desktopDir, '월정산', '천안마감자료', targetYm),
           path.join(desktopDir, '월정산', '천안(부산)', targetYm),
@@ -428,18 +451,11 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
           path.join(desktopDir, '월정산', siteName, targetYm),
           path.join(desktopDir, '월정산', `${siteName}(서울방향)`, targetYm),
           path.join(desktopDir, '월정산', `${siteName}(부산방향)`, targetYm),
-
-          // 2. 점검준비 폴더
-          path.join(desktopDir, '점검준비', '정산서', targetYm),
-          path.join(desktopDir, '점검준비', '명세서', targetYm),
-          path.join(desktopDir, '점검준비', '계산서', targetYm),
-          path.join(desktopDir, '점검준비', '입금표', targetYm),
-          path.join(desktopDir, '점검준비', '성적서', targetYm),
-
-          // 3. 기존 사진모음 폴더 호환
-          path.join(desktopDir, `${siteName}_${year}년${mm}월_사진모음`),
-          path.join(desktopDir, `${siteName}(서울방향)_${year}년${mm}월_사진모음`),
-          path.join(desktopDir, `${siteName}_${year}년${month}월_사진모음`),
+          getEvidenceCacheDir('정산서', targetYm),
+          getEvidenceCacheDir('명세서', targetYm),
+          getEvidenceCacheDir('계산서', targetYm),
+          getEvidenceCacheDir('입금표', targetYm),
+          getEvidenceCacheDir('성적서', targetYm),
         ];
 
         for (const candidate of photoFolderCandidates) {
@@ -551,12 +567,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const fileName = `명세서_${targetYm}_청주휴게소(서울방향) ${label}${extension}`;
       fs.writeFileSync(path.join(targetDir, fileName), req.file.buffer);
 
-      // 점검준비/명세서 폴더에도 동기화 복사
+      // 임시 캐시 폴더에도 동기화 복사 (Drive 단일 원본 보조)
       try {
-        const desktopDirs = getDesktopDirectories();
-        const altDir = path.join(desktopDirs[0] || targetDir, '점검준비', '명세서', targetYm);
-        fs.mkdirSync(altDir, { recursive: true });
-        fs.writeFileSync(path.join(altDir, fileName), req.file.buffer);
+        const cacheDir = getEvidenceCacheDir('명세서', targetYm);
+        fs.writeFileSync(path.join(cacheDir, fileName), req.file.buffer);
       } catch (_) {}
 
       // Google Drive 월정산 폴더로 자동 업로드 (타 관리자 PC 공유)
@@ -595,12 +609,17 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
 
   /**
    * GET /api/settlement/hongcheon/status
-   * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 조회
+   * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 및 Drive 자동 동기화
    */
   router.get('/hongcheon/status', async (req, res) => {
     try {
       const year = parseInt(req.query.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
+      try {
+        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
+      } catch (syncErr) {
+        console.warn('[settlementRoutes] hongcheon/status 동기화 경고:', syncErr.message);
+      }
       const status = await getHongcheonEvidenceStatus(year, month);
       
       const cleanCertPreview = status.cleanCert
@@ -694,8 +713,22 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const month = parseInt(req.body?.month || (new Date().getMonth() + 1), 10);
       const customInputs = req.body?.customInputs || {};
 
+      try {
+        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
+        await ensureTemplateFileAsync('template_hongcheon_yangyang.hwp');
+      } catch (_) {}
+
+      console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 한글 정산서 생성 요청 시작`);
       const result = await generateHongcheonHwpReport(year, month, customInputs);
-      return res.json({ success: true, ...result });
+      return res.json({
+        success: true,
+        filePath: result.savedPath,
+        fileName: result.fileName,
+        desktopPath: result.desktopPath,
+        missing: result.missing,
+        message: `[홍천(양양방향)] ${year}년 ${month}월 한글 정산보고서 생성이 완료되었습니다.`,
+        ...result,
+      });
     } catch (err) {
       console.error('[settlementRoutes] generate/hongcheon-hwp 오류:', err);
       return res.status(500).json({ success: false, error: err.message });
@@ -1316,86 +1349,7 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
     }
   });
 
-  /**
-   * GET /api/settlement/hongcheon/status
-   * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 및 누락 진단
-   */
-  router.get('/hongcheon/status', async (req, res) => {
-    try {
-      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
-      const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
-      try {
-        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
-      } catch (_) {}
-      const status = await getHongcheonEvidenceStatus(year, month);
-      res.json({ success: true, ...status });
-    } catch (err) {
-      console.error('[settlementRoutes] 홍천 증빙 상태 조회 오류:', err);
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
 
-  /**
-   * POST /api/settlement/hongcheon/upload-evidence
-   * 홍천휴게소 청소필증 또는 반출사진 개별 업로드
-   */
-  router.post('/hongcheon/upload-evidence', upload.single('file'), (req, res) => {
-    try {
-      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
-      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
-      const type = req.body.type; // 'cleanCert' or 'sludgePhoto'
-
-      if (!req.file) {
-        return res.status(400).json({ success: false, error: '업로드할 이미지 파일이 없습니다.' });
-      }
-      if (!type || (type !== 'cleanCert' && type !== 'sludgePhoto')) {
-        return res.status(400).json({ success: false, error: '유효한 증빙 유형(cleanCert 또는 sludgePhoto)이 아닙니다.' });
-      }
-
-      const result = saveHongcheonEvidence(year, month, type, req.file.buffer, req.file.originalname);
-      const updatedStatus = getHongcheonEvidenceStatus(year, month);
-      res.json({
-        success: true,
-        message: `[${type === 'cleanCert' ? '청소필증' : '반출사진'}] 파일이 성공적으로 등록되었습니다.`,
-        uploadResult: result,
-        status: updatedStatus,
-      });
-    } catch (err) {
-      console.error('[settlementRoutes] 홍천 증빙 업로드 오류:', err);
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  /**
-   * POST /api/settlement/generate/hongcheon-hwp
-   * 홍천휴게소(양양방향) 한글(HWP) 정산서 자동 생성 실행
-   */
-  router.post('/generate/hongcheon-hwp', async (req, res) => {
-    try {
-      const year = parseInt(req.body.year || new Date().getFullYear(), 10);
-      const month = parseInt(req.body.month || (new Date().getMonth() + 1), 10);
-
-      try {
-        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
-        await ensureTemplateFileAsync('template_hongcheon_yangyang.hwp');
-      } catch (_) {}
-
-      console.log(`[settlementRoutes] 홍천(양양) ${year}년 ${month}월 한글 정산서 생성 요청 시작`);
-      const result = await generateHongcheonHwpReport(year, month, req.body.customInputs || {});
-
-      return res.json({
-        success: true,
-        filePath: result.savedPath,
-        fileName: result.fileName,
-        desktopPath: result.desktopPath,
-        missing: result.missing,
-        message: `[홍천(양양방향)] ${year}년 ${month}월 한글 정산보고서 생성이 완료되었습니다.`,
-      });
-    } catch (err) {
-      console.error('[settlementRoutes] 홍천(양양) 한글 정산서 생성 오류:', err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
 
   const handleDocDownloadRequest = async (req, res) => {
     try {
@@ -1506,10 +1460,9 @@ function getCheongjuStatementsCandidateDirs(targetYm) {
   const dirs = [];
   for (const d of desktopDirs) {
     dirs.push(path.join(d, '월정산', '청주마감자료', targetYm, '6_명세서'));
-    dirs.push(path.join(d, '점검준비', '명세서', targetYm));
-    dirs.push(path.join(d, '수정본', '월별마감자료', targetYm, '6_명세서'));
     dirs.push(path.join(d, '월정산', '청주마감자료', targetYm));
   }
+  dirs.push(getEvidenceCacheDir('명세서', targetYm));
   return [...new Set(dirs)];
 }
 

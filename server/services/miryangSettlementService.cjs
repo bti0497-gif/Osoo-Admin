@@ -27,6 +27,7 @@ const path = require('path');
 const JSZip = require('jszip');
 const { resolveTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 function findDesktopDirectories() {
   const home = process.env.USERPROFILE || 'C:\\Users\\ASUS';
@@ -73,12 +74,7 @@ async function ensureMiryangInvoicesFromDrive(year, month) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const localInvoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-
-  if (!fs.existsSync(localInvoiceDir)) {
-    try { fs.mkdirSync(localInvoiceDir, { recursive: true }); } catch (_) {}
-  }
+  const localInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
 
   if (!drive) return;
 
@@ -118,10 +114,9 @@ async function getMiryangEvidenceStatus(year, month) {
   await ensureMiryangInvoicesFromDrive(numYear, numMonth);
 
   const searchDirs = [
-    path.join(desktop, '점검준비', '계산서', targetYm),
+    getEvidenceCacheDir('계산서', targetYm),
     path.join(desktop, '월정산', '밀양휴게소마감자료', targetYm),
     path.join(desktop, '월정산', '밀양휴게소마감자료', `${numMonth}월`),
-    path.join(desktop, '점검준비', '계산서'),
     path.join(desktop, '월정산', '밀양휴게소마감자료'),
   ].filter((d) => fs.existsSync(d));
 
@@ -228,11 +223,9 @@ async function generateMiryangExcelReport(year, month) {
 
   const finalYm = path.join(folderYm, outputFileName);
   const finalMonth = path.join(folderMonth, outputFileName);
-  const finalDesktop = path.join(desktop, outputFileName);
 
   fs.writeFileSync(finalYm, outputBuffer);
   fs.writeFileSync(finalMonth, outputBuffer);
-  fs.writeFileSync(finalDesktop, outputBuffer);
 
   return { success: true, filePath: finalMonth, monthPath: finalMonth, ymPath: finalYm, fileName: outputFileName, targetYm };
 }

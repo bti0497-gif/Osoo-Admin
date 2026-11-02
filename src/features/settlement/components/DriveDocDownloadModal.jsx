@@ -250,7 +250,7 @@ export function DriveDocDownloadModal({
           downloadBase64File(file.base64, file.name, file.mimeType);
         }
 
-        const msg = `${singleSite} (${firstYm})의 ${result.files.length}개 ${docLabel} 다운로드 완료! (바탕화면 점검준비 폴더에도 저장됨)`;
+        const msg = `${singleSite} (${firstYm})의 ${result.files.length}개 ${docLabel} 다운로드 완료!`;
         setStatusMessage(msg);
         appendLog(`성공: ${msg}`);
         alert(msg);
@@ -282,7 +282,7 @@ export function DriveDocDownloadModal({
         const zipFilename = `${docLabel}_${ymLabel}_${siteLabel}.zip`;
         downloadBlob(blob, zipFilename);
 
-        const msg = `${siteLabel} (${periodText}) ${docLabel} ZIP 압축 다운로드 완료! (바탕화면 점검준비 폴더에도 월별 저장됨)`;
+        const msg = `${siteLabel} (${periodText}) ${docLabel} ZIP 압축 다운로드 완료!`;
         setStatusMessage(msg);
         appendLog(`성공: ${msg}`);
         alert(msg);

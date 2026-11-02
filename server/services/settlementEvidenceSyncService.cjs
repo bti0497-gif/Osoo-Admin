@@ -6,7 +6,7 @@
  * 정산 증빙자료(계산서, 명세서, 입금표, 성적서/MLSS, 현장사진) 통합 동기화 서비스
  *
  * [핵심 원칙]
- * 1. 로컬 바탕화면(점검준비/월정산/월별마감자료)에 파일이 이미 있으면 로컬 우선 사용
+ * 1. Google Drive(월정산/YYYYMM 및 성적서/{year}/{month}) 단일 원본 기반 최신 동기화
  * 2. 로컬에 없으면 Google Drive에서 해당 월(YYYYMM/YYYY-MM) 및 현장 증빙을 자동 검색·다운로드
  * 3. Drive에도 파일이 없으면 에러를 발생시키지 않고 빈 상태(SKIP/템플릿 유지)로 안전하게 진행
  * 4. 모든 중앙관리자 PC에서 일관되게 동작하도록 보장
@@ -43,6 +43,20 @@ const OPPOSITE_DIRECTIONS = {
   강릉: ['인천'],
   인천: ['강릉', '부산'],
 };
+
+function getEvidenceCacheRoot() {
+  return path.join(os.tmpdir(), 'osoo-settlement-cache');
+}
+
+function getEvidenceCacheDir(subFolder, targetYm) {
+  const dir = targetYm
+    ? path.join(getEvidenceCacheRoot(), subFolder, String(targetYm))
+    : path.join(getEvidenceCacheRoot(), subFolder);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (_) {}
+  return dir;
+}
 
 function getDesktopDirectories() {
   const home = os.homedir();
@@ -266,27 +280,32 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
   const siteTokens = parseSiteTokens(siteName);
 
   const desktopDirs = getDesktopDirectories();
-  const primaryDesktop = desktopDirs[0];
+  const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), '바탕 화면');
 
-  // 로컬 대상 디렉토리 설정
+  // 로컬 대상 디렉토리 설정 (임시 캐시 디렉토리 전용, 바탕화면 오염 차단)
   const localDirs = {
-    invoice: path.join(primaryDesktop, '점검준비', '계산서', targetYm),
-    deposit: path.join(primaryDesktop, '점검준비', '입금표', targetYm),
-    statement: path.join(primaryDesktop, '점검준비', '명세서', targetYm),
-    cheongjuStatement: path.join(primaryDesktop, '수정본', '월별마감자료', targetYm, '6_명세서'),
+    invoice: getEvidenceCacheDir('계산서', targetYm),
+    deposit: getEvidenceCacheDir('입금표', targetYm),
+    statement: getEvidenceCacheDir('명세서', targetYm),
+    cert: getEvidenceCacheDir('성적서', targetYm),
+    settlementPhoto: getEvidenceCacheDir('정산서', targetYm),
     cheongjuStatementAlt: path.join(primaryDesktop, '월정산', '청주마감자료', targetYm, '6_명세서'),
-    cert: path.join(primaryDesktop, '점검준비', '성적서', targetYm),
-    photo: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm),
-    settlementPhoto: path.join(primaryDesktop, '점검준비', '정산서', targetYm),
-    photoTest: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '1_실험사진'),
-    photoSludge: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '2_슬러지사진'),
-    photoClean: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '3_청소필증'),
-    photoChemical: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '4_약품입고'),
-    photoKit: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '5_키트입고'),
   };
 
+  if (siteTokens.stem) {
+    const sitePhotoBase = path.join(primaryDesktop, '월정산', `${siteTokens.stem}마감자료`, targetYm);
+    localDirs.photo = sitePhotoBase;
+    localDirs.photoTest = path.join(sitePhotoBase, '1_실험사진');
+    localDirs.photoSludge = path.join(sitePhotoBase, '2_슬러지사진');
+    localDirs.photoClean = path.join(sitePhotoBase, '3_청소필증');
+    localDirs.photoChemical = path.join(sitePhotoBase, '4_약품입고');
+    localDirs.photoKit = path.join(sitePhotoBase, '5_키트입고');
+  }
+
   Object.values(localDirs).forEach((dir) => {
-    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    if (dir) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+    }
   });
 
   if (!isDriveConfigured() || !drive) {
@@ -311,54 +330,53 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     let processed = false;
 
     if (isCert) {
-      const res = await safeDownloadFile(f.id, path.join(localDirs.cert, f.name));
+      const res = await safeDownloadFile(f.id, path.join(localDirs.cert, f.name), true);
       if (res) processed = true;
     } else if (isDeposit) {
-      const res = await safeDownloadFile(f.id, path.join(localDirs.deposit, f.name));
+      const res = await safeDownloadFile(f.id, path.join(localDirs.deposit, f.name), true);
       if (res) processed = true;
     } else if (isStatement) {
-      const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name));
-      const res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatement, f.name));
-      let res3 = null;
-      if (res1) {
-        res3 = safeCopyFile(res1, path.join(localDirs.cheongjuStatementAlt, f.name));
-      } else if (res2) {
-        res3 = safeCopyFile(res2, path.join(localDirs.cheongjuStatementAlt, f.name));
-      } else {
-        res3 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatementAlt, f.name));
+      const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name), true);
+      let res2 = null;
+      if (localDirs.cheongjuStatementAlt) {
+        if (res1) {
+          res2 = safeCopyFile(res1, path.join(localDirs.cheongjuStatementAlt, f.name));
+        } else {
+          res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatementAlt, f.name), true);
+        }
       }
-      if (res1 || res2 || res3) processed = true;
+      if (res1 || res2) processed = true;
     } else if (isInvoice) {
-      const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
+      const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name), true);
       if (res) processed = true;
-    } else if (isImage && isWaterAnalysis) {
+    } else if (isImage && isWaterAnalysis && localDirs.photoTest) {
       // 수질분석/실험 사진은 즉시 다운로드하지 않고 후보군에 수집 (가장 빠른 1일치 선별용)
       waterAnalysisCandidates.push(f);
-    } else if (isImage && GENERAL_PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw))) {
+    } else if (isImage && localDirs.photo && GENERAL_PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw))) {
       // 일반 현장 사진 다운로드
       const mainPhotoPath = path.join(localDirs.photo, f.name);
-      const resMain = await safeDownloadFile(f.id, mainPhotoPath);
+      const resMain = await safeDownloadFile(f.id, mainPhotoPath, true);
       if (resMain) {
         processed = true;
         safeCopyFile(resMain, path.join(localDirs.settlementPhoto, f.name));
 
         // 슬러지/반출 관련 파일 -> 2_슬러지사진
-        if (lowerName.includes('슬러지') || lowerName.includes('반출')) {
+        if (localDirs.photoSludge && (lowerName.includes('슬러지') || lowerName.includes('반출'))) {
           safeCopyFile(resMain, path.join(localDirs.photoSludge, f.name));
         }
 
         // 청소/필증 관련 파일 -> 3_청소필증
-        if (lowerName.includes('청소') || lowerName.includes('필증')) {
+        if (localDirs.photoClean && (lowerName.includes('청소') || lowerName.includes('필증'))) {
           safeCopyFile(resMain, path.join(localDirs.photoClean, f.name));
         }
 
         // 약품/입고/포도당/중탄산/차염/응집제/pac 관련 파일 -> 4_약품입고
-        if (['약품', '입고', '포도당', '중탄산', '차염', '응집제', 'pac'].some((kw) => lowerName.includes(kw))) {
+        if (localDirs.photoChemical && ['약품', '입고', '포도당', '중탄산', '차염', '응집제', 'pac'].some((kw) => lowerName.includes(kw))) {
           safeCopyFile(resMain, path.join(localDirs.photoChemical, f.name));
         }
 
         // 키트입고 관련 파일 -> 5_키트입고
-        if (lowerName.includes('키트')) {
+        if (localDirs.photoKit && lowerName.includes('키트')) {
           safeCopyFile(resMain, path.join(localDirs.photoKit, f.name));
         }
       }
@@ -386,6 +404,60 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
       }
     } catch (folderErr) {
       console.warn('[evidenceSync] 월정산 폴더 동기화 경고:', folderErr.message);
+    }
+
+    // 1-1. Google Drive 성적서 전용 폴더 확인: CERTIFICATE_ROOT_FOLDER_ID / 성적서 / YYYY / MM
+    try {
+      const certRootId = String(process.env.CERTIFICATE_DRIVE_FOLDER_ID || '1Po-gd-OKlaeGyL-Ppjc6_wKgSLEM4iX4').trim();
+      const rootRes = await drive.files.list({
+        q: `'${certRootId}' in parents and trashed = false`,
+        fields: 'files(id, name, mimeType)',
+        pageSize: 50,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+      const roots = [certRootId];
+      const certSub = (rootRes.data.files || []).find(f => String(f.name || '').trim() === '성적서');
+      if (certSub) roots.push(certSub.id);
+
+      const mm = String(numMonth).padStart(2, '0');
+      for (const rId of roots) {
+        const yRes = await drive.files.list({
+          q: `'${rId}' in parents and trashed = false`,
+          fields: 'files(id, name, mimeType)',
+          pageSize: 50,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+        const yFolder = (yRes.data.files || []).find(f => f.name.includes(String(numYear)));
+        if (!yFolder) continue;
+
+        const mRes = await drive.files.list({
+          q: `'${yFolder.id}' in parents and trashed = false`,
+          fields: 'files(id, name, mimeType)',
+          pageSize: 50,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+        const mFolder = (mRes.data.files || []).find(f => f.name === mm || f.name === `${numMonth}` || f.name === `${numMonth}월`);
+        if (!mFolder) continue;
+
+        const filesRes = await drive.files.list({
+          q: `'${mFolder.id}' in parents and trashed = false`,
+          fields: 'files(id, name, mimeType, size)',
+          pageSize: 100,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+        for (const df of filesRes.data.files || []) {
+          if (df.mimeType === 'application/vnd.google-apps.folder') continue;
+          if (siteTokens.stem && !matchesSiteAndDirection(df.name, siteTokens)) continue;
+          const ok = await processEvidenceDriveFile(df);
+          if (ok) syncedCount++;
+        }
+      }
+    } catch (certFolderErr) {
+      console.warn('[evidenceSync] 성적서 폴더 동기화 경고:', certFolderErr.message);
     }
 
     // 2. Google Drive 파일 검색 쿼리 (현장 키워드 기반 일괄 탐색)
@@ -444,6 +516,8 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
 }
 
 module.exports = {
+  getEvidenceCacheRoot,
+  getEvidenceCacheDir,
   ensureSettlementEvidence,
   getDesktopDirectories,
   getPrimaryDesktop,

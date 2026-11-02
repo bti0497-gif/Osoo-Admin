@@ -29,6 +29,7 @@ const path = require('path');
 const JSZip = require('jszip');
 const { resolveTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 function findDesktopDirectories() {
   const home = process.env.USERPROFILE || 'C:\\Users\\ASUS';
@@ -103,12 +104,7 @@ async function ensureGeumwangInvoicesFromDrive(year, month) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const localInvoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-
-  if (!fs.existsSync(localInvoiceDir)) {
-    try { fs.mkdirSync(localInvoiceDir, { recursive: true }); } catch (_) {}
-  }
+  const localInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
 
   if (!drive) return;
 
@@ -148,16 +144,13 @@ async function getGeumwangEvidenceStatus(year, month) {
   await ensureGeumwangInvoicesFromDrive(numYear, numMonth);
 
   const searchDirs = [
-    path.join(desktop, '점검준비', '계산서', targetYm),
-    path.join(desktop, '점검준비', '입금표', targetYm),
-    path.join(desktop, '점검준비', '성적서', targetYm),
+    getEvidenceCacheDir('계산서', targetYm),
+    getEvidenceCacheDir('입금표', targetYm),
+    getEvidenceCacheDir('성적서', targetYm),
     path.join(desktop, '월정산', '금왕휴게소마감자료', targetYm),
     path.join(desktop, '월정산', '금왕휴게소마감자료', `${numMonth}월 정산자료`),
     path.join(desktop, '월정산', '금왕휴게소마감자료', `${numMonth}월`),
     path.join(desktop, '월정산', '금왕휴게소마감자료'),
-    path.join(desktop, '점검준비', '계산서'),
-    path.join(desktop, '점검준비', '입금표'),
-    path.join(desktop, '점검준비', '성적서'),
   ].filter((d) => fs.existsSync(d));
 
   // 1. 위탁관리비계산서: 반드시 '매출계산서_' 시작 & 금왕 용역비/관리비 매칭

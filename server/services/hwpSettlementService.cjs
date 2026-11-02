@@ -4,7 +4,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { getTemplateFilePath } = require('./settlementService.cjs');
-const { ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
+const { ensureSettlementEvidence, getEvidenceCacheDir } = require('./settlementEvidenceSyncService.cjs');
 
 /**
  * 5가지 약품 입고 사진을 가로 규격(80.3mm)에 맞추고 세로를 5등분하여
@@ -314,10 +314,13 @@ async function generateCheongjuHwpReport({
     sludgeBindingSource: 'BigQuery flowRows 기반 슬러지 반출일 바인딩',
   });
 
-  // 4. 로컬 디렉토리들에서 필요한 이미지 파일들 탐색
-  const invoiceDirs = desktopDirs.map(d => path.join(d, '점검준비', '계산서', targetYm));
-  const depositDirs = desktopDirs.map(d => path.join(d, '점검준비', '입금표', targetYm));
-  const stmtDirs = desktopDirs.map(d => path.join(d, '점검준비', '명세서', targetYm));
+  // 4. 임시 캐시 디렉토리 및 마감자료에서 필요한 이미지 파일들 탐색
+  const invoiceDirs = [getEvidenceCacheDir('계산서', targetYm)];
+  const depositDirs = [getEvidenceCacheDir('입금표', targetYm)];
+  const stmtDirs = [
+    getEvidenceCacheDir('명세서', targetYm),
+    ...desktopDirs.map(d => path.join(d, '월정산', '청주마감자료', targetYm, '6_명세서')),
+  ];
 
   const settlementPhotoDirs = desktopDirs.flatMap(d => [
     path.join(d, '월정산', '청주마감자료', targetYm),
@@ -380,15 +383,14 @@ async function generateCheongjuHwpReport({
 
   const expPhotoDirs = subDirs('1_실험사진');
   const certPhotoDirs = [
-    ...desktopDirs.map(d => path.join(d, '점검준비', '성적서', targetYm)),
-    ...desktopDirs.map(d => path.join(d, '성적서', targetYm)),
+    getEvidenceCacheDir('성적서', targetYm),
   ];
   const sludgePhotoDirs = subDirs('2_슬러지사진');
   const cleanCertPhotoDirs = subDirs('3_청소필증');
   const chemPhotoDirs = subDirs('4_약품입고');
   const photoDocExcludes = ['명세서_', '계산서_', '입금표_', '매출계산서_'];
 
-  // ★ 사용자 지침: 성적서는 실험사진이 아닌 '점검준비\성적서\YYYYMM' 폴더 내 청주 파일들(mlss 4장 + 성적서 2장 등)에서 직접 가져옴
+  // ★ 성적서는 Drive 동기화 임시 캐시 디렉토리 내 청주 파일들(mlss 4장 + 성적서 2장 등)에서 직접 가져옴
   const certFiles = findFiles(certPhotoDirs, '청주', false)
     .sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'ko-KR', { numeric: true }));
 

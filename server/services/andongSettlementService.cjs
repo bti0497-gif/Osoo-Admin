@@ -29,6 +29,7 @@ const JSZip = require('jszip');
 const XLSX = require('xlsx');
 const { resolveTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 const SITE_CONFIG = {
   name: '안동휴게소(부산방향)',
@@ -100,12 +101,7 @@ async function ensureAndongInvoicesFromDrive(year, month) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const localInvoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-
-  if (!fs.existsSync(localInvoiceDir)) {
-    try { fs.mkdirSync(localInvoiceDir, { recursive: true }); } catch (_) {}
-  }
+  const localInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
   if (!drive) return;
 
   try {
@@ -143,12 +139,13 @@ async function getAndongEvidenceStatus(year, month) {
   await ensureAndongInvoicesFromDrive(numYear, numMonth);
 
   const desktopDirs = findDesktopDirectories();
-  const searchDirs = [];
+  const searchDirs = [
+    getEvidenceCacheDir('계산서', targetYm),
+    getEvidenceCacheDir('정산서', targetYm),
+  ];
   desktopDirs.forEach((d) => {
-    searchDirs.push(path.join(d, '점검준비', '계산서', targetYm));
     searchDirs.push(path.join(d, '월정산', SITE_CONFIG.dirName, `${numMonth}월`));
     searchDirs.push(path.join(d, '월정산', SITE_CONFIG.dirName, targetYm));
-    searchDirs.push(path.join(d, '점검준비', '정산서', targetYm));
   });
 
   const rawSales = findInvoiceFile(searchDirs, /안동.*용역|용역.*안동/i, { mustStartWith: '매출' })

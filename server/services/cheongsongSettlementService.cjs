@@ -15,7 +15,7 @@
  *   - 본문 표기 `(26.10월)` -> `(YY.M월)`
  * - Google Drive 연동:
  *   - 로컬 바탕화면에 계산서가 없으면 Google Drive에서 청송 계산서 4종을 자동 검색하여
- *     바탕화면 '점검준비/계산서/YYYYMM' 폴더로 자동 다운로드 후 바인딩
+ *     Google Drive에서 청송 계산서를 자동 검색하여 임시 캐시로 다운로드 후 바인딩
  * - 저장 위치:
  *   - 정규 마감 경로: 바탕화면 > 월정산 > 청송마감자료 > YYYYMM (및 M월)
  *   - 바탕화면 루트: 바로 열어볼 수 있도록 동시 복사 보존
@@ -27,6 +27,7 @@ const os = require('os');
 const JSZip = require('jszip');
 const { getTemplateFilePath, resolveTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 /**
  * 사용자 바탕화면(OneDrive 포함) 디렉토리 목록 조회
@@ -82,14 +83,7 @@ async function ensureCheongsongInvoicesFromDrive(year, month) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const localInvoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-
-  if (!fs.existsSync(localInvoiceDir)) {
-    try {
-      fs.mkdirSync(localInvoiceDir, { recursive: true });
-    } catch (_) {}
-  }
+  const localInvoiceDir = getEvidenceCacheDir('계산서', targetYm);
 
   if (!drive) {
     console.warn('[cheongsongSettlement] Google Drive 클라이언트 미설정으로 드라이브 검색을 건너뜁니다.');
@@ -140,12 +134,11 @@ async function getCheongsongEvidenceStatus(year, month) {
   // 1. Google Drive에서 계산서 자동 동기화
   await ensureCheongsongInvoicesFromDrive(numYear, numMonth);
 
-  // 2. 검색 대상 폴더 목록 구성
+  // 2. 검색 대상 폴더 목록 구성 (임시 캐시 및 마감자료 기준)
   const searchDirs = [
-    path.join(desktop, '점검준비', '계산서', targetYm),
+    getEvidenceCacheDir('계산서', targetYm),
     path.join(desktop, '월정산', '청송마감자료', targetYm),
     path.join(desktop, '월정산', '청송마감자료', `${numMonth}월`),
-    path.join(desktop, '점검준비', '계산서'),
     path.join(desktop, '월정산', '청송마감자료'),
   ].filter((d) => fs.existsSync(d));
 

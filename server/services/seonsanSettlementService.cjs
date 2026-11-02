@@ -30,6 +30,7 @@ const { execSync } = require('child_process');
 const JSZip = require('jszip');
 const { resolveTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
+const { getEvidenceCacheDir, ensureSettlementEvidence } = require('./settlementEvidenceSyncService.cjs');
 
 const SITES_CONFIG = {
   seonsan_changwon: {
@@ -169,15 +170,8 @@ async function ensureSeonsanInvoicesFromDrive(year, month, direction) {
   const numYear = Number(year) || 2026;
   const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
-  const desktop = getPrimaryDesktop();
-  const invoiceDir = path.join(desktop, '점검준비', '계산서', targetYm);
-  const certDir = path.join(desktop, '점검준비', '성적서', targetYm);
-
-  [invoiceDir, certDir].forEach((d) => {
-    if (!fs.existsSync(d)) {
-      try { fs.mkdirSync(d, { recursive: true }); } catch (_) {}
-    }
-  });
+  const invoiceDir = getEvidenceCacheDir('계산서', targetYm);
+  const certDir = getEvidenceCacheDir('성적서', targetYm);
 
   if (!drive) return;
   try {
@@ -219,19 +213,18 @@ async function getSeonsanEvidenceStatus(year, month, direction = 'changwon') {
   await ensureSeonsanInvoicesFromDrive(numYear, numMonth, direction);
 
   const desktopDirs = findDesktopDirectories();
-  const searchDirs = [];
+  const searchDirs = [
+    getEvidenceCacheDir('계산서', targetYm),
+    getEvidenceCacheDir('입금표', targetYm),
+    getEvidenceCacheDir('성적서', targetYm),
+    getEvidenceCacheDir('정산서', targetYm),
+  ];
   desktopDirs.forEach((d) => {
-    searchDirs.push(path.join(d, '점검준비', '계산서', targetYm));
-    searchDirs.push(path.join(d, '점검준비', '입금표', targetYm));
-    searchDirs.push(path.join(d, '점검준비', '성적서', targetYm));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, `${numMonth}월정산자료`));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, `${numMonth}월 정산자료`));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, `${numMonth}월`));
     searchDirs.push(path.join(d, '월정산', cfg.dirName, targetYm));
-    searchDirs.push(path.join(d, '점검준비', '정산서', targetYm));
-    searchDirs.push(path.join(d, '점검준비', '계산서'));
-    searchDirs.push(path.join(d, '점검준비', '입금표'));
-    searchDirs.push(path.join(d, '점검준비', '성적서'));
+    searchDirs.push(path.join(d, '월정산', cfg.dirName));
   });
 
   const chemPats = [/(?:에이치디이앤씨|에이치디이엔씨|에이치디|에이치|영일과학상사|영일과학|영일|약품)/i];

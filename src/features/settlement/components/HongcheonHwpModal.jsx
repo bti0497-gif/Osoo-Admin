@@ -188,7 +188,7 @@ export function HongcheonHwpModal({ isOpen, onClose, year, month, onGenerate, is
               {missingItems.map((item, idx) => (
                 <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#b45309', fontWeight: 600 }}>
                   <AlertCircle size={16} color="#d97706" />
-                  ⚠️ {item} 이미지가 마감 폴더나 점검준비 폴더에 없습니다. (한글 작성 시 해당 책갈피는 건너뜁니다)
+                  ⚠️ {item} 이미지가 Google Drive 또는 마감 폴더에 없습니다. (한글 작성 시 해당 책갈피는 건너뜁니다)
                 </div>
               ))}
             </div>
