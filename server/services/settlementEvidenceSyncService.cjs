@@ -112,11 +112,18 @@ function matchesSiteAndDirection(fileName, siteTokens) {
 function matchesMonth(fileName, targetYm, year, month) {
   const name = String(fileName || '');
   const mm = String(month).padStart(2, '0');
+  const m = String(month);
   const patterns = [
     targetYm,                  // 202610
     `${year}-${mm}`,           // 2026-10
     `${year}.${mm}`,           // 2026.10
     `${year}_${mm}`,           // 2026_10
+    `${year}년 ${mm}월`,
+    `${year}년${mm}월`,
+    `${year}년 ${m}월`,
+    `${year}년${m}월`,
+    `${year}. ${mm}`,
+    `${year}. ${m}`,
   ];
   return patterns.some(p => name.includes(p));
 }
@@ -138,6 +145,27 @@ async function safeDownloadFile(fileId, targetPath) {
   }
 }
 
+function safeCopyFile(sourcePath, targetPath) {
+  if (!sourcePath || !fs.existsSync(sourcePath)) return null;
+  try {
+    if (fs.existsSync(targetPath)) {
+      const stat = fs.statSync(targetPath);
+      if (stat.size > 0) return targetPath;
+    }
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath);
+    return targetPath;
+  } catch (err) {
+    console.warn(`[evidenceSync] 로컬 파일 복사 실패 (${path.basename(targetPath)}):`, err.message);
+    return null;
+  }
+}
+
+const PHOTO_KEYWORDS = [
+  '슬러지', '반출', '청소', '필증', '약품', '입고',
+  '포도당', '중탄산', '차염', '응집제', 'pac', '키트', '수질분석',
+];
+
 /**
  * 현장별/연월별 정산 증빙 일괄 자동 동기화
  */
@@ -158,6 +186,10 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     cheongjuStatement: path.join(primaryDesktop, '수정본', '월별마감자료', targetYm, '6_명세서'),
     cert: path.join(primaryDesktop, '점검준비', '성적서', targetYm),
     photo: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm),
+    settlementPhoto: path.join(primaryDesktop, '점검준비', '정산서', targetYm),
+    photoSludge: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '2_슬러지사진'),
+    photoClean: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '3_청소필증'),
+    photoChemical: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '4_약품입고'),
   };
 
   Object.values(localDirs).forEach((dir) => {
@@ -172,8 +204,61 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
   console.log(`[evidenceSync] [${siteName || '전체'}] ${targetYm} 증빙 동기화 검사 시작...`);
   let syncedCount = 0;
 
+  async function processEvidenceDriveFile(f) {
+    const lowerName = f.name.toLowerCase();
+    const isCert = lowerName.includes('성적서') || lowerName.includes('mlss') || lowerName.includes('시험성적서');
+    const isDeposit = lowerName.includes('입금표') || lowerName.includes('입금증');
+    const isStatement = lowerName.includes('명세서') || lowerName.includes('거래명세서');
+    const isInvoice = lowerName.includes('계산서') || lowerName.includes('매출');
+
+    const isImage = (f.mimeType && f.mimeType.startsWith('image/')) || /\.(jpe?g|png|gif|bmp|webp|heic)$/i.test(f.name);
+    const hasPhotoKeyword = PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw));
+
+    let processed = false;
+
+    if (isCert) {
+      const res = await safeDownloadFile(f.id, path.join(localDirs.cert, f.name));
+      if (res) processed = true;
+    } else if (isDeposit) {
+      const res = await safeDownloadFile(f.id, path.join(localDirs.deposit, f.name));
+      if (res) processed = true;
+    } else if (isStatement) {
+      const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name));
+      const res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatement, f.name));
+      if (res1 || res2) processed = true;
+    } else if (isInvoice) {
+      const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
+      if (res) processed = true;
+    } else if (isImage && hasPhotoKeyword) {
+      // 1. 기본 사진 폴더 및 점검준비/정산서/targetYm 에 다운로드
+      const mainPhotoPath = path.join(localDirs.photo, f.name);
+      const resMain = await safeDownloadFile(f.id, mainPhotoPath);
+      if (resMain) {
+        processed = true;
+        safeCopyFile(resMain, path.join(localDirs.settlementPhoto, f.name));
+
+        // 2. 슬러지/반출 관련 파일 -> 2_슬러지사진 에도 복사/저장
+        if (lowerName.includes('슬러지') || lowerName.includes('반출')) {
+          safeCopyFile(resMain, path.join(localDirs.photoSludge, f.name));
+        }
+
+        // 3. 청소/필증 관련 파일 -> 3_청소필증 에도 복사/저장
+        if (lowerName.includes('청소') || lowerName.includes('필증')) {
+          safeCopyFile(resMain, path.join(localDirs.photoClean, f.name));
+        }
+
+        // 4. 약품/입고/포도당/중탄산/차염/응집제/pac 관련 파일 -> 4_약품입고 에도 복사/저장
+        if (['약품', '입고', '포도당', '중탄산', '차염', '응집제', 'pac'].some((kw) => lowerName.includes(kw))) {
+          safeCopyFile(resMain, path.join(localDirs.photoChemical, f.name));
+        }
+      }
+    }
+
+    return processed;
+  }
+
   try {
-    // 1. Google Drive '월정산/YYYYMM' 폴더 확인 (계산서, 매출계산서, 입금표, 명세서)
+    // 1. Google Drive '월정산/YYYYMM' 폴더 확인 (계산서, 매출계산서, 입금표, 명세서, 사진)
     try {
       const monthlyRoot = await getSingleSettlementRootFolder();
       if (monthlyRoot?.id) {
@@ -184,22 +269,8 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
 
           for (const f of files) {
             if (!matchesSiteAndDirection(f.name, siteTokens)) continue;
-
-            const isDeposit = f.name.includes('입금표') || f.name.includes('입금증');
-            const isStatement = f.name.includes('명세서') || f.name.includes('거래명세서');
-            const isInvoice = f.name.includes('계산서') || f.name.includes('매출');
-
-            if (isDeposit) {
-              const res = await safeDownloadFile(f.id, path.join(localDirs.deposit, f.name));
-              if (res) syncedCount++;
-            } else if (isStatement) {
-              const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name));
-              const res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatement, f.name));
-              if (res1 || res2) syncedCount++;
-            } else if (isInvoice) {
-              const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
-              if (res) syncedCount++;
-            }
+            const ok = await processEvidenceDriveFile(f);
+            if (ok) syncedCount++;
           }
         }
       }
@@ -219,30 +290,14 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
       });
 
       const matchedFiles = (searchRes.data.files || []).filter((f) => {
+        if (f.mimeType === 'application/vnd.google-apps.folder') return false;
         if (!matchesSiteAndDirection(f.name, siteTokens)) return false;
         return matchesMonth(f.name, targetYm, numYear, numMonth);
       });
 
       for (const f of matchedFiles) {
-        const isCert = f.name.includes('성적서') || f.name.includes('mlss') || f.name.includes('시험성적서');
-        const isDeposit = f.name.includes('입금표') || f.name.includes('입금증');
-        const isStatement = f.name.includes('명세서') || f.name.includes('거래명세서');
-        const isInvoice = f.name.includes('계산서') || f.name.includes('매출');
-
-        if (isCert) {
-          const res = await safeDownloadFile(f.id, path.join(localDirs.cert, f.name));
-          if (res) syncedCount++;
-        } else if (isDeposit) {
-          const res = await safeDownloadFile(f.id, path.join(localDirs.deposit, f.name));
-          if (res) syncedCount++;
-        } else if (isStatement) {
-          const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name));
-          const res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatement, f.name));
-          if (res1 || res2) syncedCount++;
-        } else if (isInvoice) {
-          const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
-          if (res) syncedCount++;
-        }
+        const ok = await processEvidenceDriveFile(f);
+        if (ok) syncedCount++;
       }
     }
 
@@ -260,4 +315,5 @@ module.exports = {
   getPrimaryDesktop,
   parseSiteTokens,
   matchesSiteAndDirection,
+  safeCopyFile,
 };

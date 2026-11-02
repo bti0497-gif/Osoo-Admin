@@ -4,8 +4,13 @@ import { filterSitesForUser } from '../../../core/auth/siteAccessHelper';
 
 const now = new Date();
 const CURRENT_YEAR = now.getFullYear();
-const DEFAULT_YEAR = now.getFullYear();
-const DEFAULT_MONTH = now.getMonth() + 1;
+// 매월 1~24일은 전월 정산 기간(전월 선택), 25일 이후는 당월 정산 기간(당월 선택)
+const isSettlementSeasonForPrevMonth = now.getDate() < 25;
+const defaultDate = isSettlementSeasonForPrevMonth
+  ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  : now;
+const DEFAULT_YEAR = defaultDate.getFullYear();
+const DEFAULT_MONTH = defaultDate.getMonth() + 1;
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 

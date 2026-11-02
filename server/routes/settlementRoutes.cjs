@@ -411,9 +411,9 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
 
   /**
    * GET /api/settlement/check-data-ready
-   * 데이터관리에서 필요한 현장 사진/데이터가 다운로드되어 있는지 사전 검사
+   * 데이터관리에서 필요한 현장 사진/데이터 사전 동기화 및 준비 상태 검사 (차단 없이 항상 ready: true 반환)
    */
-  router.get('/check-data-ready', (req, res) => {
+  router.get('/check-data-ready', async (req, res) => {
     try {
       const siteId = String(req.query.siteId || '');
       const year = parseInt(req.query.year || new Date().getFullYear(), 10);
@@ -427,7 +427,10 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       const siteObj = SETTLEMENT_TARGET_SITES.find(s => s.id === siteId);
       const siteName = siteObj?.name || '청주휴게소';
 
-      let isReady = false;
+      try {
+        await ensureSettlementEvidence({ siteName, year, month, targetYm });
+      } catch (_) {}
+
       let foundPath = null;
 
       for (const desktopDir of desktopDirs) {
@@ -465,19 +468,18 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
             try {
               const files = fs.readdirSync(candidate);
               if (files.length > 0) {
-                isReady = true;
                 foundPath = candidate;
                 break;
               }
             } catch (_) {}
           }
         }
-        if (isReady) break;
+        if (foundPath) break;
       }
 
       return res.json({
         success: true,
-        ready: isReady,
+        ready: true,
         path: foundPath,
         siteName,
         targetYm,
@@ -1339,11 +1341,14 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
    * GET /api/settlement/hongcheon/status
    * 홍천휴게소 한글 정산 증빙 이미지(청소필증, 반출사진, 계산서, 성적서) 상태 및 누락 진단
    */
-  router.get('/hongcheon/status', (req, res) => {
+  router.get('/hongcheon/status', async (req, res) => {
     try {
       const year = parseInt(req.query.year || new Date().getFullYear(), 10);
       const month = parseInt(req.query.month || (new Date().getMonth() + 1), 10);
-      const status = getHongcheonEvidenceStatus(year, month);
+      try {
+        await ensureSettlementEvidence({ siteName: '홍천휴게소(양양방향)', year, month });
+      } catch (_) {}
+      const status = await getHongcheonEvidenceStatus(year, month);
       res.json({ success: true, ...status });
     } catch (err) {
       console.error('[settlementRoutes] 홍천 증빙 상태 조회 오류:', err);
