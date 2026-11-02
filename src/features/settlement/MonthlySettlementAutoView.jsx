@@ -461,7 +461,11 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                             }}
                             style={{
                               padding: '5px 12px',
-                              background: isThisSiteGenerating ? '#f59e0b' : (isGenerating ? '#94a3b8' : '#4f46e5'),
+                              background: isThisSiteGenerating
+                                ? '#f59e0b'
+                                : (isGenerating
+                                  ? '#94a3b8'
+                                  : (completedSites[site.id] ? '#0d9488' : '#4f46e5')),
                               color: '#ffffff',
                               border: 'none',
                               borderRadius: '6px',
@@ -477,7 +481,9 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
                               boxSizing: 'border-box',
                             }}
                           >
-                            {isThisSiteGenerating ? '⏳ 작성 중...' : '📥 정산서 작성'}
+                            {isThisSiteGenerating
+                              ? '⏳ 작성 중...'
+                              : (completedSites[site.id] ? '🔄 재작성' : '📥 정산서 작성')}
                           </button>
                         </td>
                       </tr>

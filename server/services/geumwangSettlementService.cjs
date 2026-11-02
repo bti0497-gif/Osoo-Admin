@@ -369,17 +369,14 @@ async function generateGeumwangHwpReport(year, month, customInputs = {}) {
   const finalYmHwpx = path.join(targetFolderYm, outputFileName);
   const finalMonthHwpx = path.join(targetFolderMonth, outputFileName);
   const finalSimpleHwpx = path.join(targetFolderSimple, outputFileName);
-  const finalDesktopHwpx = path.join(desktop, outputFileName);
-  const finalDesktopHwp = path.join(desktop, outputHwpFileName);
 
+  // 정규 마감 폴더에만 안전 저장 (바탕화면 루트 중복 복사 방지)
   fs.writeFileSync(finalYmHwpx, outputBuffer);
   fs.writeFileSync(path.join(targetFolderYm, outputHwpFileName), outputBuffer);
   fs.writeFileSync(finalMonthHwpx, outputBuffer);
   fs.writeFileSync(path.join(targetFolderMonth, outputHwpFileName), outputBuffer);
   fs.writeFileSync(finalSimpleHwpx, outputBuffer);
   fs.writeFileSync(path.join(targetFolderSimple, outputHwpFileName), outputBuffer);
-  fs.writeFileSync(finalDesktopHwpx, outputBuffer);
-  fs.writeFileSync(finalDesktopHwp, outputBuffer);
 
   console.log(`[geumwangSettlement] 금왕 정산서 작성 완료! 저장: ${finalSimpleHwpx}`);
 
@@ -388,7 +385,7 @@ async function generateGeumwangHwpReport(year, month, customInputs = {}) {
     filePath: finalSimpleHwpx,
     monthPath: finalSimpleHwpx,
     ymPath: finalYmHwpx,
-    desktopPath: finalDesktopHwpx,
+    desktopPath: finalSimpleHwpx,
     fileName: outputFileName,
     targetYm,
     invoiceMap: invMap,

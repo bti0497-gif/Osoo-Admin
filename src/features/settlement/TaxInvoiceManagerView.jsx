@@ -75,7 +75,6 @@ export function TaxInvoiceManagerView() {
   const [salesCategory] = useState('용역비'); // '용역비' | '슬러지'
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [vendorList, setVendorList] = useState(() => getVendorList());
-  useEffect(() => { fetchVendorList().then(setVendorList).catch(console.error); }, []);
   const [selectedVendorId, setSelectedVendorId] = useState(() => {
     const list = getVendorList();
     return list[0]?.id || '';
@@ -111,15 +110,61 @@ export function TaxInvoiceManagerView() {
 
   // 현장별 정산 거래처 매핑 데이터 (구글 시트 연동)
   const [siteVendorMappings, setSiteVendorMappings] = useState([]);
-  useEffect(() => {
-    apiClient.get('/api/settlement/site-vendor-mappings')
-      .then(res => {
-        if (res && res.success && Array.isArray(res.mappings)) {
-          setSiteVendorMappings(res.mappings);
+
+  // 거래처 목록 및 현장별 거래처 매핑 실시간 새로고침 (캐시 우회 force=true)
+  const reloadSiteVendorMappings = useCallback(async (siteForRefresh = null) => {
+    try {
+      const [vList, mapRes] = await Promise.all([
+        fetchVendorList(true).catch(() => getVendorList()),
+        apiClient.get('/api/settlement/site-vendor-mappings', { _t: Date.now() }).catch(() => ({ mappings: [] })),
+      ]);
+      const validVendors = Array.isArray(vList) ? vList : [];
+      setVendorList(validVendors);
+      let updatedMappings = [];
+      if (mapRes && mapRes.success && Array.isArray(mapRes.mappings)) {
+        updatedMappings = mapRes.mappings;
+        setSiteVendorMappings(mapRes.mappings);
+      }
+
+      if (siteForRefresh) {
+        const sId = siteForRefresh.site_id || siteForRefresh.id;
+        const mapping = updatedMappings.find(m => String(m.site_id || m.id) === String(sId)) || null;
+        let targetTokens = [];
+        const cat = siteForRefresh.selectedCategory;
+        if (mapping) {
+          if (cat === '약품' && mapping.medicine_vendor_id) targetTokens.push(mapping.medicine_vendor_id);
+          else if (cat === '키트' && mapping.kit_vendor_id) targetTokens.push(mapping.kit_vendor_id);
+          else if (cat === '수질분석' && mapping.water_vendor_id) targetTokens.push(mapping.water_vendor_id);
+          else if (cat === '슬러지') {
+            if (mapping.sludge_vendor_id_1) targetTokens.push(mapping.sludge_vendor_id_1);
+            if (mapping.sludge_vendor_id_2) targetTokens.push(mapping.sludge_vendor_id_2);
+          }
         }
-      })
-      .catch(err => console.warn('[TaxInvoiceManagerView] 현장 거래처 매핑 로드 오류:', err));
+        let matchingVendors = targetTokens.map(tok => {
+          const cleanToken = String(tok || '').replace(/\s+/g, '');
+          if (!cleanToken) return null;
+          const found = validVendors.find(vendor => {
+            const names = [vendor.id, vendor.company_name, vendor.short_name].map(name => String(name || '').replace(/\s+/g, ''));
+            return names.some(name => name === cleanToken || name.includes(cleanToken) || cleanToken.includes(name));
+          });
+          if (found) return found;
+          return { id: cleanToken, company_name: String(tok).trim(), short_name: String(tok).trim(), category: cat };
+        }).filter(Boolean);
+
+        if (matchingVendors.length === 0 && cat) {
+          matchingVendors = validVendors.filter(v => (v.category || '').toLowerCase().includes(cat.toLowerCase()));
+        }
+        setPendingSiteForVendor(prev => prev ? { ...prev, filteredVendors: matchingVendors.length > 0 ? matchingVendors : null } : null);
+      }
+    } catch (err) {
+      console.warn('[TaxInvoiceManagerView] 거래처/매핑 동기화 실패:', err);
+    }
   }, []);
+
+  // 마운트 시 최신 시트 거래처 및 매핑 즉시 로드
+  useEffect(() => {
+    reloadSiteVendorMappings();
+  }, [reloadSiteVendorMappings]);
 
   // 현장 필터 및 매칭 상태
   const [siteSearch, setSiteSearch] = useState('');
@@ -281,10 +326,18 @@ export function TaxInvoiceManagerView() {
     const findVendorByToken = (token) => {
       const cleanToken = String(token || '').replace(/\s+/g, '');
       if (!cleanToken) return null;
-      return vendorList.find(vendor => {
+      const found = vendorList.find(vendor => {
         const names = [vendor.id, vendor.company_name, vendor.short_name].map(name => String(name || '').replace(/\s+/g, ''));
         return names.some(name => name === cleanToken || name.includes(cleanToken) || cleanToken.includes(name));
       });
+      if (found) return found;
+      // 구글 시트에 거래처명이 직접 적혀있고 Wastewater_Vendors에 아직 없더라도 즉시 매칭되는 가상 거래처 객체
+      return {
+        id: cleanToken,
+        company_name: String(token).trim(),
+        short_name: String(token).trim(),
+        category,
+      };
     };
 
     // 토큰 매칭 거래처들 추출
@@ -708,21 +761,14 @@ export function TaxInvoiceManagerView() {
     setIsSyncing(true);
     try {
       refreshSiteMaster?.();
-      const [vendors, mappingRes] = await Promise.all([
-        fetchVendorList().catch(() => getVendorList()),
-        apiClient.get('/api/settlement/site-vendor-mappings').catch(() => ({ mappings: [] })),
-      ]);
-      setVendorList(vendors || []);
-      if (mappingRes && mappingRes.success && Array.isArray(mappingRes.mappings)) {
-        setSiteVendorMappings(mappingRes.mappings);
-      }
+      await reloadSiteVendorMappings(pendingSiteForVendor);
       alert('구글 시트의 최신 현장 및 거래처 매핑 정보를 성공적으로 동기화했습니다.');
     } catch (err) {
       alert(`시트 동기화 실패: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
-  }, [refreshSiteMaster]);
+  }, [refreshSiteMaster, reloadSiteVendorMappings, pendingSiteForVendor]);
 
   return (
     <div style={containerStyle}>
@@ -1400,12 +1446,34 @@ export function TaxInvoiceManagerView() {
                   클릭 시 파일명 확정 & 다음 미지정 페이지로 자동 이동
                 </span>
               </div>
-              <button
-                onClick={() => setPendingSiteForVendor(null)}
-                style={{ background: 'none', border: 'none', fontSize: '16px', fontWeight: 700, cursor: 'pointer', color: '#64748b' }}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => reloadSiteVendorMappings(pendingSiteForVendor)}
+                  title="구글 시트 최신 거래처 새로고침"
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    color: '#334155',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  🔄 새로고침
+                </button>
+                <button
+                  onClick={() => setPendingSiteForVendor(null)}
+                  style={{ background: 'none', border: 'none', fontSize: '16px', fontWeight: 700, cursor: 'pointer', color: '#64748b' }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* 검색창 */}
@@ -1519,21 +1587,30 @@ export function TaxInvoiceManagerView() {
       {/* 거래처 관리 모달 */}
       <VendorManagerModal
         isOpen={vendorModalOpen}
-        onClose={() => setVendorModalOpen(false)}
+        onClose={() => {
+          setVendorModalOpen(false);
+          reloadSiteVendorMappings(pendingSiteForVendor);
+        }}
         onVendorChange={handleVendorChange}
       />
 
       {/* 현장별 거래처 매핑 모달 */}
       <SiteVendorMappingModal
         isOpen={siteVendorMappingOpen}
-        onClose={() => setSiteVendorMappingOpen(false)}
+        onClose={() => {
+          setSiteVendorMappingOpen(false);
+          reloadSiteVendorMappings(pendingSiteForVendor);
+        }}
         sites={sortedSites}
         vendors={vendorList}
-        onSaved={(newMapping) => {
-          setSiteVendorMappings((prev) => {
-            const withoutCurrent = prev.filter((item) => item.site_id !== newMapping.site_id);
-            return [...withoutCurrent, newMapping];
-          });
+        onSaved={async (newMapping) => {
+          if (newMapping) {
+            setSiteVendorMappings((prev) => {
+              const withoutCurrent = prev.filter((item) => item.site_id !== newMapping.site_id);
+              return [...withoutCurrent, newMapping];
+            });
+          }
+          await reloadSiteVendorMappings(pendingSiteForVendor);
         }}
       />
 

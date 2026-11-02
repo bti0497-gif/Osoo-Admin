@@ -68,14 +68,69 @@ export function DepositReceiptManagerView() {
   const [vendorModalOpen, setVendorModalOpen] = useState(false);
   const [siteVendorMappingOpen, setSiteVendorMappingOpen] = useState(false);
   const [vendorList, setVendorList] = useState(() => getVendorList());
-  useEffect(() => { fetchVendorList().then(setVendorList).catch(console.error); }, []);
   const [selectedVendorId, setSelectedVendorId] = useState(() => {
     const list = getVendorList();
     return list[0]?.id || '';
   });
   const [siteVendorMappings, setSiteVendorMappings] = useState([]);
   const [vendorPicker, setVendorPicker] = useState(null);
-  useEffect(() => { apiClient.get('/api/settlement/site-vendor-mappings').then((data) => setSiteVendorMappings(data.mappings || [])).catch(console.error); }, []);
+
+  // 거래처 목록 및 현장별 거래처 매핑 실시간 새로고침 (캐시 우회 force=true)
+  const reloadSiteVendorMappings = useCallback(async (currentPicker = null) => {
+    try {
+      const [vList, mapRes] = await Promise.all([
+        fetchVendorList(true).catch(() => getVendorList()),
+        apiClient.get('/api/settlement/site-vendor-mappings', { _t: Date.now() }).catch(() => ({ mappings: [] })),
+      ]);
+      const validVendors = Array.isArray(vList) ? vList : [];
+      setVendorList(validVendors);
+      let updatedMappings = [];
+      if (mapRes && mapRes.success && Array.isArray(mapRes.mappings)) {
+        updatedMappings = mapRes.mappings;
+        setSiteVendorMappings(mapRes.mappings);
+      } else if (mapRes && Array.isArray(mapRes.mappings)) {
+        updatedMappings = mapRes.mappings;
+        setSiteVendorMappings(mapRes.mappings);
+      }
+
+      if (currentPicker?.site) {
+        const s = currentPicker.site;
+        const sId = String(s.site_id || s.id);
+        const mapping = updatedMappings.find((item) => item.site_id === sId) || updatedMappings.find((item) => item.site_name === s.site_name);
+        const mappedIds = [
+          mapping?.sludge_vendor_id_1,
+          mapping?.sludge_vendor_id_2,
+          mapping?.medicine_vendor_id,
+          mapping?.water_vendor_id,
+          mapping?.kit_vendor_id,
+        ].filter(Boolean);
+        const findVendor = (value) => {
+          const token = String(value || '').replace(/\s+/g, '');
+          if (!token) return null;
+          const found = validVendors.find((vendor) => {
+            const names = [vendor.id, vendor.company_name, vendor.short_name].map((name) => String(name || '').replace(/\s+/g, ''));
+            return names.some((name) => name === token || name.includes(token) || token.includes(name));
+          });
+          if (found) return found;
+          return {
+            id: String(value).trim(),
+            company_name: String(value).trim(),
+            short_name: String(value).trim(),
+            category: '기타',
+          };
+        };
+        const vendors = [...new Map(mappedIds.map((value) => [value, findVendor(value)]).filter(([, vendor]) => vendor)).values()];
+        setVendorPicker(prev => prev ? { ...prev, vendors: vendors.length > 0 ? vendors : validVendors } : null);
+      }
+    } catch (err) {
+      console.warn('[DepositReceiptManagerView] 거래처/매핑 동기화 오류:', err);
+    }
+  }, []);
+
+  // 마운트 시 최신 시트 거래처 및 매핑 즉시 로드
+  useEffect(() => {
+    reloadSiteVendorMappings();
+  }, [reloadSiteVendorMappings]);
   const [targetYm, setTargetYm] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -108,11 +163,13 @@ export function DepositReceiptManagerView() {
       const mapping = siteVendorMappings.find((item) => item.site_id === String(sId)) || siteVendorMappings.find((item) => item.site_name === s.site_name);
       const mappedValues = [mapping?.sludge_vendor_id_1, mapping?.sludge_vendor_id_2, mapping?.medicine_vendor_id, mapping?.water_vendor_id, mapping?.kit_vendor_id].filter(Boolean);
       const requiredVendorIds = mappedValues.map((value) => {
-        const token = String(value).replace(/\s+/g, '');
-        return vendorList.find((vendor) => [vendor.id, vendor.company_name, vendor.short_name].some((name) => {
+        const token = String(value || '').replace(/\s+/g, '');
+        if (!token) return null;
+        const found = vendorList.find((vendor) => [vendor.id, vendor.company_name, vendor.short_name].some((name) => {
           const candidate = String(name || '').replace(/\s+/g, '');
           return candidate === token || candidate.includes(token) || token.includes(candidate);
-        }))?.id;
+        }));
+        return found?.id || String(value).trim();
       }).filter(Boolean);
       const completed = requiredVendorIds.length > 0
         ? requiredVendorIds.every((vendorId) => Object.values(matchedItems).some((item) => item.siteId === sId && item.vendorId === vendorId))
@@ -171,10 +228,18 @@ export function DepositReceiptManagerView() {
     const mappedIds = [mapping?.sludge_vendor_id_1, mapping?.sludge_vendor_id_2, mapping?.medicine_vendor_id, mapping?.water_vendor_id, mapping?.kit_vendor_id].filter(Boolean);
     const findVendor = (value) => {
       const token = String(value || '').replace(/\s+/g, '');
-      return vendorList.find((vendor) => {
+      if (!token) return null;
+      const found = vendorList.find((vendor) => {
         const names = [vendor.id, vendor.company_name, vendor.short_name].map((name) => String(name || '').replace(/\s+/g, ''));
         return names.some((name) => name === token || name.includes(token) || token.includes(name));
       });
+      if (found) return found;
+      return {
+        id: String(value).trim(),
+        company_name: String(value).trim(),
+        short_name: String(value).trim(),
+        category: '기타',
+      };
     };
     const vendors = [...new Map(mappedIds.map((value) => [value, findVendor(value)]).filter(([, vendor]) => vendor)).values()];
 
@@ -343,19 +408,14 @@ export function DepositReceiptManagerView() {
     setIsSyncing(true);
     try {
       refreshSiteMaster?.();
-      const [vendors, mappingRes] = await Promise.all([
-        fetchVendorList().catch(() => getVendorList()),
-        apiClient.get('/api/settlement/site-vendor-mappings').catch(() => ({ mappings: [] })),
-      ]);
-      setVendorList(vendors || []);
-      setSiteVendorMappings(mappingRes?.mappings || []);
+      await reloadSiteVendorMappings(vendorPicker);
       alert('구글 시트의 최신 현장 및 거래처 매핑 정보를 성공적으로 동기화했습니다.');
     } catch (err) {
       alert(`시트 동기화 실패: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
-  }, [refreshSiteMaster]);
+  }, [refreshSiteMaster, reloadSiteVendorMappings, vendorPicker]);
 
   return (
     <div style={containerStyle}>
@@ -728,7 +788,29 @@ export function DepositReceiptManagerView() {
       {/* 거래처 관리 모달 */}
       {vendorPicker && (
         <div style={{ position: 'fixed', left: vendorPicker.x, top: vendorPicker.y, zIndex: 1500, width: 260, padding: 10, border: '1px solid #86efac', borderRadius: 10, background: '#fff', boxShadow: '0 12px 28px rgba(15,23,42,.22)' }}>
-          <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 800, color: '#166534' }}>{vendorPicker.site.site_name} 거래처 선택</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: '#166534' }}>{vendorPicker.site.site_name} 거래처 선택</span>
+            <button
+              type="button"
+              onClick={() => reloadSiteVendorMappings(vendorPicker)}
+              title="구글 시트 최신 거래처 새로고침"
+              style={{
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: '1px solid #bbf7d0',
+                background: '#f0fdf4',
+                fontSize: '10px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                color: '#166534',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '2px',
+              }}
+            >
+              🔄 새로고침
+            </button>
+          </div>
           {vendorPicker.vendors.map((vendor) => {
             const isAssigned = Object.values(matchedItems).some((item) => item.siteId === (vendorPicker.site.site_id || vendorPicker.site.id) && item.vendorId === vendor.id);
             return <button key={vendor.id} onClick={() => !isAssigned && handleSelectSite(vendorPicker.site, vendor)} style={{ display: 'block', width: '100%', padding: '8px 9px', marginBottom: 4, border: '1px solid #e2e8f0', borderRadius: 6, background: isAssigned ? '#dcfce7' : '#f8fafc', color: '#0f172a', textAlign: 'left', cursor: isAssigned ? 'default' : 'pointer', fontWeight: 700, fontSize: 12 }}>
@@ -748,14 +830,23 @@ export function DepositReceiptManagerView() {
       )}
       <VendorManagerModal
         isOpen={vendorModalOpen}
-        onClose={() => setVendorModalOpen(false)}
+        onClose={() => {
+          setVendorModalOpen(false);
+          reloadSiteVendorMappings(vendorPicker);
+        }}
         onVendorChange={handleVendorChange}
       />
       <SiteVendorMappingModal
         isOpen={siteVendorMappingOpen}
-        onClose={() => setSiteVendorMappingOpen(false)}
+        onClose={() => {
+          setSiteVendorMappingOpen(false);
+          reloadSiteVendorMappings(vendorPicker);
+        }}
         sites={sortedSites}
         vendors={vendorList}
+        onSaved={async () => {
+          await reloadSiteVendorMappings(vendorPicker);
+        }}
       />
       <DriveDocDownloadModal
         isOpen={downloadModalOpen}

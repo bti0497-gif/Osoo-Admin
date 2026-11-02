@@ -328,17 +328,14 @@ async function generateMiryangHwpReport(year, month, customInputs = {}) {
   const finalYmHwp = path.join(folderYm, outputHwp);
   const finalMonthHwpx = path.join(folderMonth, outputHwpx);
   const finalMonthHwp = path.join(folderMonth, outputHwp);
-  const finalDesktopHwpx = path.join(desktop, outputHwpx);
-  const finalDesktopHwp = path.join(desktop, outputHwp);
 
+  // 정규 마감 폴더에만 안전 저장 (바탕화면 루트 중복 복사 방지)
   fs.writeFileSync(finalYmHwpx, outputBuffer);
   fs.writeFileSync(finalYmHwp, outputBuffer);
   fs.writeFileSync(finalMonthHwpx, outputBuffer);
   fs.writeFileSync(finalMonthHwp, outputBuffer);
-  fs.writeFileSync(finalDesktopHwpx, outputBuffer);
-  fs.writeFileSync(finalDesktopHwp, outputBuffer);
 
-  return { success: true, filePath: finalMonthHwpx, monthPath: finalMonthHwpx, ymPath: finalYmHwpx, desktopPath: finalDesktopHwpx, fileName: outputHwpx, targetYm, status };
+  return { success: true, filePath: finalMonthHwpx, monthPath: finalMonthHwpx, ymPath: finalYmHwpx, desktopPath: finalMonthHwpx, fileName: outputHwpx, targetYm, status };
 }
 
 /**

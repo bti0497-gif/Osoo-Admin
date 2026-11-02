@@ -32,10 +32,10 @@ async function ensureHeader() {
   headerEnsured = true;
 }
 
-async function getVendors() {
+async function getVendors(options = {}) {
   if (!configured()) return [];
   const now = Date.now();
-  if (vendorsCache && (now - cacheTime < CACHE_TTL)) {
+  if (!options.forceRefresh && vendorsCache && (now - cacheTime < CACHE_TTL)) {
     return vendorsCache;
   }
   try {

@@ -184,7 +184,14 @@ async function syncAllTemplatesFromDrive() {
 
       if (!needsDownload && file.size) {
         const localStat = fs.statSync(localPath);
-        if (Number(localStat.size) !== Number(file.size)) {
+        const driveModifiedTime = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
+        const localModifiedTime = localStat.mtimeMs || 0;
+
+        // 사용자가 로컬에서 양식을 수정한 경우 (로컬 수정 시각이 드라이브보다 최신) 드라이브 이전 파일로 덮어쓰지 않고 로컬 보존
+        if (driveModifiedTime && localModifiedTime > driveModifiedTime) {
+          console.log(`[settlementTemplateDrive] 로컬 파일이 최신이므로 드라이브 양식 덮어쓰기 방지: ${file.name}`);
+          needsDownload = false;
+        } else if (Number(localStat.size) !== Number(file.size)) {
           needsDownload = true;
         }
       }

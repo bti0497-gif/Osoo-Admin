@@ -8,9 +8,10 @@ export function isMedicineVendor(name) {
   return MEDICINE_VENDOR_KEYWORDS.some(k => name.includes(k));
 }
 
-export async function fetchVendorList() {
+export async function fetchVendorList(force = false) {
   try {
-    const data = await apiClient.get('/api/vendors', {}, { timeout: 15000 });
+    const params = force ? { force: '1', _t: Date.now() } : {};
+    const data = await apiClient.get('/api/vendors', params, { timeout: 15000 });
     return data.vendors || [];
   } catch (err) {
     console.warn('[vendorStorage] 거래처 목록 로드 타임아웃/실패 (기본값 사용):', err.message);

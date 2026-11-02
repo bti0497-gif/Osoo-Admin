@@ -250,7 +250,6 @@ async function generateAndongHwpReport(year, month) {
 
   const finalMonth = path.join(folderMonth, outputFileName);
   const finalYm = path.join(folderYm, outputFileName);
-  const finalDesktop = path.join(desktop, outputFileName);
 
   const safeWrite = (targetPath) => {
     try {
@@ -266,7 +265,6 @@ async function generateAndongHwpReport(year, month) {
 
   safeWrite(finalMonth);
   safeWrite(finalYm);
-  safeWrite(finalDesktop);
 
   console.log(`[andongSettlement] 한글 정산서 작성 완료! 저장: ${finalMonth}`);
 
@@ -275,7 +273,7 @@ async function generateAndongHwpReport(year, month) {
     filePath: finalMonth,
     monthPath: finalMonth,
     ymPath: finalYm,
-    desktopPath: finalDesktop,
+    desktopPath: finalMonth,
     fileName: outputFileName,
     targetYm,
   };
@@ -354,7 +352,6 @@ async function generateAndongExcelReport(year, month) {
 
   const finalMonth = path.join(folderMonth, outputFileName);
   const finalYm = path.join(folderYm, outputFileName);
-  const finalDesktop = path.join(desktop, outputFileName);
 
   const safeWrite = (targetPath) => {
     try {
@@ -370,7 +367,6 @@ async function generateAndongExcelReport(year, month) {
 
   safeWrite(finalMonth);
   safeWrite(finalYm);
-  safeWrite(finalDesktop);
 
   console.log(`[andongSettlement] 엑셀 정산 증빙 작성 완료! 저장: ${finalMonth}`);
 
@@ -379,7 +375,7 @@ async function generateAndongExcelReport(year, month) {
     filePath: finalMonth,
     monthPath: finalMonth,
     ymPath: finalYm,
-    desktopPath: finalDesktop,
+    desktopPath: finalMonth,
     fileName: outputFileName,
     targetYm,
     evidenceStatus,

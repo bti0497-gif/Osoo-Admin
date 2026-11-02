@@ -401,7 +401,6 @@ async function generateGochangExcelReport(year, month, customInputs = {}, direct
 
   const finalYm = path.join(folderYm, outputFileName);
   const finalMonth = path.join(folderMonth, outputFileName);
-  const finalDesktop = path.join(desktop, outputFileName);
 
   const safeWrite = (targetPath) => {
     try {
@@ -415,11 +414,11 @@ async function generateGochangExcelReport(year, month, customInputs = {}, direct
     }
   };
 
+  // 정규 마감 폴더에만 안전 저장 (바탕화면 루트 중복 복사 방지)
   safeWrite(finalYm);
   safeWrite(finalMonth);
-  safeWrite(finalDesktop);
 
-  return { success: true, filePath: finalMonth, monthPath: finalMonth, ymPath: finalYm, fileName: outputFileName, targetYm, direction, siteName: cfg.name, evidenceStatus };
+  return { success: true, filePath: finalMonth, monthPath: finalMonth, ymPath: finalYm, desktopPath: finalMonth, fileName: outputFileName, targetYm, direction, siteName: cfg.name, evidenceStatus };
 }
 
 async function generateGochangAllReports(year, month, customInputs = {}, direction = 'mokpo') {

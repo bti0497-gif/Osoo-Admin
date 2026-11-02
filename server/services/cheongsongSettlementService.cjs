@@ -310,16 +310,12 @@ async function generateCheongsongHwpReport(year, month, customInputs = {}) {
   const finalYmHwp = path.join(targetFolderYm, outputHwpFileName);
   const finalMonthHwpx = path.join(targetFolderMonth, outputFileName);
   const finalMonthHwp = path.join(targetFolderMonth, outputHwpFileName);
-  const finalDesktopHwpx = path.join(desktop, outputFileName);
-  const finalDesktopHwp = path.join(desktop, outputHwpFileName);
 
-  // 정규 경로 및 바탕화면에 동시 저장
+  // 정규 마감 폴더에만 안전 저장 (바탕화면 루트 중복 복사 방지)
   fs.writeFileSync(finalYmHwpx, outputBuffer);
   fs.writeFileSync(finalYmHwp, outputBuffer); // 호환성을 위해 .hwp로도 함께 보존
   fs.writeFileSync(finalMonthHwpx, outputBuffer);
   fs.writeFileSync(finalMonthHwp, outputBuffer);
-  fs.writeFileSync(finalDesktopHwpx, outputBuffer);
-  fs.writeFileSync(finalDesktopHwp, outputBuffer);
 
   console.log(`[cheongsongSettlement] 청송 정산서 작성 완료! 저장 위치: ${finalMonthHwpx}`);
 
@@ -328,7 +324,7 @@ async function generateCheongsongHwpReport(year, month, customInputs = {}) {
     filePath: finalMonthHwpx,
     monthPath: finalMonthHwpx,
     ymPath: finalYmHwpx,
-    desktopPath: finalDesktopHwpx,
+    desktopPath: finalMonthHwpx,
     fileName: outputFileName,
     targetYm,
     invoiceMap: invMap,

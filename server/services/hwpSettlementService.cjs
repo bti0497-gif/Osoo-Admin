@@ -1070,25 +1070,13 @@ try {
             } catch (_) {}
           }
 
-          // 바탕화면 루트 동시 복사 보존 (.agents/AGENTS.md 제10조 A항 준수)
-          const primaryDesktop = desktopDirs[0] || path.join(os.homedir(), 'OneDrive', '바탕 화면');
-          const desktopFilePath = path.join(primaryDesktop, finalReportFileName);
-          try {
-            if (fs.existsSync(primaryDesktop) && desktopFilePath !== savedPath) {
-              fs.copyFileSync(tempWorkingPath, desktopFilePath);
-              console.log(`[hwpSettlementService] 바탕화면 루트 동시 복사 완료: ${desktopFilePath}`);
-            }
-          } catch (deskErr) {
-            console.warn('[hwpSettlementService] 바탕화면 루트 복사 참고:', deskErr.message);
-          }
-
           try { if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath); } catch (_) {}
 
           console.log(`[hwpSettlementService] 청주 정산서 한글 파일 생성 완료: ${savedPath}`);
           return resolve({
             success: true,
             filePath: savedPath,
-            desktopPath: fs.existsSync(desktopFilePath) ? desktopFilePath : null,
+            desktopPath: savedPath,
             fileName: path.basename(savedPath),
             targetYm,
             logPath: persistentLogPath,

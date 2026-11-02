@@ -283,7 +283,7 @@ async function listFilesFolder(folderId) {
 
   const response = await drive.files.list({
     q: `'${normalizedParentId}' in parents and trashed=false`,
-    fields: 'files(id, name, mimeType, size, webViewLink, webContentLink, createdTime)',
+    fields: 'files(id, name, mimeType, size, webViewLink, webContentLink, createdTime, modifiedTime)',
     spaces: 'drive',
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,

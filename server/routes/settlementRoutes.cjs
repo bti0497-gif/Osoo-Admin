@@ -25,7 +25,7 @@ const {
   deleteTemplateFile,
   SETTLEMENT_TARGET_SITES,
 } = require('../services/settlementService.cjs');
-const { ensureSettlementEvidence } = require('../services/settlementEvidenceSyncService.cjs');
+const { ensureSettlementEvidence, getDesktopDirectories } = require('../services/settlementEvidenceSyncService.cjs');
 const templateDriveService = require('../services/settlementTemplateDriveService.cjs');
 const { getAssignedSitesForManager } = require('../services/centralManagersSheetsService.cjs');
 const {
@@ -342,27 +342,6 @@ module.exports = function createSettlementRoutes(db, BASE_DIR, appDataPath) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-
-  function getDesktopDirectories() {
-    const home = os.homedir();
-    const dirs = [];
-    const candidates = [
-      path.join(home, 'OneDrive', '바탕 화면'),
-      path.join(home, 'OneDrive', 'Desktop'),
-      path.join(home, 'OneDrive - Personal', '바탕 화면'),
-      path.join(home, 'OneDrive - Personal', 'Desktop'),
-      path.join(home, '바탕 화면'),
-      path.join(home, 'Desktop'),
-    ];
-
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate) && !dirs.includes(candidate)) {
-        dirs.push(candidate);
-      }
-    }
-    if (dirs.length === 0) dirs.push(path.join(home, 'Desktop'));
-    return dirs;
-  }
 
   router.post('/save-matched-images', (req, res) => {
     try {
@@ -1522,33 +1501,53 @@ function normalizeTargetYm(value) {
   return /^\d{6}$/.test(targetYm) ? targetYm : '';
 }
 
-function getCheongjuStatementsDir(targetYm) {
+function getCheongjuStatementsCandidateDirs(targetYm) {
   const desktopDirs = getDesktopDirectories();
+  const dirs = [];
   for (const d of desktopDirs) {
-    const candidate = path.join(d, '월정산', '청주마감자료', targetYm, '6_명세서');
-    if (fs.existsSync(candidate)) return candidate;
+    dirs.push(path.join(d, '월정산', '청주마감자료', targetYm, '6_명세서'));
+    dirs.push(path.join(d, '점검준비', '명세서', targetYm));
+    dirs.push(path.join(d, '수정본', '월별마감자료', targetYm, '6_명세서'));
+    dirs.push(path.join(d, '월정산', '청주마감자료', targetYm));
   }
+  return [...new Set(dirs)];
+}
+
+function getCheongjuStatementsDir(targetYm) {
+  const dirs = getCheongjuStatementsCandidateDirs(targetYm);
+  for (const d of dirs) {
+    if (fs.existsSync(d)) return d;
+  }
+  const desktopDirs = getDesktopDirectories();
   return path.join(desktopDirs[0] || os.homedir(), '월정산', '청주마감자료', targetYm, '6_명세서');
 }
 
 function findCheongjuStatementFile(statementsDir, targetYm, vendor) {
-  if (!fs.existsSync(statementsDir)) return null;
+  const candidateDirs = [
+    ...(statementsDir ? (Array.isArray(statementsDir) ? statementsDir : [statementsDir]) : []),
+    ...getCheongjuStatementsCandidateDirs(targetYm),
+  ];
+  const uniqueDirs = [...new Set(candidateDirs)];
   const vendorTokens = Array.isArray(vendor) ? vendor : [vendor];
-  let files = [];
-  try { files = fs.readdirSync(statementsDir); } catch (_) { return null; }
 
-  for (const token of vendorTokens) {
-    const fileName = files.find((name) => {
-      if (!/\.(jpg|jpeg|png)$/i.test(name)) return false;
-      const lower = name.toLowerCase();
-      const tokenLower = String(token).toLowerCase();
-      return (
-        name.startsWith(`명세서_${targetYm}_청주휴게소(서울방향) ${token}`) ||
-        (name.includes(`명세서_${targetYm}`) && lower.includes(tokenLower)) ||
-        (name.includes('명세서') && lower.includes(tokenLower))
-      );
-    });
-    if (fileName) return path.join(statementsDir, fileName);
+  for (const dir of uniqueDirs) {
+    if (!dir || !fs.existsSync(dir)) continue;
+    let files = [];
+    try { files = fs.readdirSync(dir); } catch (_) { continue; }
+
+    for (const token of vendorTokens) {
+      const fileName = files.find((name) => {
+        if (!/\.(jpg|jpeg|png)$/i.test(name)) return false;
+        const lower = name.toLowerCase();
+        const tokenLower = String(token).toLowerCase();
+        return (
+          name.startsWith(`명세서_${targetYm}_청주휴게소(서울방향) ${token}`) ||
+          (name.includes(`명세서_${targetYm}`) && lower.includes(tokenLower)) ||
+          (name.includes('명세서') && lower.includes(tokenLower))
+        );
+      });
+      if (fileName) return path.join(dir, fileName);
+    }
   }
   return null;
 }

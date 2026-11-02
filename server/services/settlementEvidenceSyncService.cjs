@@ -128,9 +128,9 @@ function matchesMonth(fileName, targetYm, year, month) {
   return patterns.some(p => name.includes(p));
 }
 
-async function safeDownloadFile(fileId, targetPath) {
+async function safeDownloadFile(fileId, targetPath, overwrite = true) {
   try {
-    if (fs.existsSync(targetPath)) {
+    if (!overwrite && fs.existsSync(targetPath)) {
       const stat = fs.statSync(targetPath);
       if (stat.size > 0) return targetPath;
     }
@@ -145,10 +145,10 @@ async function safeDownloadFile(fileId, targetPath) {
   }
 }
 
-function safeCopyFile(sourcePath, targetPath) {
+function safeCopyFile(sourcePath, targetPath, overwrite = true) {
   if (!sourcePath || !fs.existsSync(sourcePath)) return null;
   try {
-    if (fs.existsSync(targetPath)) {
+    if (!overwrite && fs.existsSync(targetPath)) {
       const stat = fs.statSync(targetPath);
       if (stat.size > 0) return targetPath;
     }
@@ -274,6 +274,7 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     deposit: path.join(primaryDesktop, '점검준비', '입금표', targetYm),
     statement: path.join(primaryDesktop, '점검준비', '명세서', targetYm),
     cheongjuStatement: path.join(primaryDesktop, '수정본', '월별마감자료', targetYm, '6_명세서'),
+    cheongjuStatementAlt: path.join(primaryDesktop, '월정산', '청주마감자료', targetYm, '6_명세서'),
     cert: path.join(primaryDesktop, '점검준비', '성적서', targetYm),
     photo: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm),
     settlementPhoto: path.join(primaryDesktop, '점검준비', '정산서', targetYm),
@@ -318,7 +319,15 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     } else if (isStatement) {
       const res1 = await safeDownloadFile(f.id, path.join(localDirs.statement, f.name));
       const res2 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatement, f.name));
-      if (res1 || res2) processed = true;
+      let res3 = null;
+      if (res1) {
+        res3 = safeCopyFile(res1, path.join(localDirs.cheongjuStatementAlt, f.name));
+      } else if (res2) {
+        res3 = safeCopyFile(res2, path.join(localDirs.cheongjuStatementAlt, f.name));
+      } else {
+        res3 = await safeDownloadFile(f.id, path.join(localDirs.cheongjuStatementAlt, f.name));
+      }
+      if (res1 || res2 || res3) processed = true;
     } else if (isInvoice) {
       const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
       if (res) processed = true;

@@ -395,7 +395,6 @@ async function generateJukamBusanExcelReport({
 
   const settlementPhotoDirs = desktopDirs.flatMap(d => [
     path.join(d, '월정산', '죽암마감자료', targetYm),
-    path.join(d, '월정산', '죽암마감자료'),
     path.join(d, '월정산', '죽암휴게소', targetYm),
     path.join(d, '월정산', '죽암(부산)', targetYm),
     path.join(d, '월정산', '죽암(부산방향)', targetYm),
@@ -412,7 +411,8 @@ async function generateJukamBusanExcelReport({
 
   const findImages = (dirs, vendorKeyword = '') => {
     const list = [];
-    const seen = new Set();
+    const seenPaths = new Set();
+    const seenBasenames = new Set();
     const dirList = Array.isArray(dirs) ? dirs : [dirs];
     for (const d of dirList) {
       if (!d || !fs.existsSync(d)) continue;
@@ -426,8 +426,10 @@ async function generateJukamBusanExcelReport({
           const vendorMatch = !vendorKeyword || lower.includes(vendorKeyword.toLowerCase());
           if (siteMatch && vendorMatch) {
             const fullPath = path.join(d, f);
-            if (!seen.has(fullPath)) {
-              seen.add(fullPath);
+            const baseKey = path.basename(f).toLowerCase();
+            if (!seenPaths.has(fullPath) && !seenBasenames.has(baseKey)) {
+              seenPaths.add(fullPath);
+              seenBasenames.add(baseKey);
               list.push(fullPath);
             }
           }
@@ -474,13 +476,54 @@ async function generateJukamBusanExcelReport({
     tempDir
   );
 
-  // 슬러지 필증 및 반출사진
-  const cleanCerts = findImages(cleanCertPhotoDirs, '', '부산');
-  const sludgePhotos = findImages(sludgePhotoDirs, '', '부산');
+  // 청소필증 탐색: 파일명에 '필증' or '청소' or '수거' 포함, '슬러지반출'/'슬러지 처리' 배제
+  const rawCleanCerts = findImages(cleanCertPhotoDirs, '', '부산');
+  const cleanCerts = rawCleanCerts.filter(f => {
+    const base = path.basename(f).toLowerCase();
+    const hasCert = base.includes('필증') || base.includes('청소') || base.includes('수거');
+    const isSludgeAction = base.includes('슬러지반출') || base.includes('슬러지 처리') || base.includes('슬러지처리') || (base.includes('슬러지') && base.includes('반출'));
+    return hasCert && !isSludgeAction;
+  });
+
+  // 슬러지 반출사진 탐색: 파일명에 '슬러지' or '반출' 포함, '필증'/'청소' 배제
+  const rawSludgePhotos = findImages(sludgePhotoDirs, '', '부산');
+  const sludgePhotos = rawSludgePhotos.filter(f => {
+    const base = path.basename(f).toLowerCase();
+    const hasSludge = base.includes('슬러지') || base.includes('반출');
+    const hasCert = base.includes('필증') || base.includes('청소');
+    return hasSludge && !hasCert;
+  });
+
+  function extractDateFromFilename(filename) {
+    if (!filename) return null;
+    const m = String(filename).match(/(20\d{2})[-._]?(\d{1,2})[-._]?(\d{1,2})/);
+    if (m) {
+      const monthNum = parseInt(m[2], 10);
+      const dayNum = String(parseInt(m[3], 10)).padStart(2, '0');
+      return `${monthNum}.${dayNum}`;
+    }
+    return null;
+  }
 
   // 슬러지 텍스트 라벨 결정
-  const event1Date = sludgeEvents[0]?.mDotDd || `${month}.05`;
-  const event2Date = sludgeEvents[1]?.mDotDd || (sludgeEvents.length > 1 ? `${month}.20` : null);
+  const dateFromCert1 = extractDateFromFilename(path.basename(cleanCerts[0] || ''));
+  const dateFromPhoto1 = extractDateFromFilename(path.basename(sludgePhotos[0] || ''));
+  const event1Date = sludgeEvents[0]?.mDotDd || dateFromCert1 || dateFromPhoto1 || null;
+
+  const dateFromCert2 = extractDateFromFilename(path.basename(cleanCerts[1] || ''));
+  const dateFromPhoto2 = extractDateFromFilename(path.basename(sludgePhotos[1] || ''));
+  const hasEvent2 = (cleanCerts.length >= 2 || sludgePhotos.length >= 2 || sludgeEvents.length >= 2);
+  const event2Date = hasEvent2
+    ? (sludgeEvents[1]?.mDotDd || dateFromCert2 || dateFromPhoto2 || null)
+    : null;
+
+  const hasEvent1 = Boolean(cleanCerts[0] || sludgePhotos[0] || sludgeEvents.length > 0);
+
+  const cleanCert1Text = hasEvent1 && event1Date ? `슬러지 수거필증(${event1Date})` : (hasEvent1 ? '슬러지 수거필증' : '');
+  const sludgePhoto1Text = hasEvent1 && event1Date ? `슬러지 처리 사진(${event1Date})` : (hasEvent1 ? '슬러지 처리 사진' : '');
+
+  const cleanCert2Text = hasEvent2 && event2Date ? `슬러지 수거필증(${event2Date})` : (hasEvent2 ? '슬러지 수거필증' : '');
+  const sludgePhoto2Text = hasEvent2 && event2Date ? `슬러지 처리 사진(${event2Date})` : (hasEvent2 ? '슬러지 처리 사진' : '');
 
   const photoPayload = {
     salesInvoice: invMgmt[0] || null,
@@ -496,10 +539,10 @@ async function generateJukamBusanExcelReport({
     cleanCert2: cleanCerts[1] || null,
     sludgePhoto1: sludgePhotos[0] || null,
     sludgePhoto2: sludgePhotos[1] || null,
-    cleanCert1Text: `슬러지 수거필증(${event1Date})`,
-    sludgePhoto1Text: `슬러지 처리 사진(${event1Date})`,
-    cleanCert2Text: event2Date ? `슬러지 수거필증(${event2Date})` : '',
-    sludgePhoto2Text: event2Date ? `슬러지 처리 사진(${event2Date})` : '',
+    cleanCert1Text,
+    sludgePhoto1Text,
+    cleanCert2Text,
+    sludgePhoto2Text,
   };
 
   // 6. PowerShell Excel COM 스크립트 작성
@@ -767,16 +810,26 @@ try {
           InsertImageToRange $photos.sludgePhoto2 $rngPhoto2 $wPhoto $hPhoto "center" | Out-Null
         }
 
-        # 날짜 라벨 바인딩
+        # 날짜 라벨 바인딩 (빈 문자열일 경우 반드시 ""로 초기화하여 템플릿 기본값(8.05 등) 제거)
         if ($photos.cleanCert1Text) {
-          $wb.Names.Item("필증날짜1").RefersToRange.Value = $photos.cleanCert1Text
+          $wb.Names.Item("필증날짜1").RefersToRange.Value2 = $photos.cleanCert1Text
+        } else {
+          try { $wb.Names.Item("필증날짜1").RefersToRange.Value2 = "" } catch {}
         }
         if ($photos.sludgePhoto1Text) {
-          $wb.Names.Item("반출날짜1").RefersToRange.Value = $photos.sludgePhoto1Text
+          $wb.Names.Item("반출날짜1").RefersToRange.Value2 = $photos.sludgePhoto1Text
+        } else {
+          try { $wb.Names.Item("반출날짜1").RefersToRange.Value2 = "" } catch {}
         }
         if ($photos.cleanCert2Text) {
-          $wb.Names.Item("필증날짜2").RefersToRange.Value = $photos.cleanCert2Text
-          $wb.Names.Item("반출날짜2").RefersToRange.Value = $photos.sludgePhoto2Text
+          $wb.Names.Item("필증날짜2").RefersToRange.Value2 = $photos.cleanCert2Text
+        } else {
+          try { $wb.Names.Item("필증날짜2").RefersToRange.Value2 = "" } catch {}
+        }
+        if ($photos.sludgePhoto2Text) {
+          $wb.Names.Item("반출날짜2").RefersToRange.Value2 = $photos.sludgePhoto2Text
+        } else {
+          try { $wb.Names.Item("반출날짜2").RefersToRange.Value2 = "" } catch {}
         }
         LogMsg "Inserted 슬러지 증빙 사진 및 날짜 라벨"
       } catch { LogMsg "슬러지 증빙 error: $($_.Exception.Message)" }
@@ -942,19 +995,6 @@ try {
           try { if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath); } catch (_) {}
 
           console.log(`[jukamSettlementService] 죽암(부산) 정산서 엑셀 파일 생성 완료: ${finalReportPath}`);
-
-          // 사용자가 바로 확인할 수 있도록 바탕화면 루트에도 복사
-          try {
-            desktopDirs.forEach(d => {
-              const rootCopy = path.join(d, path.basename(finalReportPath));
-              if (rootCopy !== finalReportPath) {
-                fs.copyFileSync(finalReportPath, rootCopy);
-                console.log(`[jukamSettlementService] 부산 바탕화면 루트 복사 완료: ${rootCopy}`);
-              }
-            });
-          } catch (e) {
-            console.warn('[jukamSettlementService] 부산 바탕화면 루트 복사 경고:', e.message);
-          }
 
           return resolve({
             success: true,
@@ -1167,7 +1207,8 @@ async function generateJukamSeoulExcelReport({
 
   const findImages = (dirs, vendorKeyword = '') => {
     const list = [];
-    const seen = new Set();
+    const seenPaths = new Set();
+    const seenBasenames = new Set();
     const dirList = Array.isArray(dirs) ? dirs : [dirs];
     for (const d of dirList) {
       if (!d || !fs.existsSync(d)) continue;
@@ -1180,9 +1221,11 @@ async function generateJukamSeoulExcelReport({
           const siteMatch = isJukamSeoulFile(lower);
           const vendorMatch = !vendorKeyword || lower.includes(vendorKeyword.toLowerCase());
           if (siteMatch && vendorMatch) {
+            const baseKey = path.basename(f).toLowerCase();
             const fullPath = path.join(d, f);
-            if (!seen.has(fullPath)) {
-              seen.add(fullPath);
+            if (!seenPaths.has(fullPath) && !seenBasenames.has(baseKey)) {
+              seenPaths.add(fullPath);
+              seenBasenames.add(baseKey);
               list.push(fullPath);
             }
           }
@@ -1223,8 +1266,21 @@ async function generateJukamSeoulExcelReport({
   );
 
   // 슬러지 필증 및 반출사진
-  const cleanCerts = findImages(cleanCertPhotoDirs);
-  const sludgePhotos = findImages(sludgePhotoDirs);
+  const rawCleanCerts = findImages(cleanCertPhotoDirs);
+  const cleanCerts = rawCleanCerts.filter(f => {
+    const base = path.basename(f).toLowerCase();
+    const hasCert = base.includes('필증') || base.includes('청소') || base.includes('수거');
+    const isSludgeAction = base.includes('슬러지반출') || base.includes('슬러지 처리') || base.includes('슬러지처리') || (base.includes('슬러지') && base.includes('반출'));
+    return hasCert && !isSludgeAction;
+  });
+
+  const rawSludgePhotos = findImages(sludgePhotoDirs);
+  const sludgePhotos = rawSludgePhotos.filter(f => {
+    const base = path.basename(f).toLowerCase();
+    const hasSludge = base.includes('슬러지') || base.includes('반출');
+    const hasCert = base.includes('필증') || base.includes('청소');
+    return hasSludge && !hasCert;
+  });
 
   const photoPayload = {
     salesInvoice: invMgmt[0] || null,
@@ -1620,19 +1676,6 @@ try {
           try { if (fs.existsSync(tempWorkingPath)) fs.unlinkSync(tempWorkingPath); } catch (_) {}
 
           console.log(`[jukamSettlementService] 죽암(서울) 정산서 엑셀 파일 생성 완료: ${finalReportPath}`);
-
-          // 사용자가 바로 확인할 수 있도록 바탕화면 루트에도 복사
-          try {
-            desktopDirs.forEach(d => {
-              const rootCopy = path.join(d, path.basename(finalReportPath));
-              if (rootCopy !== finalReportPath) {
-                fs.copyFileSync(finalReportPath, rootCopy);
-                console.log(`[jukamSettlementService] 바탕화면 루트 복사 완료: ${rootCopy}`);
-              }
-            });
-          } catch (e) {
-            console.warn('[jukamSettlementService] 바탕화면 루트 복사 경고:', e.message);
-          }
 
           return resolve({
             success: true,

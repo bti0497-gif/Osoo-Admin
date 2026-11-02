@@ -139,18 +139,11 @@ try {
         return reject(new Error(`홍천 엑셀 생성 실패: ${err.message}\n${stderr || stdout}`));
       }
 
-      // 4. 바탕화면 바로 위에도 동시 복사
-      try {
-        fs.copyFileSync(targetFilePath, desktopFilePath);
-      } catch (copyErr) {
-        console.warn('[hongcheonSettlementService] 바탕화면 동시 복사 경고:', copyErr.message);
-      }
-
       resolve({
         success: true,
         fileName: outputFileName,
         savedPath: targetFilePath,
-        desktopPath: desktopFilePath,
+        desktopPath: targetFilePath,
         year: numYear,
         month: numMonth,
       });

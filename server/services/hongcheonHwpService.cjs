@@ -3,21 +3,24 @@
  * 
  * [확정 규격 & 엔진]
  * - 템플릿: template_hongcheon_yangyang.hwp
- * - HWPML2X (한글 XML) 무결성 바이너리(Base64) 고속 바인딩 엔진
- * - 증빙 항목 1:1 완벽 교체:
- *   1. Pic #3 (Id="1"): 매출계산서 (용역비)
- *   2. Pic #4 (Id="2"): 매출계산서 (슬러지)
- *   3. Pic #5 (Id="3"): 매입계산서 (영일/약품)
- *   4. Pic #6 (Id="4"): 매입계산서 (대신/자가측정)
- *   5. Pic #7 (Id="5"): 매입계산서 (케이엠/분석키트)
- *   6. Pic #8 (Id="6"): 매입계산서 (준명/슬러지)
- *   7. Pic #9 (Id="7"): 슬러지 반출 사진
- *   8. Pic #10 (Id="8"): 청소필증
- *   9. Pic #13~16 (Id="9"~"12"): 수질성적서 4장 (9월부터 4장 규격)
- *   10. Pic #17~18 (Id="13"~"14"): 5, 6번째 잔상 이미지 투명화 제거
+ * - HWP COM 개체 기반 북마크(책갈피) 직접 삽입 엔진:
+ *   - 템플릿 내 위탁관리계약서 2장(Pic #1, Pic #2)은 100% 원본 그대로 완벽 보존
+ *   - 빈 책갈피 사각형 영역에 증빙 자료를 정밀 규격으로 1:1 자동 바인딩:
+ *     1. '매출계산서용역비': 매출계산서 (용역비) [162 mm × 100 mm]
+ *     2. '매출계산서슬러지': 매출계산서 (슬러지) [162 mm × 100 mm]
+ *     3. '약품비계산서': 매입계산서 (영일/약품/에이치디) [162 mm × 100 mm]
+ *     4. '수질분석계산서': 매입계산서 (대신/자가측정) [162 mm × 100 mm]
+ *     5. '키트계산서': 매입계산서 (케이엠/분석키트) [162 mm × 100 mm]
+ *     6. '슬러지처리계산서': 매입계산서 (준명/슬러지) [162 mm × 100 mm]
+ *     7. '반출사진': 슬러지 반출 사진 [135 mm × 100 mm]
+ *     8. '청소필증': 청소필증 [135 mm × 100 mm]
+ *     9. '성적서1' ~ '성적서4': 수질성적서 4장 [각 54 mm × 64 mm]
+ *     10. '수리비계산서1', '수리비계산서2': 수리수선비 (존재 시) [각 135 mm × 100 mm]
+ * - 텍스트 정산월 자동 일괄 치환:
+ *   - 문서 전반의 연월 텍스트(예: 26년(8월) -> 26년(10월), 8월) -> 10월) 등) 일괄 갱신
  * - Google Drive 연동:
- *   - 로컬 바탕화면에 성적서가 없으면 Google Drive에서 홍천 성적서 4장을 자동 검색하여
- *     바탕화면 '점검준비/성적서/YYYYMM' 폴더로 자동 다운로드한 후 바인딩 진행
+ *   - 로컬 바탕화면에 성적서가 부족하면 Google Drive에서 홍천 성적서를 자동 검색하여
+ *     바탕화면 '점검준비/성적서/YYYYMM' 폴더로 자동 다운로드 후 바인딩
  * - 저장 위치:
  *   - 정규 경로: 바탕화면 > 월정산 > 홍천마감자료 > YYYYMM > 홍천휴게소(양양)휴게소_${yy}년 ${month}월 오수정화조 임대료 정산보고서.hwp
  *   - 바탕화면 루트: 바탕화면 바로 위 동시 복사 보존
@@ -29,9 +32,6 @@ const os = require('os');
 const { execFile } = require('child_process');
 const { getTemplateFilePath } = require('./settlementService.cjs');
 const { drive, downloadDriveFileBuffer } = require('./driveService.cjs');
-
-/** 1x1 픽셀 투명 PNG Base64 (미사용 슬롯 잔상 제거용) */
-const TRANSPARENT_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 /**
  * 사용자 바탕화면(OneDrive 포함) 경로 탐색
@@ -57,7 +57,7 @@ function getPrimaryDesktop() {
  */
 async function ensureHongcheonCertificatesFromDrive(year, month) {
   const numYear = Number(year) || 2026;
-  const numMonth = Number(month) || 9;
+  const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
   const desktop = getPrimaryDesktop();
   const localCertDir = path.join(desktop, '점검준비', '성적서', targetYm);
@@ -132,7 +132,7 @@ async function ensureHongcheonCertificatesFromDrive(year, month) {
  */
 async function getHongcheonEvidenceStatus(year, month) {
   const numYear = Number(year) || 2026;
-  const numMonth = Number(month) || 9;
+  const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
   const desktop = getPrimaryDesktop();
 
@@ -142,7 +142,7 @@ async function getHongcheonEvidenceStatus(year, month) {
     try { fs.mkdirSync(settlementDir, { recursive: true }); } catch (_) {}
   }
 
-  // 검색 대상 디렉토리들 (대상 연월 폴더 엄격 한정)
+  // 검색 대상 디렉토리들 (대상 연월 폴더 엄격 최우선)
   const searchDirs = [
     settlementDir,
     path.join(desktop, '점검준비', '계산서', targetYm),
@@ -150,9 +150,10 @@ async function getHongcheonEvidenceStatus(year, month) {
     path.join(desktop, '월정산', '홍천마감자료'),
     path.join(desktop, '점검준비', '계산서'),
     path.join(desktop, '점검준비', '성적서'),
+    desktop,
   ].filter(d => fs.existsSync(d));
 
-  const findFiles = (dirs, pattern, max = 10) => {
+  const findFiles = (dirs, pattern, max = 20) => {
     const list = [];
     const imageExts = new Set(['.jpg', '.jpeg', '.png', '.bmp']);
     for (const dir of dirs) {
@@ -185,22 +186,23 @@ async function getHongcheonEvidenceStatus(year, month) {
     .concat(findFiles(searchDirs, /반출사진|반출/i));
   const sludgePhoto = sludgePhotoFiles[0] || null;
 
-  // 계산서 6종 탐색 (홍천 9월 계산서)
-  const invoiceCandidates = findFiles(searchDirs, /홍천.*계산서|계산서.*홍천/i, 20);
-  const findInvoiceByKeyword = (kw, isSales = false) => {
+  // 계산서 후보 탐색 (홍천 키워드)
+  const invoiceCandidates = findFiles(searchDirs, /홍천.*계산서|계산서.*홍천/i, 30);
+  const findInvoiceByKeywords = (keywords, isSales = false) => {
+    const kwList = Array.isArray(keywords) ? keywords : [keywords];
     return invoiceCandidates.find(f => {
       const base = path.basename(f);
-      const salesMatch = isSales ? base.startsWith('매출') : !base.startsWith('매출');
-      return salesMatch && base.includes(kw);
+      const salesMatch = isSales ? (base.startsWith('매출') || base.includes('매출')) : !base.startsWith('매출');
+      return salesMatch && kwList.some(kw => base.includes(kw));
     }) || null;
   };
 
-  const invoiceSalesService = findInvoiceByKeyword('용역비', true) || invoiceCandidates.find(f => f.includes('용역비')) || null;
-  const invoiceSalesSludge  = findInvoiceByKeyword('슬러지', true) || invoiceCandidates.find(f => f.includes('슬러지') && f.startsWith('매출')) || null;
-  const invoiceMedicine     = findInvoiceByKeyword('영일', false) || null;
-  const invoiceTest         = findInvoiceByKeyword('대신', false) || null;
-  const invoiceKit          = findInvoiceByKeyword('케이엠', false) || null;
-  const invoiceSludge       = findInvoiceByKeyword('준명', false) || null;
+  const invoiceSalesService = findInvoiceByKeywords(['용역비'], true) || invoiceCandidates.find(f => f.includes('용역비')) || null;
+  const invoiceSalesSludge  = findInvoiceByKeywords(['슬러지'], true) || invoiceCandidates.find(f => f.includes('슬러지') && (f.includes('매출') || path.basename(f).startsWith('매출'))) || null;
+  const invoiceMedicine     = findInvoiceByKeywords(['에이치디', '에이치', '영일', '약품'], false) || null;
+  const invoiceTest         = findInvoiceByKeywords(['대신', '수질', '자가측정'], false) || null;
+  const invoiceKit          = findInvoiceByKeywords(['케이엠', '키트'], false) || null;
+  const invoiceSludge       = findInvoiceByKeywords(['준명', '슬러지'], false) || null;
 
   // 대표 계산서 (UI 미리보기용)
   const invoice = invoiceSalesService || invoiceSalesSludge || invoiceMedicine || invoiceCandidates[0] || null;
@@ -245,7 +247,7 @@ async function getHongcheonEvidenceStatus(year, month) {
  */
 function saveHongcheonEvidence(year, month, type, fileBuffer, originalName) {
   const numYear = Number(year) || 2026;
-  const numMonth = Number(month) || 9;
+  const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
   const desktop = getPrimaryDesktop();
   const settlementDir = path.join(desktop, '월정산', '홍천마감자료', targetYm);
@@ -276,104 +278,14 @@ function saveHongcheonEvidence(year, month, type, fileBuffer, originalName) {
 }
 
 /**
- * HWP 템플릿을 HWPML2X XML로 추출하는 헬퍼 함수
- */
-function extractHwpmlFromTemplate(tplPath) {
-  return new Promise((resolve, reject) => {
-    const xmlOut = path.join(os.tmpdir(), `osoo_hongcheon_tpl_${Date.now()}.xml`);
-    const ps = `
-$ErrorActionPreference = 'Stop'
-$hwp = New-Object -ComObject HWPFrame.HwpObject
-try { $hwp.RegisterModule('FilePathCheckDLL', 'FilePathChecker') | Out-Null } catch {}
-$hwp.SetMessageBoxMode(65535)
-
-$tmpHwp = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "hongcheon_tpl_copy_${Date.now()}.hwp")
-[System.IO.File]::Copy('${tplPath.replace(/'/g, "''")}', $tmpHwp, $true)
-
-$openRes = $hwp.Open($tmpHwp, 'HWP', 'lock:false')
-if (-not $openRes) { throw "템플릿 파일을 열지 못했습니다: $tmpHwp" }
-
-$saveRes = $hwp.SaveAs('${xmlOut.replace(/'/g, "''")}', 'HWPML2X', '')
-if (-not $saveRes) { throw "HWPML2X XML 추출에 실패했습니다: $xmlOut" }
-
-$hwp.Clear(1)
-$hwp.Quit()
-[System.Runtime.InteropServices.Marshal]::ReleaseComObject($hwp) | Out-Null
-try { [System.IO.File]::Delete($tmpHwp) } catch {}
-Write-Host "XML_EXTRACT_OK"
-`;
-    const tempPs1 = path.join(os.tmpdir(), `extract_xml_${Date.now()}.ps1`);
-    fs.writeFileSync(tempPs1, Buffer.concat([Buffer.from('\uFEFF', 'utf8'), Buffer.from(ps, 'utf8')]));
-
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-File', tempPs1], { timeout: 35000 }, (err, stdout, stderr) => {
-      try { if (fs.existsSync(tempPs1)) fs.unlinkSync(tempPs1); } catch (_) {}
-      if (err || !fs.existsSync(xmlOut)) {
-        return reject(new Error(`HWPML2X 추출 실패: ${err?.message || ''}\n${stdout || stderr}`));
-      }
-      const xmlContent = fs.readFileSync(xmlOut, 'utf8');
-      try { fs.unlinkSync(xmlOut); } catch (_) {}
-      resolve(xmlContent);
-    });
-  });
-}
-
-/**
- * 수정된 HWPML2X XML을 한글 COM으로 열어 HWP로 저장하는 헬퍼 함수
- */
-function convertXmlToHwp(xmlContent, targetHwpPath) {
-  return new Promise((resolve, reject) => {
-    const boundXmlPath = path.join(os.tmpdir(), `osoo_bound_${Date.now()}.xml`);
-    fs.writeFileSync(boundXmlPath, xmlContent, 'utf8');
-
-    const tempHwpOut = path.join(os.tmpdir(), `osoo_hwp_out_${Date.now()}.hwp`);
-
-    const ps = `
-$ErrorActionPreference = 'Stop'
-$hwp = New-Object -ComObject HWPFrame.HwpObject
-try { $hwp.RegisterModule('FilePathCheckDLL', 'FilePathChecker') | Out-Null } catch {}
-$hwp.SetMessageBoxMode(65535)
-
-$openRes = $hwp.Open('${boundXmlPath.replace(/'/g, "''")}', 'HWPML2X', 'lock:false')
-if (-not $openRes) { throw "바운드 XML 열기 실패: $boundXmlPath" }
-
-$saveRes = $hwp.SaveAs('${tempHwpOut.replace(/'/g, "''")}', 'HWP', '')
-if (-not $saveRes) { throw "HWP 변환 저장 실패: $tempHwpOut" }
-
-$hwp.Clear(1)
-$hwp.Quit()
-[System.Runtime.InteropServices.Marshal]::ReleaseComObject($hwp) | Out-Null
-Write-Host "CONVERT_OK"
-`;
-    const tempPs1 = path.join(os.tmpdir(), `convert_xml_${Date.now()}.ps1`);
-    fs.writeFileSync(tempPs1, Buffer.concat([Buffer.from('\uFEFF', 'utf8'), Buffer.from(ps, 'utf8')]));
-
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-File', tempPs1], { timeout: 45000 }, (err, stdout, stderr) => {
-      try { if (fs.existsSync(tempPs1)) fs.unlinkSync(tempPs1); } catch (_) {}
-      try { if (fs.existsSync(boundXmlPath)) fs.unlinkSync(boundXmlPath); } catch (_) {}
-
-      if (err || !fs.existsSync(tempHwpOut)) {
-        return reject(new Error(`XML -> HWP 변환 실패: ${err?.message || ''}\n${stdout || stderr}`));
-      }
-
-      try {
-        // 목표 경로로 안전 복사
-        fs.copyFileSync(tempHwpOut, targetHwpPath);
-        try { fs.unlinkSync(tempHwpOut); } catch (_) {}
-        resolve(targetHwpPath);
-      } catch (copyErr) {
-        try { if (fs.existsSync(tempHwpOut)) fs.unlinkSync(tempHwpOut); } catch (_) {}
-        reject(copyErr);
-      }
-    });
-  });
-}
-
-/**
- * 홍천 한글(HWP) 정산서 자동 생성 메인 함수 (HWPML2X 무결성 엔진)
+ * 홍천 한글(HWP) 정산서 자동 생성 메인 함수 (HWP COM 북마크 직접 바인딩 엔진)
+ * 
+ * 계약서 원본(Pic #1, #2)은 100% 무결성 보존되며,
+ * 비어있는 북마크 사각형 위치에 6종 계산서, 사진, 성적서가 정확한 규격으로 자동 배치됩니다.
  */
 async function generateHongcheonHwpReport(year, month, customInputs = {}) {
   const numYear = Number(year) || 2026;
-  const numMonth = Number(month) || 9;
+  const numMonth = Number(month) || 10;
   const targetYm = `${numYear}${String(numMonth).padStart(2, '0')}`;
   const yy = String(numYear).slice(-2);
   const mm = String(numMonth).padStart(2, '0');
@@ -392,7 +304,7 @@ async function generateHongcheonHwpReport(year, month, customInputs = {}) {
   const cleanCert = customInputs.cleanCert || status.cleanCert;
   const sludgePhoto = customInputs.sludgePhoto || status.sludgePhoto;
   const certs = customInputs.certs?.length ? customInputs.certs : status.certs;
-  const invMap = status.invoiceMap || {};
+  const invMap = { ...status.invoiceMap, ...(customInputs.invoiceMap || {}) };
 
   if (!cleanCert) {
     console.warn('[hongcheonHwpService] 청소필증 이미지가 없어 빈 슬롯으로 유지합니다.');
@@ -401,89 +313,30 @@ async function generateHongcheonHwpReport(year, month, customInputs = {}) {
     console.warn('[hongcheonHwpService] 반출사진 이미지가 없어 빈 슬롯으로 유지합니다.');
   }
 
-  console.log(`[hongcheonHwpService] 1. 템플릿에서 HWPML2X XML 추출 시작: ${tplPath}`);
-  let xml = await extractHwpmlFromTemplate(tplPath);
+  // 3. 바인딩 작업 목록 구성 (계약서는 템플릿 첫 페이지에 보존되므로 바인딩 목록에 포함하지 않음)
+  const bindingTasks = [
+    { name: '매출계산서용역비', bookmark: '매출계산서용역비', file: invMap.salesService, wMm: 162, hMm: 100 },
+    { name: '매출계산서슬러지', bookmark: '매출계산서슬러지', file: invMap.salesSludge, wMm: 162, hMm: 100 },
+    { name: '약품비계산서', bookmark: '약품비계산서', file: invMap.medicine, wMm: 162, hMm: 100 },
+    { name: '수질분석계산서', bookmark: '수질분석계산서', file: invMap.test, wMm: 162, hMm: 100 },
+    { name: '키트계산서', bookmark: '키트계산서', file: invMap.kit, wMm: 162, hMm: 100 },
+    { name: '슬러지처리계산서', bookmark: '슬러지처리계산서', file: invMap.sludge, wMm: 162, hMm: 100 },
+    { name: '반출사진', bookmark: '반출사진', file: sludgePhoto, wMm: 135, hMm: 100 },
+    { name: '청소필증', bookmark: '청소필증', file: cleanCert, wMm: 135, hMm: 100 },
+    { name: '성적서1', bookmark: '성적서1', file: certs[0] || null, wMm: 54, hMm: 64 },
+    { name: '성적서2', bookmark: '성적서2', file: certs[1] || null, wMm: 54, hMm: 64 },
+    { name: '성적서3', bookmark: '성적서3', file: certs[2] || null, wMm: 54, hMm: 64 },
+    { name: '성적서4', bookmark: '성적서4', file: certs[3] || null, wMm: 54, hMm: 64 },
+  ];
 
-  // 3. 텍스트 일괄 치환 (6월/8월 잔상 100% 제거 -> 대상 월 반영)
-  console.log(`[hongcheonHwpService] 2. 정산월(${numMonth}월) 텍스트 일괄 치환 진행...`);
-  xml = xml.replace(/오수처리비용 정산증빙 자료26년\(6월\)/g, `오수처리비용 정산증빙 자료${yy}년(${numMonth}월)`);
-  xml = xml.replace(/오수처리비용 정산증빙 자료26년\(8월\)/g, `오수처리비용 정산증빙 자료${yy}년(${numMonth}월)`);
-  xml = xml.replace(/26년\(6월\)/g, `${yy}년(${numMonth}월)`);
-  xml = xml.replace(/25년\(6월\)/g, `${yy}년(${numMonth}월)`);
-  xml = xml.replace(/26년\(8월\)/g, `${yy}년(${numMonth}월)`);
-  xml = xml.replace(/25년\(8월\)/g, `${yy}년(${numMonth}월)`);
-  xml = xml.replace(/\(6월\)/g, `(${numMonth}월)`);
-  xml = xml.replace(/\(8월\)/g, `(${numMonth}월)`);
-  xml = xml.replace(/26년 6월/g, `${yy}년 ${numMonth}월`);
-  xml = xml.replace(/25년 6월/g, `${yy}년 ${numMonth}월`);
-  xml = xml.replace(/26년 8월/g, `${yy}년 ${numMonth}월`);
-  xml = xml.replace(/25년 8월/g, `${yy}년 ${numMonth}월`);
-  xml = xml.replace(/2026년 06월/g, `${numYear}년 ${mm}월`);
-  xml = xml.replace(/2026년 08월/g, `${numYear}년 ${mm}월`);
-  xml = xml.replace(/2026년 6월/g, `${numYear}년 ${numMonth}월`);
-  xml = xml.replace(/2026년 8월/g, `${numYear}년 ${numMonth}월`);
-  xml = xml.replace(/2025년 6월/g, `${numYear}년 ${numMonth}월`);
-  xml = xml.replace(/2025년 8월/g, `${numYear}년 ${numMonth}월`);
-
-  // 4. 18개 이미지 바인딩 매핑 테이블 구성
-  console.log(`[hongcheonHwpService] 3. 18개 이미지 바이너리(Base64) 전수 교체 진행...`);
-  const imageReplacements = {
-    // 계산서 6종
-    '1': invMap.salesService, // Pic #3: 매출계산서 용역비
-    '2': invMap.salesSludge,  // Pic #4: 매출계산서 슬러지
-    '3': invMap.medicine,     // Pic #5: 매입계산서 영일(약품)
-    '4': invMap.test,         // Pic #6: 매입계산서 대신(자가측정)
-    '5': invMap.kit,          // Pic #7: 매입계산서 케이엠(키트)
-    '6': invMap.sludge,       // Pic #8: 매입계산서 준명(슬러지)
-    // 슬러지 반출사진 & 청소필증 (없으면 빈 슬롯으로 유지)
-    '7': sludgePhoto || 'EMPTY',         // Pic #9: 슬러지반출사진
-    '8': cleanCert || 'EMPTY',           // Pic #10: 청소필증
-    // 수질성적서 4장
-    '9': certs[0] || null,    // Pic #13: 성적서 1
-    '10': certs[1] || null,   // Pic #14: 성적서 2
-    '11': certs[2] || null,   // Pic #15: 성적서 3
-    '12': certs[3] || null,   // Pic #16: 성적서 4
-    // 5번째, 6번째 성적서 -> 9월부터 4장 규격이므로 투명화 제거
-    '13': 'EMPTY',            // Pic #17: 5차 성적서 슬롯 투명화
-    '14': 'EMPTY',            // Pic #18: 6차 성적서 슬롯 투명화
-  };
-
-  // 수리수선비 또는 관련사진이 있으면 교체
-  if (status.repairs?.[0]) imageReplacements['15'] = status.repairs[0];
-  if (status.repairs?.[1]) imageReplacements['18'] = status.repairs[1];
-
-  for (const [id, fPath] of Object.entries(imageReplacements)) {
-    let b64 = '';
-    let format = 'jpg';
-
-    if (fPath === 'EMPTY') {
-      b64 = TRANSPARENT_PNG_BASE64;
-      format = 'png';
-    } else if (fPath && fs.existsSync(fPath)) {
-      const buf = fs.readFileSync(fPath);
-      b64 = buf.toString('base64');
-      format = path.extname(fPath).toLowerCase().replace('.', '') || 'jpg';
-      if (format === 'jpeg') format = 'jpg';
-      console.log(`  -> [Id=${id}] ${path.basename(fPath)} 바인딩 완료 (${buf.length} bytes)`);
-    } else {
-      console.warn(`  -> [Id=${id}] 파일 없음 또는 미지정: ${fPath}, 기존 템플릿 유지`);
-      continue;
-    }
-
-    // <BINDATA Encoding="Base64" Id="N" Size="...">...</BINDATA> 교체
-    const binDataRegex = new RegExp(`(<BINDATA[^>]*Id="${id}"[^>]*>)[\\s\\S]*?(<\\/BINDATA>)`, 'i');
-    if (binDataRegex.test(xml)) {
-      xml = xml.replace(binDataRegex, `$1${b64}$2`);
-    }
-
-    // BINITEM 포맷 갱신 (Format="jpg" 또는 "png")
-    const binItemRegex = new RegExp(`(<BINITEM[^>]*BinData="${id}"[^>]*Format=")[^"]*(")`, 'i');
-    if (binItemRegex.test(xml)) {
-      xml = xml.replace(binItemRegex, `$1${format}$2`);
-    }
+  if (status.repairs?.[0]) {
+    bindingTasks.push({ name: '수리비계산서1', bookmark: '수리비계산서1', file: status.repairs[0], wMm: 135, hMm: 100 });
+  }
+  if (status.repairs?.[1]) {
+    bindingTasks.push({ name: '수리비계산서2', bookmark: '수리비계산서2', file: status.repairs[1], wMm: 135, hMm: 100 });
   }
 
-  // 5. 출력 파일 경로 결정
+  // 4. 출력 경로 설정
   const desktop = getPrimaryDesktop();
   const outputFileName = `홍천휴게소(양양)휴게소_${yy}년 ${numMonth}월 오수정화조 임대료 정산보고서.hwp`;
   const targetFolder = path.join(desktop, '월정산', '홍천마감자료', targetYm);
@@ -493,28 +346,196 @@ async function generateHongcheonHwpReport(year, month, customInputs = {}) {
   const targetFilePath = path.join(targetFolder, outputFileName);
   const desktopFilePath = path.join(desktop, outputFileName);
 
-  // 6. XML -> HWP 변환 및 저장
-  console.log(`[hongcheonHwpService] 4. 바운드 XML -> HWP 변환 및 저장 시작...`);
-  await convertXmlToHwp(xml, targetFilePath);
-  console.log(`[hongcheonHwpService] 정규 경로 저장 성공: ${targetFilePath}`);
+  // 5. 작업용 임시 파일 경로
+  const workingDoc = path.join(os.tmpdir(), `osoo_hongcheon_${Date.now()}.hwp`);
+  fs.copyFileSync(tplPath, workingDoc);
 
-  // 7. 바탕화면 바로 위에도 동시 복사
-  try {
-    fs.copyFileSync(targetFilePath, desktopFilePath);
-    console.log(`[hongcheonHwpService] 바탕화면 동시 복사 완료: ${desktopFilePath}`);
-  } catch (deskErr) {
-    console.warn(`[hongcheonHwpService] 바탕화면 복사 주의: ${deskErr.message}`);
+  const tasksJson = JSON.stringify(bindingTasks).replace(/'/g, "''");
+
+  const psScript = `
+$ErrorActionPreference = 'Stop'
+
+function LogMsg($msg) {
+  Write-Host "[홍천HWP] $msg"
+}
+
+try {
+  LogMsg "1. HWP COM 개체 생성 및 보안 모듈 등록..."
+  $hwp = New-Object -ComObject HWPFrame.HwpObject
+  try { $hwp.RegisterModule('FilePathCheckDLL', 'OsooHandleFilePathChecker') | Out-Null } catch {}
+  try { $hwp.RegisterModule('FilePathCheckDLL', 'FilePathChecker') | Out-Null } catch {}
+  $hwp.SetMessageBoxMode(65535)
+
+  LogMsg "2. 템플릿 작업 복사본 열기: ${workingDoc.replace(/'/g, "''")}"
+  $openRes = $hwp.Open('${workingDoc.replace(/'/g, "''")}', 'HWP', 'lock:false')
+  if (-not $openRes) {
+    throw "템플릿 파일을 열지 못했습니다: ${workingDoc.replace(/'/g, "''")}"
   }
 
-  return {
-    success: true,
-    fileName: outputFileName,
-    savedPath: targetFilePath,
-    desktopPath: desktopFilePath,
-    year: numYear,
-    month: numMonth,
-    missing: status.missing,
-  };
+  try { $hwp.Run('LockCommand') | Out-Null; LogMsg "LockCommand 적용 완료" } catch {}
+
+  function MoveToBookmarkSafe($name) {
+    if (-not $name) { return $false }
+    try {
+      $hwp.Run('MoveDocBegin') | Out-Null
+      $pset = $hwp.HParameterSet.HBookMark
+      $hwp.HAction.GetDefault('Bookmark', $pset.HSet) | Out-Null
+      $pset.Name = [string]$name
+      $pset.Command = 1
+      return $hwp.HAction.Execute('Bookmark', $pset.HSet)
+    } catch {
+      return $false
+    }
+  }
+
+  function ReplaceTextEverywhere($findStr, $repStr) {
+    if (-not $findStr) { return }
+    $hwp.Run('MoveDocBegin') | Out-Null
+    $param = $hwp.HParameterSet.HFindReplace
+    $hwp.HAction.GetDefault('AllReplace', $param.HSet) | Out-Null
+    $param.FindString = [string]$findStr
+    $param.ReplaceString = [string]$repStr
+    $param.IgnoreMessage = 1
+    $param.Direction = 0
+    $param.MatchCase = 0
+    $param.WholeWordOnly = 0
+    $param.ReplaceMode = 1
+    $hwp.HAction.Execute('AllReplace', $param.HSet) | Out-Null
+  }
+
+  function PasteImageToHwp($fPath, $wMm, $hMm) {
+    try {
+      if (-not (Test-Path -LiteralPath $fPath)) { return $false }
+      $widthMm = [math]::Round([double]$wMm, 1)
+      $heightMm = [math]::Round([double]$hMm, 1)
+      $ctrl = $hwp.InsertPicture([string]$fPath, $true, 1, $false, $false, 0, $widthMm, $heightMm)
+      if ($ctrl -ne $null) {
+        try {
+          if ($ctrl.Properties.Item('TreatAsChar') -ne 1) {
+            $ctrl.Properties.SetItem('TreatAsChar', 1)
+          }
+        } catch {}
+        return $true
+      }
+      return $false
+    } catch {
+      LogMsg "InsertPicture Error: $($_.Exception.Message)"
+      return $false
+    }
+  }
+
+  LogMsg "3. 정산월(${numMonth}월) 텍스트 일괄 치환 시작..."
+  $replacePairs = @(
+    @{ F = '26년(8월)'; R = '${yy}년(${numMonth}월)' },
+    @{ F = '26년(6월)'; R = '${yy}년(${numMonth}월)' },
+    @{ F = '25년(8월)'; R = '${yy}년(${numMonth}월)' },
+    @{ F = '25년(6월)'; R = '${yy}년(${numMonth}월)' },
+    @{ F = '26년 8월';  R = '${yy}년 ${numMonth}월' },
+    @{ F = '26년 6월';  R = '${yy}년 ${numMonth}월' },
+    @{ F = '25년 8월';  R = '${yy}년 ${numMonth}월' },
+    @{ F = '25년 6월';  R = '${yy}년 ${numMonth}월' },
+    @{ F = '8월)';      R = '${numMonth}월)' },
+    @{ F = '6월)';      R = '${numMonth}월)' },
+    @{ F = '(8월)';     R = '(${numMonth}월)' },
+    @{ F = '(6월)';     R = '(${numMonth}월)' },
+    @{ F = '2026년 08월'; R = '${numYear}년 ${mm}월' },
+    @{ F = '2026년 06월'; R = '${numYear}년 ${mm}월' },
+    @{ F = '2026년 8월';  R = '${numYear}년 ${numMonth}월' },
+    @{ F = '2026년 6월';  R = '${numYear}년 ${numMonth}월' },
+    @{ F = '2025년 8월';  R = '${numYear}년 ${numMonth}월' },
+    @{ F = '2025년 6월';  R = '${numYear}년 ${numMonth}월' },
+    @{ F = '26년(';     R = '${yy}년(' },
+    @{ F = '25년(';     R = '${yy}년(' }
+  )
+
+  foreach ($pair in $replacePairs) {
+    ReplaceTextEverywhere $pair.F $pair.R
+  }
+
+  LogMsg "4. 책갈피별 증빙 이미지 정밀 바인딩 시작..."
+  $tasks = ConvertFrom-Json @'
+${tasksJson}
+'@
+
+  foreach ($t in $tasks) {
+    if (-not $t.file) {
+      LogMsg " -> [$($t.name)] 파일이 없어 건너뜁니다."
+      continue
+    }
+    if (-not (Test-Path -LiteralPath $t.file)) {
+      LogMsg " -> [$($t.name)] 파일 미존재: $($t.file)"
+      continue
+    }
+
+    $bm = $t.bookmark
+    $moved = MoveToBookmarkSafe $bm
+    if (-not $moved) {
+      if ($bm -eq '청소필증') { $moved = MoveToBookmarkSafe '필증' }
+      elseif ($bm -eq '필증') { $moved = MoveToBookmarkSafe '청소필증' }
+    }
+
+    if ($moved) {
+      LogMsg " -> 책갈피 [$bm] 이동 성공, 이미지 삽입 ($($t.wMm)x$($t.hMm)mm): $(Split-Path $t.file -Leaf)"
+      $ok = PasteImageToHwp $t.file $t.wMm $t.hMm
+      if ($ok) {
+        LogMsg "    [$bm] 삽입 완료!"
+      } else {
+        LogMsg "    [$bm] 삽입 실패!"
+      }
+    } else {
+      LogMsg " -> 경고: 책갈피 [$bm]을 찾지 못했습니다."
+    }
+  }
+
+  LogMsg "5. HWP 문서 저장..."
+  $saveRes = $hwp.SaveAs('${workingDoc.replace(/'/g, "''")}', 'HWP', 'lock:false')
+  LogMsg "Save result: $saveRes"
+
+  $hwp.Clear(1)
+  $hwp.Quit()
+  [System.Runtime.InteropServices.Marshal]::ReleaseComObject($hwp) | Out-Null
+  Write-Host "HWP_GEN_SUCCESS"
+} catch {
+  Write-Host "HWP_GEN_ERROR: $($_.Exception.Message)"
+  exit 1
+}
+`;
+
+  const tempPs1 = path.join(os.tmpdir(), `osoo_hongcheon_gen_${Date.now()}.ps1`);
+  fs.writeFileSync(tempPs1, Buffer.concat([Buffer.from('\uFEFF', 'utf8'), Buffer.from(psScript, 'utf8')]));
+
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-File', tempPs1], { timeout: 60000 }, (err, stdout, stderr) => {
+      try { if (fs.existsSync(tempPs1)) fs.unlinkSync(tempPs1); } catch (_) {}
+
+      if (err) {
+        console.error('[hongcheonHwpService] HWP 생성 실행 오류:', err.message);
+        try { if (fs.existsSync(workingDoc)) fs.unlinkSync(workingDoc); } catch (_) {}
+        return reject(new Error(`홍천 한글 정산서 생성 실패: ${err.message}\n${stdout || stderr}`));
+      }
+
+      // 정규 마감 폴더에만 안전 저장 (바탕화면 루트 중복 복사 방지)
+      try {
+        fs.copyFileSync(workingDoc, targetFilePath);
+        console.log(`[hongcheonHwpService] 정규 경로 저장 완료: ${targetFilePath}`);
+      } catch (saveErr) {
+        try { if (fs.existsSync(workingDoc)) fs.unlinkSync(workingDoc); } catch (_) {}
+        return reject(new Error(`생성된 파일 저장 실패: ${saveErr.message}`));
+      } finally {
+        try { if (fs.existsSync(workingDoc)) fs.unlinkSync(workingDoc); } catch (_) {}
+      }
+
+      resolve({
+        success: true,
+        fileName: outputFileName,
+        savedPath: targetFilePath,
+        desktopPath: targetFilePath,
+        year: numYear,
+        month: numMonth,
+        missing: status.missing,
+      });
+    });
+  });
 }
 
 module.exports = {
