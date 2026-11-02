@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useMonthlySettlementAuto } from './hooks/useMonthlySettlementAuto';
 import { CheongjuStatementUploadModal } from './components/CheongjuStatementUploadModal';
 import { HongcheonHwpModal } from './components/HongcheonHwpModal';
@@ -19,6 +19,7 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
     toastMessage,
     uploadingSiteId,
     isGenerating,
+    generatingSiteId,
     fetchSummary,
     fetchTemplates,
     openTemplate,
@@ -45,6 +46,35 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
   const [dragOverSiteId, setDragOverSiteId] = useState(null);
   const [isCheongjuModalOpen, setIsCheongjuModalOpen] = useState(false);
   const [isHongcheonModalOpen, setIsHongcheonModalOpen] = useState(false);
+  const [progressInfo, setProgressInfo] = useState({ percent: 0, step: '' });
+  const [completedSites, setCompletedSites] = useState({});
+
+  useEffect(() => {
+    setCompletedSites({});
+  }, [year, month]);
+
+  useEffect(() => {
+    if (!generatingSiteId) {
+      setProgressInfo({ percent: 0, step: '' });
+      return;
+    }
+    setProgressInfo({ percent: 18, step: 'Drive 증빙 확인 중...' });
+    const t1 = setTimeout(() => {
+      setProgressInfo({ percent: 48, step: '데이터 바인딩 중...' });
+    }, 600);
+    const t2 = setTimeout(() => {
+      setProgressInfo({ percent: 78, step: '문서 파일 생성 중...' });
+    }, 1500);
+    const t3 = setTimeout(() => {
+      setProgressInfo({ percent: 92, step: '서식 마무리 중...' });
+    }, 2800);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [generatingSiteId]);
 
   const handleOpenFileDialog = (siteId, isSub = false) => {
     setTargetUploadSite({ siteId, isSub });
@@ -248,108 +278,211 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', color: '#475569', fontWeight: 700, borderBottom: '1px solid #cbd5e1' }}>
-                    <th style={thStyle}>현장명</th>
-                    <th style={thStyle}>서식 포맷</th>
-                    <th style={thStyle}>적용 템플릿</th>
-                    <th style={thStyle}>포함 내용</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>상태</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>작업</th>
+                    <th style={{ ...thStyle, minWidth: '130px' }}>현장명</th>
+                    <th style={{ ...thStyle, width: '90px' }}>서식 포맷</th>
+                    <th style={{ ...thStyle, width: '160px', maxWidth: '160px' }}>적용 템플릿</th>
+                    <th style={{ ...thStyle, maxWidth: '240px' }}>포함 내용</th>
+                    <th style={{ ...thStyle, width: '190px', minWidth: '180px' }}>상태</th>
+                    <th style={{ ...thStyle, width: '125px' }}>작업</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sites.map((site, idx) => (
-                    <tr key={site.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: '#0f172a' }}>
-                        {site.name} <span style={{ fontSize: '11px', color: '#2563eb' }}>({site.shortName})</span>
-                      </td>
-                      <td style={tdStyle}>
-                        <span style={{
-                          padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
-                          background: site.type === 'hwp_excel' ? '#fee2e2' : '#e0f2fe',
-                          color: site.type === 'hwp_excel' ? '#b91c1c' : '#0369a1',
-                        }}>
-                          {site.format ? site.format.toUpperCase() : 'DOC'}
-                        </span>
-                      </td>
-                      <td style={{ ...tdStyle, color: '#475569', fontSize: '12px', fontFamily: 'monospace' }}>
-                        {site.subTemplate ? `${site.template} + ${site.subTemplate}` : site.template}
-                      </td>
-                      <td style={{ ...tdStyle, color: '#64748b', fontSize: '12px' }}>
-                        {site.description}
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'center' }}>
-                        <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
-                          데이터 바인딩 준비
-                        </span>
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'center' }}>
-                        <button
-                          disabled={isGenerating}
-                          onClick={async () => {
-                            if (site.id === 'cheongju_seoul') {
-                              setIsCheongjuModalOpen(true);
-                              return;
-                            }
-                            if (site.id === 'hongcheon_yangyang_hwp') {
-                              setIsHongcheonModalOpen(true);
-                              return;
-                            }
-                            if (site.id === 'cheongsong') {
-                              await generateCheongsongReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'geumwang') {
-                              await generateGeumwangReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'miryang') {
-                              await generateMiryangReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'gochang_mokpo') {
-                              await generateGochangReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'gochang_seoul') {
-                              await generateGochangSeoulReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'andong') {
-                              await generateAndongReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'seonsan_changwon') {
-                              await generateSeonsanChangwonReport({}, year, month);
-                              return;
-                            }
-                            if (site.id === 'seonsan_yangpyeong') {
-                              await generateSeonsanYangpyeongReport({}, year, month);
-                              return;
-                            }
+                  {sites.map((site, idx) => {
+                    const isThisSiteGenerating = generatingSiteId === site.id;
+                    const nameMatch = (site.name || '').match(/^(.*?)(\(.*?\))$/);
+                    const mainSiteName = nameMatch ? nameMatch[1] : site.name;
+                    const subSiteName = nameMatch ? nameMatch[2] : (site.shortName ? `(${site.shortName})` : '');
+                    const tmplText = site.subTemplate ? `${site.template} + ${site.subTemplate}` : site.template;
 
-                            if (site.id === 'jukam_seoul') {
-                              await generateJukamSeoulReport({ targetYear: year, targetMonth: month });
-                            } else if (site.id === 'jukam_busan') {
-                              await generateJukamBusanReport({ targetYear: year, targetMonth: month });
-                            } else if (site.id === 'cheonan_busan') {
-                              await generateCheonanBusanReport({ targetYear: year, targetMonth: month });
-                            } else if (site.id === 'hongcheon_yangyang_excel' || site.id === 'hongcheon_yangyang') {
-                              await generateHongcheonExcelReport(year, month);
-                            } else {
-                              alert(`[${site.name}] ${year}년 ${month}월 정산 파일 자동 작성 엔진이 연결되었습니다.`);
-                            }
-                          }}
+                    return (
+                      <tr key={site.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                        {/* 1. 현장명: 두 줄 표현 (방향 줄바꿈) */}
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                              {mainSiteName}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#2563eb', marginTop: '2px', whiteSpace: 'nowrap' }}>
+                              {subSiteName}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 2. 서식 포맷: 중앙 정렬 */}
+                        <td style={{ ...tdStyle, textAlign: 'center', width: '90px' }}>
+                          <span style={{
+                            padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                            background: site.type === 'hwp_excel' ? '#fee2e2' : '#e0f2fe',
+                            color: site.type === 'hwp_excel' ? '#b91c1c' : '#0369a1',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {site.format ? site.format.toUpperCase() : 'DOC'}
+                          </span>
+                        </td>
+
+                        {/* 3. 적용 템플릿: 너비 160px 축소 + 한 줄 말줄임표(...) + title */}
+                        <td
                           style={{
-                            padding: '5px 12px', background: isGenerating ? '#94a3b8' : '#4f46e5', color: '#ffffff', border: 'none',
-                            borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: isGenerating ? 'not-allowed' : 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            ...tdStyle,
+                            width: '160px',
+                            maxWidth: '160px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            color: '#475569',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
                           }}
+                          title={tmplText}
                         >
-                          {isGenerating ? '⏳ 작성 중...' : '📥 정산서 작성'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {tmplText}
+                        </td>
+
+                        {/* 4. 포함 내용: 너비 240px 축소 + 두 줄 말줄임표 */}
+                        <td style={{ ...tdStyle, maxWidth: '240px' }} title={site.description}>
+                          <div
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'keep-all',
+                              lineHeight: '1.4',
+                              color: '#64748b',
+                              fontSize: '12px',
+                            }}
+                          >
+                            {site.description}
+                          </div>
+                        </td>
+
+                        {/* 5. 상태: 190px 너비 + 실시간 프로그레스바 또는 완료/준비 배지 */}
+                        <td style={{ ...tdStyle, width: '190px', minWidth: '180px', textAlign: 'center' }}>
+                          {isThisSiteGenerating ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', padding: '2px 4px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 700, color: '#4338ca' }}>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '125px' }}>
+                                  {progressInfo.step}
+                                </span>
+                                <span style={{ fontFamily: 'monospace' }}>{progressInfo.percent}%</span>
+                              </div>
+                              <div style={{ width: '100%', height: '7px', background: '#e0e7ff', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div
+                                  style={{
+                                    width: `${progressInfo.percent}%`,
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, #6366f1, #4f46e5)',
+                                    borderRadius: '4px',
+                                    transition: 'width 0.35s ease-in-out',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ) : completedSites[site.id] ? (
+                            <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: '#ecfdf5', color: '#047857', border: '1px solid #6ee7b7', whiteSpace: 'nowrap' }}>
+                              ✅ 작성 완료 (100%)
+                            </span>
+                          ) : (
+                            <span style={{ padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', whiteSpace: 'nowrap' }}>
+                              데이터 바인딩 준비
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 6. 작업: 125px 너비 + 한 줄 표시 버튼 */}
+                        <td style={{ ...tdStyle, width: '125px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <button
+                            disabled={isGenerating}
+                            onClick={async () => {
+                              if (site.id === 'cheongju_seoul') {
+                                setIsCheongjuModalOpen(true);
+                                return;
+                              }
+                              if (site.id === 'hongcheon_yangyang_hwp') {
+                                setIsHongcheonModalOpen(true);
+                                return;
+                              }
+                              if (site.id === 'cheongsong') {
+                                const ok = await generateCheongsongReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'geumwang') {
+                                const ok = await generateGeumwangReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'miryang') {
+                                const ok = await generateMiryangReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'gochang_mokpo') {
+                                const ok = await generateGochangReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'gochang_seoul') {
+                                const ok = await generateGochangSeoulReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'andong') {
+                                const ok = await generateAndongReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'seonsan_changwon') {
+                                const ok = await generateSeonsanChangwonReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+                              if (site.id === 'seonsan_yangpyeong') {
+                                const ok = await generateSeonsanYangpyeongReport({}, year, month);
+                                if (ok) setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                                return;
+                              }
+
+                              let success = false;
+                              if (site.id === 'jukam_seoul') {
+                                success = await generateJukamSeoulReport({ targetYear: year, targetMonth: month, siteId: site.id });
+                              } else if (site.id === 'jukam_busan') {
+                                success = await generateJukamBusanReport({ targetYear: year, targetMonth: month, siteId: site.id });
+                              } else if (site.id === 'cheonan_busan') {
+                                success = await generateCheonanBusanReport({ targetYear: year, targetMonth: month, siteId: site.id });
+                              } else if (site.id === 'hongcheon_yangyang_excel' || site.id === 'hongcheon_yangyang') {
+                                success = await generateHongcheonExcelReport(year, month, site.id);
+                              } else {
+                                alert(`[${site.name}] ${year}년 ${month}월 정산 파일 자동 작성 엔진이 연결되었습니다.`);
+                              }
+                              if (success) {
+                                setCompletedSites(prev => ({ ...prev, [site.id]: true }));
+                              }
+                            }}
+                            style={{
+                              padding: '5px 12px',
+                              background: isThisSiteGenerating ? '#f59e0b' : (isGenerating ? '#94a3b8' : '#4f46e5'),
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: isGenerating ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                            }}
+                          >
+                            {isThisSiteGenerating ? '⏳ 작성 중...' : '📥 정산서 작성'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -366,7 +499,10 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         isGenerating={isGenerating}
         onGenerate={async (statements) => {
           const success = await generateCheongjuReport(statements, year, month);
-          if (success) setIsCheongjuModalOpen(false);
+          if (success) {
+            setCompletedSites(prev => ({ ...prev, cheongju_seoul: true }));
+            setIsCheongjuModalOpen(false);
+          }
         }}
       />
 
@@ -379,7 +515,10 @@ export function MonthlySettlementAutoView({ currentUser } = {}) {
         isGenerating={isGenerating}
         onGenerate={async (customInputs) => {
           const success = await generateHongcheonHwpReport(customInputs, year, month);
-          if (success) setIsHongcheonModalOpen(false);
+          if (success) {
+            setCompletedSites(prev => ({ ...prev, hongcheon_yangyang_hwp: true }));
+            setIsHongcheonModalOpen(false);
+          }
         }}
       />
 
@@ -422,5 +561,5 @@ const cardStyle = {
 };
 
 const cardLabel = { fontSize: '12px', fontWeight: 600, color: '#64748b' };
-const thStyle = { padding: '12px 14px', whiteSpace: 'nowrap', border: '1px solid #cbd5e1' };
+const thStyle = { padding: '12px 14px', whiteSpace: 'nowrap', border: '1px solid #cbd5e1', textAlign: 'center' };
 const tdStyle = { padding: '12px 14px', verticalAlign: 'middle', border: '1px solid #cbd5e1' };

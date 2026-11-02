@@ -183,11 +183,12 @@ export function useMonthlySettlementAuto(currentUser = null) {
     }
   }, [fetchTemplates, showToast]);
 
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingSiteId, setGeneratingSiteId] = useState(null);
+  const isGenerating = Boolean(generatingSiteId);
 
   // 청주휴게소 정산서 한글 파일 생성 및 다운로드
   const generateCheongjuReport = useCallback(async (statements, targetYear = year, targetMonth = month) => {
-    setIsGenerating(true);
+    setGeneratingSiteId('cheongju_seoul');
     setError(null);
     try {
       const formData = new FormData();
@@ -223,13 +224,13 @@ export function useMonthlySettlementAuto(currentUser = null) {
       alert(`⚠️ 청주휴게소 정산서 작성 실패\n\n오류: ${err.message}`);
       return false;
     } finally {
-      setIsGenerating(false);
+      setGeneratingSiteId(null);
     }
   }, [year, month, showToast]);
 
   // 공통 정산 보고서 생성 호출 헬퍼
-  const requestSettlementGen = useCallback(async ({ name, url, errorMsg, toastSuccess }, customInputs = {}, targetYear = year, targetMonth = month) => {
-    setIsGenerating(true);
+  const requestSettlementGen = useCallback(async ({ siteId, name, url, errorMsg, toastSuccess }, customInputs = {}, targetYear = year, targetMonth = month) => {
+    if (siteId) setGeneratingSiteId(siteId);
     setError(null);
     try {
       showToast(`⏳ [${name}] ${targetYear}년 ${targetMonth}월 정산서 자동 생성을 시작합니다...`);
@@ -247,46 +248,48 @@ export function useMonthlySettlementAuto(currentUser = null) {
       setError(err.message);
       return false;
     } finally {
-      setIsGenerating(false);
+      setGeneratingSiteId(null);
     }
   }, [year, month, showToast]);
 
   const generateJukamBusanReport = useCallback((opt = {}) => {
     const y = opt.targetYear || year;
     const m = opt.targetMonth || month;
-    return requestSettlementGen({ name: '죽암휴게소(부산방향)', url: '/api/settlement/generate/jukam-busan', errorMsg: '죽암(부산방향) 정산서 엑셀 생성 실패' }, {}, y, m);
+    return requestSettlementGen({ siteId: opt.siteId || 'jukam_busan', name: '죽암휴게소(부산방향)', url: '/api/settlement/generate/jukam-busan', errorMsg: '죽암(부산방향) 정산서 엑셀 생성 실패' }, {}, y, m);
   }, [requestSettlementGen, year, month]);
 
   const generateJukamSeoulReport = useCallback((opt = {}) => {
     const y = opt.targetYear || year;
     const m = opt.targetMonth || month;
-    return requestSettlementGen({ name: '죽암휴게소(서울방향)', url: '/api/settlement/generate/jukam-seoul', errorMsg: '죽암(서울방향) 정산서 엑셀 생성 실패' }, {}, y, m);
+    return requestSettlementGen({ siteId: opt.siteId || 'jukam_seoul', name: '죽암휴게소(서울방향)', url: '/api/settlement/generate/jukam-seoul', errorMsg: '죽암(서울방향) 정산서 엑셀 생성 실패' }, {}, y, m);
   }, [requestSettlementGen, year, month]);
 
   const generateCheonanBusanReport = useCallback((opt = {}) => {
     const y = opt.targetYear || year;
     const m = opt.targetMonth || month;
-    return requestSettlementGen({ name: '천안휴게소(부산방향)', url: '/api/settlement/generate/cheonan-busan', errorMsg: '천안(부산방향) 정산서 엑셀 생성 실패' }, {}, y, m);
+    return requestSettlementGen({ siteId: opt.siteId || 'cheonan_busan', name: '천안휴게소(부산방향)', url: '/api/settlement/generate/cheonan-busan', errorMsg: '천안(부산방향) 정산서 엑셀 생성 실패' }, {}, y, m);
   }, [requestSettlementGen, year, month]);
 
-  const generateHongcheonExcelReport = useCallback((y = year, m = month) =>
-    requestSettlementGen({ name: '홍천휴게소(양양방향)', url: '/api/settlement/generate/hongcheon-excel', errorMsg: '홍천(양양방향) 정산서 엑셀 생성 실패' }, {}, y, m), [requestSettlementGen, year, month]);
+  const generateHongcheonExcelReport = useCallback((y = year, m = month, siteId = 'hongcheon_yangyang_excel') =>
+    requestSettlementGen({ siteId, name: '홍천휴게소(양양방향)', url: '/api/settlement/generate/hongcheon-excel', errorMsg: '홍천(양양방향) 정산서 엑셀 생성 실패' }, {}, y, m), [requestSettlementGen, year, month]);
 
   const generateHongcheonHwpReport = useCallback((inputs = {}, y = year, m = month) =>
-    requestSettlementGen({ name: '홍천휴게소(양양방향)', url: '/api/settlement/generate/hongcheon-hwp', errorMsg: '홍천(양양방향) 한글 정산서 생성 실패', toastSuccess: '홍천(양양방향) 한글 정산보고서가 성공적으로 작성되었습니다!' }, inputs, y, m), [requestSettlementGen, year, month]);
+    requestSettlementGen({ siteId: 'hongcheon_yangyang_hwp', name: '홍천휴게소(양양방향)', url: '/api/settlement/generate/hongcheon-hwp', errorMsg: '홍천(양양방향) 한글 정산서 생성 실패', toastSuccess: '홍천(양양방향) 한글 정산보고서가 성공적으로 작성되었습니다!' }, inputs, y, m), [requestSettlementGen, year, month]);
 
   const generateCheongsongReport = useCallback((inputs = {}, y = year, m = month) =>
-    requestSettlementGen({ name: '청송휴게소(상주방향)', url: '/api/settlement/generate/cheongsong', errorMsg: '청송 정산서 생성 실패' }, inputs, y, m), [requestSettlementGen, year, month]);
+    requestSettlementGen({ siteId: 'cheongsong', name: '청송휴게소(상주방향)', url: '/api/settlement/generate/cheongsong', errorMsg: '청송 정산서 생성 실패' }, inputs, y, m), [requestSettlementGen, year, month]);
 
   const generateGeumwangReport = useCallback((inputs = {}, y = year, m = month) =>
-    requestSettlementGen({ name: '금왕휴게소(평택방향)', url: '/api/settlement/generate/geumwang', errorMsg: '금왕 정산서 생성 실패' }, inputs, y, m), [requestSettlementGen, year, month]);
+    requestSettlementGen({ siteId: 'geumwang', name: '금왕휴게소(평택방향)', url: '/api/settlement/generate/geumwang', errorMsg: '금왕 정산서 생성 실패' }, inputs, y, m), [requestSettlementGen, year, month]);
 
   const generateMiryangReport = useCallback((inputs = {}, y = year, m = month) =>
-    requestSettlementGen({ name: '밀양영남루(울산)', url: '/api/settlement/generate/miryang', errorMsg: '밀양영남루 정산서 생성 실패', toastSuccess: '밀양영남루 한글 정산서 및 엑셀 명세서가 성공적으로 작성되었습니다!' }, inputs, y, m), [requestSettlementGen, year, month]);
+    requestSettlementGen({ siteId: 'miryang', name: '밀양영남루(울산)', url: '/api/settlement/generate/miryang', errorMsg: '밀양영남루 정산서 생성 실패', toastSuccess: '밀양영남루 한글 정산서 및 엑셀 명세서가 성공적으로 작성되었습니다!' }, inputs, y, m), [requestSettlementGen, year, month]);
 
   const generateGochangReport = useCallback((inputs = {}, y = year, m = month, dir = 'mokpo') => {
     const isSeoul = dir === 'seoul';
+    const siteId = isSeoul ? 'gochang_seoul' : 'gochang_mokpo';
     return requestSettlementGen({
+      siteId,
       name: isSeoul ? '고창고인돌(서울방향)' : '고창고인돌(목포방향)',
       url: isSeoul ? '/api/settlement/generate/gochang-seoul' : '/api/settlement/generate/gochang',
       errorMsg: `고창고인돌(${isSeoul ? '서울' : '목포'}) 정산 엑셀 생성 실패`,
@@ -299,6 +302,7 @@ export function useMonthlySettlementAuto(currentUser = null) {
 
   const generateAndongReport = useCallback((inputs = {}, y = year, m = month) =>
     requestSettlementGen({
+      siteId: 'andong',
       name: '안동휴게소(부산방향)',
       url: '/api/settlement/generate/andong',
       errorMsg: '안동휴게소 정산서 생성 실패',
@@ -307,9 +311,11 @@ export function useMonthlySettlementAuto(currentUser = null) {
 
   const generateSeonsanReport = useCallback((inputs = {}, y = year, m = month, dir = 'changwon') => {
     const isYangpyeong = dir === 'yangpyeong' || dir === 'seonsan_yangpyeong';
+    const siteId = isYangpyeong ? 'seonsan_yangpyeong' : 'seonsan_changwon';
     const siteName = isYangpyeong ? '선산휴게소(양평방향)' : '선산휴게소(창원방향)';
     const url = isYangpyeong ? '/api/settlement/generate/seonsan-yangpyeong' : '/api/settlement/generate/seonsan-changwon';
     return requestSettlementGen({
+      siteId,
       name: siteName,
       url,
       errorMsg: `${siteName} 정산서 생성 실패`,
@@ -357,6 +363,7 @@ export function useMonthlySettlementAuto(currentUser = null) {
     toastMessage,
     uploadingSiteId,
     isGenerating,
+    generatingSiteId,
     fetchSummary,
     fetchTemplates,
     openTemplate,

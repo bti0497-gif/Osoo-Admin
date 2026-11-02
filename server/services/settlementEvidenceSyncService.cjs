@@ -161,10 +161,100 @@ function safeCopyFile(sourcePath, targetPath) {
   }
 }
 
-const PHOTO_KEYWORDS = [
+const GENERAL_PHOTO_KEYWORDS = [
   '슬러지', '반출', '청소', '필증', '약품', '입고',
-  '포도당', '중탄산', '차염', '응집제', 'pac', '키트', '수질분석',
+  '포도당', '중탄산', '차염', '응집제', 'pac', '키트',
 ];
+const TEST_PHOTO_KEYWORDS = ['수질분석', '실험', '수질측정'];
+
+/**
+ * 수질분석 사진 중 가장 빠른 날짜 1일치(1회분, 최대 4종) 선별
+ */
+function selectEarliestTestPhotos(candidateFiles) {
+  if (!candidateFiles || candidateFiles.length === 0) return [];
+
+  // 파일명에서 날짜 추출 (YYYY-MM-DD 또는 YYYYMMDD 또는 YYYY.MM.DD)
+  const withDate = candidateFiles.map((f) => {
+    const m = f.name.match(/(20\d{2}[-._]?\d{2}[-._]?\d{2})/);
+    const dateStr = m ? m[1].replace(/[-._]/g, '-') : null;
+    return { ...f, dateStr };
+  }).filter((f) => Boolean(f.dateStr));
+
+  if (withDate.length === 0) return [];
+
+  // 날짜 오름차순 정렬 후 가장 빠른 날짜(1일치) 선택
+  const dates = Array.from(new Set(withDate.map((f) => f.dateStr))).sort();
+  const earliestDate = dates[0];
+  const firstDayFiles = withDate.filter((f) => f.dateStr === earliestDate);
+
+  // 4대 수질 항목 키워드
+  const ITEM_KEYWORDS = [
+    '알칼리도',
+    '암모니아',
+    '오르토인산염',
+    '질산성',
+    '질산',
+    '인산염',
+    'mlss',
+    'ph',
+    '탁도',
+  ];
+
+  const selectedMap = new Map();
+  const fallbackList = [];
+
+  for (const f of firstDayFiles) {
+    const lower = f.name.toLowerCase();
+    const matchedItem = ITEM_KEYWORDS.find((kw) => lower.includes(kw));
+
+    if (matchedItem) {
+      // _2.jpg, 2.jpg, (1).jpg 등 중복 촬영본 판별
+      const isDuplicateNum = /(?:_?2|\(1\))\.(?:jpe?g|png)$/i.test(f.name);
+      if (!selectedMap.has(matchedItem)) {
+        selectedMap.set(matchedItem, f);
+      } else if (!isDuplicateNum && /(?:_?2|\(1\))\.(?:jpe?g|png)$/i.test(selectedMap.get(matchedItem).name)) {
+        // 기존에 2번 중복본이 등록되어 있었다면 1번 원본으로 교체
+        selectedMap.set(matchedItem, f);
+      }
+    } else {
+      fallbackList.push(f);
+    }
+  }
+
+  const selected = Array.from(selectedMap.values());
+  // 4대 항목 외 사진이 있고 4장 미만인 경우 보충 (중복 제외)
+  if (selected.length < 4) {
+    for (const fb of fallbackList) {
+      if (selected.length >= 4) break;
+      if (!/(?:_?2|\(1\))\.(?:jpe?g|png)$/i.test(fb.name)) {
+        selected.push(fb);
+      }
+    }
+  }
+
+  return selected;
+}
+
+/**
+ * 선별된 1일치 수질사진 외의 불필요한 과거 수질사진 정리
+ */
+function cleanupExtraneousTestPhotos(dirPath, allowedFileNames) {
+  if (!fs.existsSync(dirPath)) return;
+  try {
+    const entries = fs.readdirSync(dirPath);
+    for (const name of entries) {
+      const fullPath = path.join(dirPath, name);
+      if (!fs.statSync(fullPath).isFile()) continue;
+      if (name.includes('수질분석') || name.includes('실험') || name.includes('수질측정')) {
+        if (!allowedFileNames.has(name)) {
+          try {
+            fs.unlinkSync(fullPath);
+          } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
+}
 
 /**
  * 현장별/연월별 정산 증빙 일괄 자동 동기화
@@ -187,9 +277,11 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     cert: path.join(primaryDesktop, '점검준비', '성적서', targetYm),
     photo: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm),
     settlementPhoto: path.join(primaryDesktop, '점검준비', '정산서', targetYm),
+    photoTest: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '1_실험사진'),
     photoSludge: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '2_슬러지사진'),
     photoClean: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '3_청소필증'),
     photoChemical: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '4_약품입고'),
+    photoKit: path.join(primaryDesktop, '월정산', `${siteTokens.stem || '현장'}마감자료`, targetYm, '5_키트입고'),
   };
 
   Object.values(localDirs).forEach((dir) => {
@@ -203,6 +295,7 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
 
   console.log(`[evidenceSync] [${siteName || '전체'}] ${targetYm} 증빙 동기화 검사 시작...`);
   let syncedCount = 0;
+  const waterAnalysisCandidates = [];
 
   async function processEvidenceDriveFile(f) {
     const lowerName = f.name.toLowerCase();
@@ -212,7 +305,7 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     const isInvoice = lowerName.includes('계산서') || lowerName.includes('매출');
 
     const isImage = (f.mimeType && f.mimeType.startsWith('image/')) || /\.(jpe?g|png|gif|bmp|webp|heic)$/i.test(f.name);
-    const hasPhotoKeyword = PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw));
+    const isWaterAnalysis = TEST_PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw));
 
     let processed = false;
 
@@ -229,27 +322,35 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
     } else if (isInvoice) {
       const res = await safeDownloadFile(f.id, path.join(localDirs.invoice, f.name));
       if (res) processed = true;
-    } else if (isImage && hasPhotoKeyword) {
-      // 1. 기본 사진 폴더 및 점검준비/정산서/targetYm 에 다운로드
+    } else if (isImage && isWaterAnalysis) {
+      // 수질분석/실험 사진은 즉시 다운로드하지 않고 후보군에 수집 (가장 빠른 1일치 선별용)
+      waterAnalysisCandidates.push(f);
+    } else if (isImage && GENERAL_PHOTO_KEYWORDS.some((kw) => lowerName.includes(kw))) {
+      // 일반 현장 사진 다운로드
       const mainPhotoPath = path.join(localDirs.photo, f.name);
       const resMain = await safeDownloadFile(f.id, mainPhotoPath);
       if (resMain) {
         processed = true;
         safeCopyFile(resMain, path.join(localDirs.settlementPhoto, f.name));
 
-        // 2. 슬러지/반출 관련 파일 -> 2_슬러지사진 에도 복사/저장
+        // 슬러지/반출 관련 파일 -> 2_슬러지사진
         if (lowerName.includes('슬러지') || lowerName.includes('반출')) {
           safeCopyFile(resMain, path.join(localDirs.photoSludge, f.name));
         }
 
-        // 3. 청소/필증 관련 파일 -> 3_청소필증 에도 복사/저장
+        // 청소/필증 관련 파일 -> 3_청소필증
         if (lowerName.includes('청소') || lowerName.includes('필증')) {
           safeCopyFile(resMain, path.join(localDirs.photoClean, f.name));
         }
 
-        // 4. 약품/입고/포도당/중탄산/차염/응집제/pac 관련 파일 -> 4_약품입고 에도 복사/저장
+        // 약품/입고/포도당/중탄산/차염/응집제/pac 관련 파일 -> 4_약품입고
         if (['약품', '입고', '포도당', '중탄산', '차염', '응집제', 'pac'].some((kw) => lowerName.includes(kw))) {
           safeCopyFile(resMain, path.join(localDirs.photoChemical, f.name));
+        }
+
+        // 키트입고 관련 파일 -> 5_키트입고
+        if (lowerName.includes('키트')) {
+          safeCopyFile(resMain, path.join(localDirs.photoKit, f.name));
         }
       }
     }
@@ -301,6 +402,30 @@ async function ensureSettlementEvidence({ siteName, year, month, targetYm: expli
       }
     }
 
+    // 3. 수질분석 사진 처리: 가장 빠른 날짜 1일치(1회분, 최대 4종)만 선별 다운로드
+    if (waterAnalysisCandidates.length > 0) {
+      const uniqueCandidates = Array.from(new Map(waterAnalysisCandidates.map((f) => [f.id, f])).values());
+      const selectedTestFiles = selectEarliestTestPhotos(uniqueCandidates);
+      console.log(`[evidenceSync] [${siteName || '전체'}] 수질분석 후보 ${uniqueCandidates.length}개 중 가장 빠른 1일치 ${selectedTestFiles.length}개 선별 완료`);
+
+      const allowedNames = new Set(selectedTestFiles.map((f) => f.name));
+
+      for (const f of selectedTestFiles) {
+        const testSubPath = path.join(localDirs.photoTest, f.name);
+        const resTest = await safeDownloadFile(f.id, testSubPath);
+        if (resTest) {
+          syncedCount++;
+          // 기존 서비스 호환을 위해 localDirs.photo 루트 및 settlementPhoto 에도 1회분만 복사
+          safeCopyFile(resTest, path.join(localDirs.photo, f.name));
+          safeCopyFile(resTest, path.join(localDirs.settlementPhoto, f.name));
+        }
+      }
+
+      // 혹시 로컬 폴더에 이전에 다운로드되었던 다른 날짜의 수질분석 사진이 있다면 1회분만 남기고 정리
+      cleanupExtraneousTestPhotos(localDirs.photo, allowedNames);
+      cleanupExtraneousTestPhotos(localDirs.settlementPhoto, allowedNames);
+    }
+
     console.log(`[evidenceSync] [${siteName || '전체'}] ${targetYm} 동기화 완료: ${syncedCount}개 파일 처리됨`);
   } catch (err) {
     console.warn(`[evidenceSync] 동기화 중 오류 (로컬 파일로 계속 진행):`, err.message);
@@ -316,4 +441,5 @@ module.exports = {
   parseSiteTokens,
   matchesSiteAndDirection,
   safeCopyFile,
+  selectEarliestTestPhotos,
 };
